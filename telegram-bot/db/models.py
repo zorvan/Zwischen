@@ -114,6 +114,10 @@ class Event(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    # PRD v3.3: Event Identity - Hashtags
+    formation_hashtag = Column(JSON, default=list)
+    locked_hashtag = Column(JSON, default=list)
+    mosaic_message_id = Column(BigInteger)
 
 
 class UserPreference(Base):
@@ -439,11 +443,6 @@ class GroupSettings(Base):
 # ============================================================================
 # PRD v3.3: Event Identity - Hashtags
 # ============================================================================
-
-# Add columns to Event model
-Event.formation_hashtag = Column(JSON, default=list)  # list of hashtag strings
-Event.locked_hashtag = Column(JSON, default=list)  # list of hashtag strings (frozen)
-Event.mosaic_message_id = Column(BigInteger)  # pinned mosaic message ID
 
 # Add back-populates
 Event.live_card = relationship("EventLiveCard", back_populates="event", uselist=False)
