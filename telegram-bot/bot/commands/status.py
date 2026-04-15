@@ -22,16 +22,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not event_id_raw:
         async with get_session(settings.db_url) as session:
             result = await session.execute(
-                select(Event)
-                .order_by(Event.created_at.desc())
-                .limit(10)
+                select(Event).order_by(Event.created_at.desc()).limit(10)
             )
             events = result.scalars().all()
 
             if not events:
-                await update.message.reply_text(
-                    "No events found. Use /status <event_id> to view an event."
-                )
+                try:
+                    await update.message.reply_text(
+                        "No events found. Use /status <event_id> to view an event."
+                    )
+                except Exception:
+                    pass
                 return
 
             event_list = "Recent events:\n\n"
@@ -55,13 +56,19 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            await update.message.reply_text(event_list, reply_markup=reply_markup)
-        return
+            try:
+                await update.message.reply_text(event_list, reply_markup=reply_markup)
+            except Exception:
+                pass
+            return
 
     try:
         event_id = int(event_id_raw)
     except ValueError:
-        await update.message.reply_text("❌ Event ID must be a number.")
+        try:
+            await update.message.reply_text("❌ Event ID must be a number.")
+        except Exception:
+            pass
         return
 
     db_url = settings.db_url or ""
@@ -70,17 +77,23 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         event = result.scalar_one_or_none()
 
         if not event:
-            await update.message.reply_text("❌ Event not found.")
+            try:
+                await update.message.reply_text("❌ Event not found.")
+            except Exception:
+                pass
 
             return
 
         log_count = await _get_log_count(session, event_id)
         constraint_count = await _get_constraint_count(session, event_id)
-        await update.message.reply_text(
-            await format_status_message(
-                event_id, event, log_count, constraint_count, context.bot
+        try:
+            await update.message.reply_text(
+                await format_status_message(
+                    event_id, event, log_count, constraint_count, context.bot
             )
         )
+        except Exception:
+            pass
 
 
 async def _get_log_count(session: AsyncSession, event_id: int) -> int:

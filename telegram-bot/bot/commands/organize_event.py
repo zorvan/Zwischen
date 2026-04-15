@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
-"""Organize event command handler - now imports from unified event_creation.py."""
-from bot.commands.event_creation import (
+"""Organize event command handler - imports from flow modules."""
+
+from bot.commands.flow import (
     handle,
     handle_flexible,
+    private_handle,
+)
+
+from bot.commands.event_creation import (
+    start_event_flow_from_prefill,
     handle_callback,
     handle_message,
     private_handle_callback,
-    start_event_flow_from_prefill,
 )
 
 __all__ = [

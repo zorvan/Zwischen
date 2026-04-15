@@ -44,6 +44,7 @@ from bot.commands import (
     personal_attendance_mirror,
     meaning_formation,
     about,
+    event,
 )
 from bot.handlers import (
     event_flow,
@@ -51,6 +52,7 @@ from bot.handlers import (
     mentions,
     menus,
     waitlist as waitlist_handlers,
+    event_commands,
 )
 from ai.llm import LLMClient
 from db.connection import check_db_connection, create_engine, init_db
@@ -208,6 +210,7 @@ def main():
         "status": status.handle,
         "events": events.handle,
         "event_details": event_details.handle,
+        "event": event.handle,  # Unified event command
         "private_organize_event": private_organize_event.handle,
         "check_deadlines": check_deadlines.handle,
         # PRD v2: Memory layer commands
@@ -250,6 +253,9 @@ def main():
         (r"^private_event_", organize_event.private_handle_callback),
         # Modify input handlers
         (r"^modinput_", mentions.handle_callback),
+        # Unified event callbacks
+        (r"^event_view_", event_commands.handle_event_callback),
+        (r"^event_tab_", event_commands.handle_event_callback),
         # Other handlers
         (r"^constraint_nl_", constraints.handle_callback),
         (r"^mentionact_", mentions.handle_mention_callback),
