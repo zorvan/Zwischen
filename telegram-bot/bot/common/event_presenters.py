@@ -1,4 +1,5 @@
 """Shared event presentation helpers."""
+
 from typing import Any
 
 from sqlalchemy import select
@@ -68,6 +69,7 @@ async def get_user_mention(session, telegram_user_id: int, bot=None) -> str:
                 elif not user:
                     # Create user record
                     from db.models import User as UserModel
+
                     new_user = UserModel(
                         telegram_user_id=telegram_user_id,
                         username=username.lower() if username else None,
@@ -128,7 +130,7 @@ def summarize_description(description: str | None, max_len: int = 400) -> str:
     """Normalize and truncate event description for messages."""
     text = (description or "No description provided").strip()
     if len(text) > max_len:
-        return f"{text[:max_len - 3]}..."
+        return f"{text[: max_len - 3]}..."
     return text
 
 
@@ -147,9 +149,7 @@ async def attendance_stats_with_usernames(
         select(EventParticipant).where(EventParticipant.event_id == event_id)
     )
     participants = result.scalars().all()
-    status_by_user = {
-        p.telegram_user_id: p.status.value for p in participants
-    }
+    status_by_user = {p.telegram_user_id: p.status.value for p in participants}
 
     # Count statuses (new system uses 'joined' and 'confirmed')
     interested_count = sum(
@@ -205,8 +205,12 @@ async def attendance_stats_with_usernames(
 def participant_stats(event: Any) -> tuple[int, int, str]:
     """Return joined/confirmed counts and attendee text from normalized participants."""
     participants = list(getattr(event, "participants", None) or [])
-    interested_count = sum(1 for p in participants if getattr(p.status, "value", p.status) == "joined")
-    confirmed_count = sum(1 for p in participants if getattr(p.status, "value", p.status) == "confirmed")
+    interested_count = sum(
+        1 for p in participants if getattr(p.status, "value", p.status) == "joined"
+    )
+    confirmed_count = sum(
+        1 for p in participants if getattr(p.status, "value", p.status) == "confirmed"
+    )
 
     if not participants:
         return interested_count, confirmed_count, "No attendees yet."
@@ -231,7 +235,11 @@ async def format_event_details_message(
     """Build consistent detailed event info with early-stage progress."""
     if settings.db_url:
         async with get_session(settings.db_url) as session:
-            interested_count, confirmed_count, attendees_text = await attendance_stats_with_usernames(session, event_id)
+            (
+                interested_count,
+                confirmed_count,
+                attendees_text,
+            ) = await attendance_stats_with_usernames(session, event_id)
     else:
         interested_count, confirmed_count, attendees_text = participant_stats(event)
     attendee_count = interested_count + confirmed_count
@@ -245,7 +253,7 @@ async def format_event_details_message(
         if isinstance(getattr(event, "planning_prefs", None), dict)
         else {}
     )
-    
+
     # Use human-readable formatters instead of raw values
     location_type = format_location_type(planning_prefs.get("location_type"))
     budget_level = format_budget_level(planning_prefs.get("budget_level"))
@@ -274,34 +282,46 @@ async def format_event_details_message(
         async with get_session(settings.db_url) as session:
             admin_text = await get_user_mention(session, int(admin_id), bot=bot)
 
+    # Build attendees section
+    attendees_section = (
+        f"\n👥 *Attendees ({attendee_count})*\n{attendees_text}"
+        if attendees_text
+        else ""
+    )
+
     return (
-        f"📋 *Event {event_id} Details*\n\n"
-        f"Type: {event.event_type}\n"
-        f"Description: {event.description or 'Not provided'}\n"
-        f"Time: {format_scheduled_time(event.scheduled_time)}\n"
-        f"Commit-By: {format_commit_by(event.commit_by)}\n"
-        f"Date Preset: {date_preset}\n"
-        f"Time Window: {time_window}\n"
-        f"Location Type: {location_type}\n"
-        f"Budget: {budget_level}\n"
-        f"Transport: {transport_mode}\n"
-        f"Duration: {format_duration(event.duration_minutes)}\n"
-        f"Minimum Needed: {threshold}\n"
-        f"State: {event.state}\n"
-        f"State Meaning: {STATE_EXPLANATIONS.get(event.state, 'Unknown state')}\n"
-        f"Created: {event.created_at}\n"
-        f"Locked: {event.locked_at or 'Not locked'}\n"
-        f"Completed: {event.completed_at or 'Not completed'}\n\n"
-        f"Admin: {admin_text}\n\n"
-        f"Progress:\n"
-        f"- Interested: {interested_count}\n"
-        f"- Confirmed: {confirmed_count}\n"
-        f"- Needed to reach minimum: {needed}\n"
-        f"- Availability slots: {availability_count}\n\n"
-        f"Attendees ({attendee_count}):\n{attendees_text}\n\n"
-        f"Logs: {len(logs)}\n"
-        f"Constraints: {len(constraints)}\n\n"
-        f"Next step: {next_step}"
+        f"📋 *Event {event_id} Details*\n"
+        f"{'─' * 40}\n\n"
+        f"📌 *Basic Info*\n"
+        f"• Type: {event.event_type}\n"
+        f"• Description: {event.description or 'Not provided'}\n"
+        f"• State: {event.state}\n"
+        f"• State Meaning: {STATE_EXPLANATIONS.get(event.state, 'Unknown state')}\n\n"
+        f"📅 *Schedule*\n"
+        f"• Time: {format_scheduled_time(event.scheduled_time)}\n"
+        f"• Commit-By: {format_commit_by(event.commit_by)}\n"
+        f"• Date Preset: {date_preset}\n"
+        f"• Time Window: {time_window}\n"
+        f"• Duration: {format_duration(event.duration_minutes)}\n\n"
+        f"📍 *Planning*\n"
+        f"• Location Type: {location_type}\n"
+        f"• Budget: {budget_level}\n"
+        f"• Transport: {transport_mode}\n\n"
+        f"👥 *Participation*\n"
+        f"• Minimum Needed: {threshold}\n"
+        f"• Created: {event.created_at}\n"
+        f"• Locked: {event.locked_at or 'Not locked'}\n"
+        f"• Completed: {event.completed_at or 'Not completed'}\n\n"
+        f"👤 *Admin*\n{admin_text}\n\n"
+        f"📊 *Progress*\n"
+        f"• Interested: {interested_count}\n"
+        f"• Confirmed: {confirmed_count}\n"
+        f"• Needed to reach minimum: {needed}\n"
+        f"• Availability slots: {availability_count}\n"
+        f"{'─' * 40}{attendees_section}\n"
+        f"{'─' * 40}\n\n"
+        f"📝 *Logs:* {len(logs)} | *Constraints:* {len(constraints)}\n\n"
+        f"🚀 *Next step:*\n{next_step}"
     )
 
 
@@ -338,15 +358,19 @@ async def format_status_message(
 
         result = await session.execute(
             select(EventParticipant, User)
-            .join(User, EventParticipant.telegram_user_id == User.telegram_user_id, isouter=True)
+            .join(
+                User,
+                EventParticipant.telegram_user_id == User.telegram_user_id,
+                isouter=True,
+            )
             .where(EventParticipant.event_id == event_id)
         )
 
         for participant, user in result.all():
             user_display = format_user_display(
                 telegram_user_id=participant.telegram_user_id,
-                username=getattr(user, 'username', None),
-                display_name=getattr(user, 'display_name', None),
+                username=getattr(user, "username", None),
+                display_name=getattr(user, "display_name", None),
             )
 
             if participant.status == ParticipantStatus.confirmed:
@@ -391,22 +415,50 @@ async def format_status_message(
     # Build participant lists
     participant_text = ""
     if confirmed_names:
-        participant_text += f"\n✅ Confirmed ({confirmed_count}): {', '.join(confirmed_names)}"
+        participant_text += (
+            f"\n✅ Confirmed ({confirmed_count}): {', '.join(confirmed_names)}"
+        )
     if interested_names:
-        participant_text += f"\n👀 Interested ({interested_count}): {', '.join(interested_names)}"
+        participant_text += (
+            f"\n👀 Interested ({interested_count}): {', '.join(interested_names)}"
+        )
     if not participant_text:
         participant_text = "\nNo participants yet."
 
+    # Build participant sections
+    confirmed_section = (
+        f"✅ *Confirmed ({confirmed_count})*\n{', '.join(confirmed_names)}"
+        if confirmed_names
+        else ""
+    )
+    interested_section = (
+        f"👀 *Interested ({interested_count})*\n{', '.join(interested_names)}"
+        if interested_names
+        else ""
+    )
+
+    if confirmed_names and interested_names:
+        participants_text = f"\n{confirmed_section}\n\n{interested_section}"
+    elif confirmed_names:
+        participants_text = f"\n{confirmed_section}"
+    elif interested_names:
+        participants_text = f"\n{interested_section}"
+    else:
+        participants_text = "\n👤 No participants yet."
+
     return (
-        f"📊 *Event {event_id} Status*\n\n"
-        f"Type: {event.event_type}\n"
-        f"Description: {description}\n"
-        f"Time: {format_scheduled_time(event.scheduled_time, include_flexible_note=False)}\n"
-        f"Minimum Needed: {threshold}\n"
-        f"State: {event.state}\n"
-        f"{progress_text}"
-        f"{mutual_dependence_text}\n\n"
-        f"Participants:{participant_text}\n\n"
-        f"Admin: {admin_text}\n"
-        f"Logs: {log_count} | Constraints: {constraint_count}"
+        f"📊 *Event {event_id} Status*\n"
+        f"{'─' * 40}\n\n"
+        f"📌 *Basic Info*\n"
+        f"• Type: {event.event_type}\n"
+        f"• Description: {description}\n"
+        f"• Time: {format_scheduled_time(event.scheduled_time, include_flexible_note=False)}\n"
+        f"• Minimum Needed: {threshold}\n"
+        f"• State: {event.state}\n"
+        f"{progress_text}\n\n"
+        f"👥 *Participants*{participants_text}\n"
+        f"{'─' * 40}\n\n"
+        f"👤 *Admin:*\n{admin_text}\n\n"
+        f"📝 *Logs:* {log_count} | *Constraints:* {constraint_count}"
+        f"{mutual_dependence_text}"
     )

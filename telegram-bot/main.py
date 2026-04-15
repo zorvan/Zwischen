@@ -43,6 +43,7 @@ from bot.commands import (
     my_history,
     personal_attendance_mirror,
     meaning_formation,
+    about,
 )
 from bot.handlers import (
     event_flow,
@@ -217,6 +218,8 @@ def main():
         "digest": memory.weekly_digest,  # Manual trigger for now
         # PRD v2: Personal history (DM only)
         "my_history": my_history.handle,
+        # Information commands
+        "about": about.handle,
     }
 
     for command, handler in command_map.items():

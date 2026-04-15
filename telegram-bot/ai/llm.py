@@ -49,9 +49,7 @@ class LLMClient:
         """Generate conflict resolution suggestions using LLM."""
         from ai.schemas import ConflictResolution, validate_llm_output
 
-        prompt = self._build_conflict_prompt(
-            event, availability, notes or []
-        )
+        prompt = self._build_conflict_prompt(event, availability, notes or [])
 
         def fallback():
             return {
@@ -272,11 +270,16 @@ class LLMClient:
             if "invite all" in lowered or "@all" in lowered:
                 patch["invite_all_members"] = True
 
-            min_match = re.search(r"\b(?:minimum|min|threshold|at least)(?:\s+(?:to|of))?\s+(\d{1,3})\b", lowered)
+            min_match = re.search(
+                r"\b(?:minimum|min|threshold|at least)(?:\s+(?:to|of))?\s+(\d{1,3})\b",
+                lowered,
+            )
             if min_match:
                 patch["min_participants"] = int(min_match.group(1))
 
-            target_match = re.search(r"\b(?:capacity|target|up to|fit)\s+(\d{1,3})\b", lowered)
+            target_match = re.search(
+                r"\b(?:capacity|target|up to|fit)\s+(\d{1,3})\b", lowered
+            )
             if target_match:
                 patch["target_participants"] = int(target_match.group(1))
 
@@ -301,28 +304,73 @@ class LLMClient:
                 hour, minute = time_part.split(":")
                 patch["scheduled_time_iso"] = f"{date_part}T{int(hour):02d}:{minute}"
             else:
-                # Try more flexible time parsing
-                time_match = re.search(r"\b(\d{1,2}):(\d{2})\b", message_text)
-                if time_match:
-                    hour = int(time_match.group(1))
-                    minute = int(time_match.group(2))
-                    # Assume today if no date specified
-                    today = datetime.now().date()
-                    patch["scheduled_time_iso"] = f"{today}T{hour:02d}:{minute:02d}"
-                else:
-                    # Try 12-hour format with am/pm
-                    ampm_match = re.search(r"\b(\d{1,2})\s*(am|pm)\b", lowered)
-                    if ampm_match:
-                        hour = int(ampm_match.group(1))
-                        ampm = ampm_match.group(2)
+                # Try natural language dates like "April 18, 2026 at 18:00"
+                month_map = {
+                    "january": 1,
+                    "february": 2,
+                    "march": 3,
+                    "april": 4,
+                    "may": 5,
+                    "june": 6,
+                    "july": 7,
+                    "august": 8,
+                    "september": 9,
+                    "october": 10,
+                    "november": 11,
+                    "december": 12,
+                }
+                month_pattern = (
+                    r"\b("
+                    + "|".join(month_map.keys())
+                    + r")\s+(\d{1,2}),?\s+(\d{4})\s*(?:at|on)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)?"
+                )
+                natural_date_match = re.search(month_pattern, lowered)
+                if natural_date_match:
+                    month_name = natural_date_match.group(1)
+                    day = int(natural_date_match.group(2))
+                    year = int(natural_date_match.group(3))
+                    hour = int(natural_date_match.group(4))
+                    minute_part = natural_date_match.group(5)
+                    ampm_part = natural_date_match.group(6)
+                    minute = int(minute_part) if minute_part else 0
+                    month = month_map[month_name]
+                    if ampm_part:
+                        ampm = ampm_part.lower()
                         if ampm == "pm" and hour != 12:
                             hour += 12
                         elif ampm == "am" and hour == 12:
                             hour = 0
+                    patch["scheduled_time_iso"] = (
+                        f"{year:04d}-{month:02d}-{day:02d}T{hour:02d}:{minute:02d}"
+                    )
+                else:
+                    # Try more flexible time parsing
+                    time_match = re.search(r"\b(\d{1,2}):(\d{2})\b", message_text)
+                    if time_match:
+                        hour = int(time_match.group(1))
+                        minute = int(time_match.group(2))
+                        # Assume today if no date specified
                         today = datetime.now().date()
-                        patch["scheduled_time_iso"] = f"{today}T{hour:02d}:00"
+                        patch["scheduled_time_iso"] = f"{today}T{hour:02d}:{minute:02d}"
+                    else:
+                        # Try 12-hour format with am/pm
+                        ampm_match = re.search(r"\b(\d{1,2})\s*(am|pm)\b", lowered)
+                        if ampm_match:
+                            hour = int(ampm_match.group(1))
+                            ampm = ampm_match.group(2)
+                            if ampm == "pm" and hour != 12:
+                                hour += 12
+                            elif ampm == "am" and hour == 12:
+                                hour = 0
+                            today = datetime.now().date()
+                            patch["scheduled_time_iso"] = f"{today}T{hour:02d}:00"
 
-            if "clear time" in lowered or "no time" in lowered or "time tbd" in lowered or "flexible" in lowered:
+            if (
+                "clear time" in lowered
+                or "no time" in lowered
+                or "time tbd" in lowered
+                or "flexible" in lowered
+            ):
                 patch["clear_time"] = True
 
             handles = re.findall(r"@([A-Za-z][A-Za-z0-9_]{4,31})", message_text)
@@ -359,31 +407,54 @@ class LLMClient:
                 ]
             ):
                 patch["location_type"] = "home"
-            elif any(token in lowered for token in ["park", "outdoor", "outside", "garden", "field"]):
+            elif any(
+                token in lowered
+                for token in ["park", "outdoor", "outside", "garden", "field"]
+            ):
                 patch["location_type"] = "outdoor"
-            elif any(token in lowered for token in ["cafe", "restaurant", "coffee shop", "diner"]):
+            elif any(
+                token in lowered
+                for token in ["cafe", "restaurant", "coffee shop", "diner"]
+            ):
                 patch["location_type"] = "cafe"
-            elif any(token in lowered for token in ["office", "workspace", "workplace", "meeting room"]):
+            elif any(
+                token in lowered
+                for token in ["office", "workspace", "workplace", "meeting room"]
+            ):
                 patch["location_type"] = "office"
             elif any(token in lowered for token in ["gym", "fitness", "workout place"]):
                 patch["location_type"] = "gym"
 
             # Budget level detection
-            if any(token in lowered for token in ["free", "no cost", "cheap", "budget"]):
+            if any(
+                token in lowered for token in ["free", "no cost", "cheap", "budget"]
+            ):
                 patch["budget_level"] = "free"
-            elif any(token in lowered for token in ["low cost", "inexpensive", "affordable"]):
+            elif any(
+                token in lowered for token in ["low cost", "inexpensive", "affordable"]
+            ):
                 patch["budget_level"] = "low"
-            elif any(token in lowered for token in ["moderate", "mid-range", "medium cost"]):
+            elif any(
+                token in lowered for token in ["moderate", "mid-range", "medium cost"]
+            ):
                 patch["budget_level"] = "medium"
-            elif any(token in lowered for token in ["expensive", "premium", "high-end", "luxury"]):
+            elif any(
+                token in lowered
+                for token in ["expensive", "premium", "high-end", "luxury"]
+            ):
                 patch["budget_level"] = "high"
 
             # Transport mode detection
             if "walking" in lowered or "walk" in lowered:
                 patch["transport_mode"] = "walk"
-            elif any(token in lowered for token in ["public transit", "bus", "train", "metro", "subway"]):
+            elif any(
+                token in lowered
+                for token in ["public transit", "bus", "train", "metro", "subway"]
+            ):
                 patch["transport_mode"] = "public_transit"
-            elif any(token in lowered for token in ["driving", "drive", "car", "by car"]):
+            elif any(
+                token in lowered for token in ["driving", "drive", "car", "by car"]
+            ):
                 patch["transport_mode"] = "drive"
 
             return patch
@@ -490,7 +561,9 @@ class LLMClient:
                 event_type = "social"
             duration = int(parsed.get("duration_minutes", 120))
             min_participants = int(parsed.get("min_participants", 3))
-            target_participants = int(parsed.get("target_participants", max(min_participants, 5)))
+            target_participants = int(
+                parsed.get("target_participants", max(min_participants, 5))
+            )
             invitees = parsed.get("invitees", [])
             if not isinstance(invitees, list):
                 invitees = []
@@ -502,7 +575,7 @@ class LLMClient:
                 if not s.startswith("@"):
                     s = f"@{s}"
                 normalized_invitees.append(s.lower())
-            
+
             # Normalize key_attendees (emphasized people, separate from privacy)
             key_attendees_raw = parsed.get("key_attendees", [])
             if not isinstance(key_attendees_raw, list):
@@ -515,7 +588,7 @@ class LLMClient:
                 if not s.startswith("@"):
                     s = f"@{s}"
                 normalized_key_attendees.append(s.lower())
-            
+
             notes = parsed.get("planning_notes", [])
             if not isinstance(notes, list):
                 notes = []
@@ -545,11 +618,13 @@ class LLMClient:
                         target = None
                 note = str(c.get("note", "")).strip()[:200]
                 if ctype and target:
-                    inferred_constraints.append({
-                        "constraint_type": ctype,
-                        "target_username": target,
-                        "note": note,
-                    })
+                    inferred_constraints.append(
+                        {
+                            "constraint_type": ctype,
+                            "target_username": target,
+                            "note": note,
+                        }
+                    )
 
             # Extract optional location/budget/transport — only set if explicitly provided
             location_type = parsed.get("location_type")
@@ -593,7 +668,13 @@ class LLMClient:
             time_window = parsed.get("time_window")
             if isinstance(time_window, str) and time_window.strip():
                 time_window = time_window.strip().lower()
-                valid_windows = {"early-morning", "morning", "afternoon", "evening", "night"}
+                valid_windows = {
+                    "early-morning",
+                    "morning",
+                    "afternoon",
+                    "evening",
+                    "night",
+                }
                 if time_window not in valid_windows:
                     time_window = None
             else:
@@ -810,7 +891,9 @@ class LLMClient:
                 # Detect constraint type
                 if "unless" in lowered or "won't" in lowered or "won t" in lowered:
                     fallback_constraint_type = "unless_joins"
-                elif " if " in lowered or "only if" in lowered or "as long as" in lowered:
+                elif (
+                    " if " in lowered or "only if" in lowered or "as long as" in lowered
+                ):
                     fallback_constraint_type = "if_joins"
                 elif "attend" in lowered:
                     fallback_constraint_type = "if_attends"

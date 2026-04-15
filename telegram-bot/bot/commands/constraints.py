@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """View/add/remove constraints command handler."""
+
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
@@ -72,9 +73,7 @@ async def view_constraints(update: Update, event_id: int) -> None:
 
     async with get_session(settings.db_url) as session:
         result = await session.execute(
-            select(Constraint).where(
-                Constraint.event_id == event_id
-            )
+            select(Constraint).where(Constraint.event_id == event_id)
         )
         constraints = result.scalars().all()
 
@@ -90,15 +89,19 @@ async def view_constraints(update: Update, event_id: int) -> None:
         for c in constraints:
             if c.type.startswith("available:"):
                 slot = c.type.replace("available:", "").replace("T", " ")
-                availability_lines.append(
-                    f"- User {c.user_id}: available at {slot}"
-                )
+                availability_lines.append(f"- User {c.user_id}: available at {slot}")
                 continue
             if c.target_user_id:
+                # Constraint type tells us the condition
+                constraint_name = {
+                    "if_joins": "joins if target joins",
+                    "if_attends": "attends if target attends",
+                    "unless_joins": "won't join if target joins",
+                }.get(c.type, c.type)
                 msg += (
-                    f"- User {c.user_id}: 'Join if User "
-                    f"{c.target_user_id} joins' "
-                    f"(confidence: {c.confidence})\n"
+                    f"- User {c.user_id}: '{constraint_name}' "
+                    f"(target: User {c.target_user_id}, "
+                    f"confidence: {c.confidence})\n"
                 )
             else:
                 msg += f"- User {c.user_id}: {c.type}\n"
@@ -108,7 +111,6 @@ async def view_constraints(update: Update, event_id: int) -> None:
             msg += "\n".join(availability_lines)
 
         await update.message.reply_text(msg)
-
 
 
 async def add_constraint(
@@ -133,8 +135,7 @@ async def add_constraint(
 
     # Explicit structured format (backward compatible)
     structured_candidate = len(args) >= 4 and (
-        args[2].strip().startswith("@")
-        or args[2].strip().isdigit()
+        args[2].strip().startswith("@") or args[2].strip().isdigit()
     )
     if structured_candidate:
         target_input = args[2].strip()
@@ -211,7 +212,9 @@ async def _infer_and_confirm_constraint(
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✅ Confirm", callback_data="constraint_nl_confirm"),
+                InlineKeyboardButton(
+                    "✅ Confirm", callback_data="constraint_nl_confirm"
+                ),
                 InlineKeyboardButton("❌ Cancel", callback_data="constraint_nl_cancel"),
             ]
         ]
@@ -305,9 +308,7 @@ async def _save_constraint_from_inputs(
         requester_tg_id = int(update.effective_user.id)
         if is_private_chat:
             if not is_attendee(event, requester_tg_id):
-                error_msg = (
-                    "❌ Only interested attendees can add private constraints."
-                )
+                error_msg = "❌ Only interested attendees can add private constraints."
                 if edit_via_query and query:
                     await query.edit_message_text(error_msg)
                 elif message:
@@ -321,9 +322,7 @@ async def _save_constraint_from_inputs(
             username=update.effective_user.username,
         )
         if target_input.startswith("@"):
-            target_user_id = await get_user_id_by_username(
-                session, target_input
-            )
+            target_user_id = await get_user_id_by_username(session, target_input)
             if target_user_id is None:
                 # Fallback: try resolving username via Telegram API and store it.
                 try:
@@ -349,9 +348,7 @@ async def _save_constraint_from_inputs(
             try:
                 target_telegram_user_id = int(target_input)
             except ValueError:
-                error_msg = (
-                    "❌ Target must be @username or numeric Telegram user ID."
-                )
+                error_msg = "❌ Target must be @username or numeric Telegram user ID."
                 if edit_via_query and query:
                     await query.edit_message_text(error_msg)
                 elif message:
@@ -370,7 +367,7 @@ async def _save_constraint_from_inputs(
             target_user_id=target_user_id,
             event_id=event_id,
             type=constraint_type,
-            confidence=confidence
+            confidence=confidence,
         )
         session.add(constraint)
         try:
@@ -400,7 +397,6 @@ async def _save_constraint_from_inputs(
             await message.reply_text(success_msg)
 
 
-
 async def remove_constraint(
     update: Update, event_id: int, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -426,7 +422,7 @@ async def remove_constraint(
         result = await session.execute(
             Constraint.__table__.delete().where(
                 Constraint.constraint_id == constraint_id,
-                Constraint.event_id == event_id
+                Constraint.event_id == event_id,
             )
         )
         await session.commit()
@@ -484,9 +480,7 @@ async def add_availability_slots(
             if normalized not in normalized_slots:
                 normalized_slots.append(normalized)
     except ValueError:
-        await update.message.reply_text(
-            "❌ Invalid slot format. Use YYYY-MM-DD HH:MM"
-        )
+        await update.message.reply_text("❌ Invalid slot format. Use YYYY-MM-DD HH:MM")
         return
 
     async with get_session(settings.db_url) as session:
@@ -545,6 +539,7 @@ async def add_availability_slots(
 
     await update.message.reply_text(
         f"✅ Added {added} availability slot(s) for event {event_id}.\n"
-        "Run /suggest_time {event_id} after attendees add slots."
-        .replace("{event_id}", str(event_id))
+        "Run /suggest_time {event_id} after attendees add slots.".replace(
+            "{event_id}", str(event_id)
+        )
     )

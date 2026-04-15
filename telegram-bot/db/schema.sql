@@ -60,7 +60,10 @@ CREATE TABLE IF NOT EXISTS events (
     collapse_at TIMESTAMP,
     lock_deadline TIMESTAMP,
     -- PRD v2: Optimistic concurrency control
-    version INTEGER DEFAULT 0 NOT NULL
+    version INTEGER DEFAULT 0 NOT NULL,
+    formation_hashtag JSONB DEFAULT '[]',
+    locked_hashtag JSONB DEFAULT '[]',
+    mosaic_message_id BIGINT
 );
 
 -- 4. Constraints: Conditional participation
