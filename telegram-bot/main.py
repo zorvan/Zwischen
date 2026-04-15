@@ -258,6 +258,8 @@ def main():
         (r"^event_tab_", event_commands.handle_event_callback),
         # Other handlers
         (r"^constraint_nl_", constraints.handle_callback),
+        (r"^constraint_add_", constraints.handle_callback),
+        (r"^constraint_target_", constraints.handle_callback),
         (r"^mentionact_", mentions.handle_mention_callback),
         (r"^suggest_time_retry_", suggest_time.handle_callback),
         (r"^suggest_time_select_another$", suggest_time.handle_callback),

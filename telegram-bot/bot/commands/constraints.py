@@ -344,6 +344,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     await query.answer()
     data = query.data or ""
 
+    # Handle constraint addition callbacks
+    if data and data.startswith("constraint_add_"):
+        parts = data.split("_")
+        if len(parts) >= 4:
+            constraint_type = parts[2]
+            event_id = int(parts[3])
+            from bot.commands import event_details
+
+            await event_details._prompt_constraint_target(
+                query, context, event_id, constraint_type
+            )
+            return
+
+    if data and data.startswith("constraint_target_"):
+        parts = data.split("_")
+        if len(parts) >= 5:
+            event_id = int(parts[2])
+            target_user_id = int(parts[3])
+            constraint_type = parts[4]
+            from bot.commands import event_details
+
+            await event_details._confirm_constraint(
+                query, context, event_id, target_user_id, constraint_type
+            )
+            return
+
     # Handle inline availability slot confirmation
     if data and data.startswith("constraint_avail_confirm_"):
         event_id = int(data.replace("constraint_avail_confirm_", ""))
