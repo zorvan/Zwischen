@@ -210,7 +210,7 @@ def main():
         "status": status.handle,
         "events": events.handle,
         "event_details": event_details.handle,
-        "event": event.handle,  # Unified event command
+        "event": event.handle,  # Unified event command - simplifies Modify, Availability, Constraints, etc.
         "private_organize_event": private_organize_event.handle,
         "check_deadlines": check_deadlines.handle,
         # PRD v2: Memory layer commands

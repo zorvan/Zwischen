@@ -6,7 +6,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from db.models import Event, Constraint
+from db.models import Event, Constraint, EventParticipant
 from db.connection import get_session
 from db.users import get_or_create_user_id, get_user_id_by_username
 from config.settings import settings
@@ -33,15 +33,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     event_id_raw = args[0] if args else None
 
     if not event_id_raw:
-        await update.message.reply_text(
-            "Usage: /constraints <event_id> [view|add|remove|availability]\n\n"
-            "Examples:\n"
-            "/constraints 123 view\n"
-            "/constraints 123 add @alice if_joins\n"
-            "/constraints 123 add I only join if @alice joins\n"
-            "/constraints 123 availability 2026-03-20 18:00,2026-03-21 10:30\n"
-            "/constraints 123 remove 1"
-        )
+        await _show_event_selector(update.message, context)
         return
 
     try:
@@ -542,4 +534,52 @@ async def add_availability_slots(
         "Run /suggest_time {event_id} after attendees add slots.".replace(
             "{event_id}", str(event_id)
         )
+    )
+
+
+async def _show_event_selector(message, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show event selection interface for constraints command."""
+    if not settings.db_url:
+        await message.reply_text("❌ Database configuration is unavailable.")
+        return
+
+    async with get_session(settings.db_url) as session:
+        from sqlalchemy import func
+
+        result = await session.execute(
+            select(Event)
+            .join(EventParticipant, Event.event_id == EventParticipant.event_id)
+            .where(
+                EventParticipant.telegram_user_id == message.from_user.id,
+                Event.state.in_(["proposed", "interested", "confirmed"]),
+            )
+            .order_by(Event.created_at.desc())
+            .limit(10)
+        )
+        events = result.scalars().all()
+
+    if not events:
+        await message.reply_text(
+            "You haven't joined any active events yet.\n\n"
+            "Use /join <event_id> to join an event first, or use /events to see available events."
+        )
+        return
+
+    keyboard = []
+    for event in events:
+        desc = (event.description or "").strip()[:30]
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"🔗 Manage Constraints: {desc}... (#{event.event_id})",
+                    callback_data=f"event_constraints_{event.event_id}",
+                )
+            ]
+        )
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await message.reply_text(
+        "Select an event to manage constraints:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown",
     )

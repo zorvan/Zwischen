@@ -59,9 +59,15 @@ async def _show_event_selector_message(
 ) -> None:
     """Show event selector keyboard."""
     async with get_session(settings.db_url) as session:
+        from db.models import Participant
+
         result = await session.execute(
             select(Event)
-            .where(Event.scheduled_time.isnot(None))
+            .join(Participant, Event.event_id == Participant.event_id)
+            .where(
+                Participant.telegram_user_id == message.from_user.id,
+                Event.state.in_(["proposed", "interested", "confirmed"]),
+            )
             .order_by(Event.created_at.desc())
             .limit(10)
         )
@@ -69,19 +75,25 @@ async def _show_event_selector_message(
 
         if not events:
             await message.reply_text(
-                "No events with scheduled times found. Use /suggest_time <event_id> for flexible events."
+                "You haven't joined any active events yet. Use /join <event_id> to join an event, or /events to see all events."
             )
             return
 
-        keyboard = [
-            [
-                InlineKeyboardButton(
-                    f"{event.event_type} • {event.scheduled_time.strftime('%d %b %H:%M') if event.scheduled_time else 'TBD'}",
-                    callback_data=f"suggest_time_select_{event.event_id}",
-                )
-            ]
-            for event in events
-        ]
+        keyboard = []
+        for event in events:
+            time_str = (
+                event.scheduled_time.strftime("%d %b %H:%M")
+                if event.scheduled_time
+                else "TBD"
+            )
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"⏱ {event.event_type} • {time_str} (#{event.event_id})",
+                        callback_data=f"suggest_time_select_{event.event_id}",
+                    )
+                ]
+            )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 

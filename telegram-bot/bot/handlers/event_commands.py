@@ -82,9 +82,6 @@ async def _show_tab(
         "status": lambda: _call_handler(
             query, context, event_id, "status", "event_status"
         ),
-        "availability": lambda: _call_handler(
-            query, context, event_id, "availability", "constraints"
-        ),
         "constraints": lambda: _call_handler(
             query, context, event_id, "constraints", "constraints"
         ),

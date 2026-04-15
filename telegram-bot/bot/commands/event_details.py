@@ -133,9 +133,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data and data.startswith("event_logs_"):
         event_id = int(data.replace("event_logs_", ""))
         await show_logs(query, event_id)
+    elif data and data.startswith("event_constraints_menu_"):
+        event_id = int(data.replace("event_constraints_menu_", ""))
+        await _show_constraints_menu(query, context, event_id)
     elif data and data.startswith("event_constraints_"):
         event_id = int(data.replace("event_constraints_", ""))
-        await show_constraints(query, event_id)
+        await show_constraints(query, context, event_id)
+    elif data and data.startswith("event_modify_menu_"):
+        event_id = int(data.replace("event_modify_menu_", ""))
+        await _show_modify_menu(query, context, event_id)
+    elif data and data.startswith("avail_"):
+        event_id = int(data.replace("avail_", ""))
+        await _show_availability_options(query, context, event_id)
     elif data and data.startswith("event_close_"):
         await query.edit_message_text("✅ Event details closed.")
 
@@ -362,7 +371,9 @@ async def show_logs(query, event_id: int) -> None:
                 raise
 
 
-async def show_constraints(query, event_id: int) -> None:
+async def show_constraints(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int
+) -> None:
     """Show event constraints."""
     from db.models import Constraint as ConstraintModel
 
@@ -467,6 +478,67 @@ async def _get_event_constraints(session, event_id: int) -> list:
     return result.scalars().all()
 
 
+async def _show_constraints_menu(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int
+) -> None:
+    """Show constraints management menu."""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "➕ Add Constraint", callback_data=f"event_constraint_add_{event_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⬅️ Back to Event", callback_data=f"event_details_{event_id}"
+            )
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text("🔧 Manage Constraints", reply_markup=reply_markup)
+
+
+async def _show_modify_menu(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int
+) -> None:
+    """Show event modification menu."""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "✏️ Edit Event Details", callback_data=f"event_edit_{event_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📅 Change Time", callback_data=f"event_change_time_{event_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⬅️ Back to Event", callback_data=f"event_details_{event_id}"
+            )
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text("🛠 Modify Event", reply_markup=reply_markup)
+
+
+async def _show_availability_options(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int
+) -> None:
+    """Show availability selection menu."""
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "⏰ Set Available Times", callback_data=f"avail_set_{event_id}"
+            )
+        ],
+        [InlineKeyboardButton("❌ Cancel", callback_data=f"event_details_{event_id}")],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text("⏳ Availability Options", reply_markup=reply_markup)
+
+
 async def build_event_details_action_markup(
     event: Event, user_id: int | None, bot_username: str | None, session
 ) -> InlineKeyboardMarkup:
@@ -540,7 +612,7 @@ async def build_event_details_action_markup(
         [
             InlineKeyboardButton(
                 "🔒 Manage Constraints",
-                callback_data=f"event_constraints_{event.event_id}",
+                callback_data=f"event_constraints_menu_{event.event_id}",
             )
         ],
         [
@@ -561,7 +633,7 @@ async def build_event_details_action_markup(
             4,
             [
                 InlineKeyboardButton(
-                    "🛠 Modify", callback_data=f"event_modify_{event.event_id}"
+                    "🛠 Modify", callback_data=f"event_modify_menu_{event.event_id}"
                 )
             ],
         )

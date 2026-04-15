@@ -145,17 +145,13 @@ async def _show_main_view(
             ],
             [
                 InlineKeyboardButton(
-                    "📅 Availability",
-                    callback_data=f"event_tab_{event_id}_availability",
-                ),
-                InlineKeyboardButton(
                     "🔗 Constraints", callback_data=f"event_tab_{event_id}_constraints"
                 ),
-            ],
-            [
                 InlineKeyboardButton(
                     "⏱ Suggest Time", callback_data=f"event_tab_{event_id}_suggest"
                 ),
+            ],
+            [
                 InlineKeyboardButton(
                     "🛠 Edit", callback_data=f"event_tab_{event_id}_edit"
                 ),
