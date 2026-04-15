@@ -39,7 +39,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     username = user.username
     event_id_str = context.args[0] if context.args else None
 
-   if not event_id_str:
+    if not event_id_str:
         async with get_session(settings.db_url) as session:
             result = await session.execute(
                 select(Event)
