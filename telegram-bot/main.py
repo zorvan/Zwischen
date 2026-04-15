@@ -244,9 +244,10 @@ def main():
             event_flow.handle_event_flow,
         ),  # Uncommit (separate from back)
         (
-            r"^event_(details|status|logs|constraints|close|modify_menu)_",
+            r"^event_(details|status|logs|constraints|close|modify_menu|change_time|edit)_",
             event_details.handle_callback,
         ),
+        (r"^avail_", event_details.handle_callback),
         (r"^event_modify_", mentions.handle_callback),
         # Event creation handlers (general, comes after specific ones)
         (r"^event_", organize_event.handle_callback),
@@ -264,6 +265,7 @@ def main():
         (r"^suggest_time_retry_", suggest_time.handle_callback),
         (r"^suggest_time_select_another$", suggest_time.handle_callback),
         (r"^suggest_time_select_", suggest_time.handle_callback),
+        (r"^st_", suggest_time.handle_callback),
         (r"^modreq_", modify_event.handle_modify_request_callback),
         # Weekly digest callbacks
         (r"^digest_", memory.handle_digest_callback),

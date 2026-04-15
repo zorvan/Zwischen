@@ -347,9 +347,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     # Handle constraint addition callbacks
     if data and data.startswith("constraint_add_"):
         parts = data.split("_")
-        if len(parts) >= 4:
-            constraint_type = parts[2]
-            event_id = int(parts[3])
+        if len(parts) >= 5:
+            constraint_type = f"{parts[2]}_{parts[3]}"
+            event_id = int(parts[4])
             from bot.commands import event_details
 
             await event_details._prompt_constraint_target(
@@ -359,10 +359,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if data and data.startswith("constraint_target_"):
         parts = data.split("_")
-        if len(parts) >= 5:
+        if len(parts) >= 6:
             event_id = int(parts[2])
             target_user_id = int(parts[3])
-            constraint_type = parts[4]
+            constraint_type = f"{parts[4]}_{parts[5]}"
             from bot.commands import event_details
 
             await event_details._confirm_constraint(

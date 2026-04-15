@@ -141,16 +141,16 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await _show_constraints_menu(query, context, event_id)
     elif data and data.startswith("constraint_add_"):
         parts = data.split("_")
-        if len(parts) >= 4:
-            constraint_type = parts[2]
-            event_id = int(parts[3])
+        if len(parts) >= 5:
+            constraint_type = f"{parts[2]}_{parts[3]}"
+            event_id = int(parts[4])
             await _prompt_constraint_target(query, context, event_id, constraint_type)
     elif data and data.startswith("constraint_target_"):
         parts = data.split("_")
-        if len(parts) >= 5:
+        if len(parts) >= 6:
             event_id = int(parts[2])
             target_user_id = int(parts[3])
-            constraint_type = parts[4]
+            constraint_type = f"{parts[4]}_{parts[5]}"
             await _confirm_constraint(
                 query, context, event_id, target_user_id, constraint_type
             )
@@ -169,6 +169,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data and data.startswith("event_change_time_"):
         event_id = int(data.replace("event_change_time_", ""))
         await _prompt_change_time(query, context, event_id)
+    elif data and data.startswith("event_edit_"):
+        event_id = int(data.replace("event_edit_", ""))
+        context.user_data["pending_event_edit"] = {"event_id": event_id}
+        await query.edit_message_text(
+            "✏️ *Edit Event Details*\n\n"
+            "Please type the changes you'd like to make. Examples:\n"
+            "- Change description to beach party\n"
+            "- Set duration to 90 minutes\n"
+            "- Increase minimum to 5\n"
+            "- Set location to outdoor\n\n"
+            "Type 'cancel' to abort.",
+            parse_mode="Markdown",
+        )
     elif data and data.startswith("avail_"):
         event_id = int(data.replace("avail_", ""))
         if data.startswith("avail_add_"):
