@@ -59,7 +59,7 @@ async def _show_event_selector_message(
 ) -> None:
     """Show event selector keyboard."""
     async with get_session(settings.db_url) as session:
-        from db.models import Participant
+        from db.models import EventParticipant as Participant
 
         result = await session.execute(
             select(Event)

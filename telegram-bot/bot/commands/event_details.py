@@ -550,6 +550,17 @@ async def _show_modify_menu(
         ],
         [
             InlineKeyboardButton(
+                "⏳ Set Availability", callback_data=f"avail_{event_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🔗 Manage Constraints",
+                callback_data=f"event_constraints_menu_{event_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 "⬅️ Back to Event", callback_data=f"event_details_{event_id}"
             )
         ],
@@ -972,12 +983,6 @@ async def build_event_details_action_markup(
         ],
         [
             InlineKeyboardButton(
-                "🔒 Manage Constraints",
-                callback_data=f"event_constraints_menu_{event.event_id}",
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 "🔄 Update", callback_data=f"event_details_{event.event_id}"
             )
         ],
@@ -998,22 +1003,5 @@ async def build_event_details_action_markup(
                 )
             ],
         )
-
-    # Add availability and constraints inline buttons
-    keyboard.append(
-        [
-            InlineKeyboardButton(
-                "⏳ Set Availability", callback_data=f"avail_{event.event_id}"
-            )
-        ]
-    )
-    keyboard.append(
-        [
-            InlineKeyboardButton(
-                "🔗 Manage Constraints",
-                callback_data=f"event_constraints_menu_{event.event_id}",
-            )
-        ]
-    )
 
     return InlineKeyboardMarkup(keyboard)
