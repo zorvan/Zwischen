@@ -185,7 +185,9 @@ async def _send_group_events_list(
         group_name = (
             group.group_name
             if group and group.group_name
-            else str(group.telegram_group_id) if group else "Unknown Group"
+            else str(group.telegram_group_id)
+            if group
+            else "Unknown Group"
         )
         description = (event.description or "No description").strip()
         if len(description) > 80:
@@ -619,6 +621,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if data.startswith("event_modify_"):
         event_id_str = data.replace("event_modify_", "")
+        if event_id_str.startswith("menu_"):
+            event_id_str = event_id_str.replace("menu_", "")
         try:
             event_id = int(event_id_str)
         except (TypeError, ValueError):
@@ -769,7 +773,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         ),
                         "duration_minutes": int(event.duration_minutes or 120),
                         "min_participants": int(event.min_participants or 2),
-                        "target_participants": int(event.target_participants or event.min_participants or 2),
+                        "target_participants": int(
+                            event.target_participants or event.min_participants or 2
+                        ),
                     }
                     ai_prompt = (
                         "Please suggest improvements to this event. "
@@ -792,7 +798,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 if patch.get("clear_time"):
                     change_parts.append("Clear scheduled time (set to TBD)")
                 if patch.get("duration_minutes"):
-                    change_parts.append(f"Duration: {patch['duration_minutes']} minutes")
+                    change_parts.append(
+                        f"Duration: {patch['duration_minutes']} minutes"
+                    )
                 if patch.get("min_participants"):
                     change_parts.append(f"Minimum: {patch['min_participants']}")
                 if patch.get("target_participants"):
@@ -1719,7 +1727,10 @@ async def _handle_organize_event_direct(
     date_preset_raw = draft.get("date_preset")
     if date_preset_raw is not None:
         date_preset = str(date_preset_raw).strip().lower()
-        if date_preset not in event_creation.DATE_PRESET_LABELS and date_preset != "custom":
+        if (
+            date_preset not in event_creation.DATE_PRESET_LABELS
+            and date_preset != "custom"
+        ):
             date_preset = None  # Let the system infer from scheduled_time
     else:
         date_preset = None
@@ -1928,7 +1939,7 @@ async def _handle_organize_event_direct(
             # Build recipient set using UNION logic (not if/else)
             # Start with empty set, then add from multiple sources
             recipient_telegram_ids = set()
-            
+
             # Source 1: Group members (if invite_all is true)
             if invite_all:
                 for member_id in group_members:
@@ -1937,7 +1948,7 @@ async def _handle_organize_event_direct(
                 logger.info(
                     f"Public event {event.event_id}: Adding {len(group_members)} group members to recipients"
                 )
-            
+
             # Source 2: Explicit invitees (always added, regardless of invite_all)
             invitee_telegram_ids = set()
             for invite_handle in invitees:
@@ -1953,24 +1964,26 @@ async def _handle_organize_event_direct(
                         invitee_user = result.scalar_one_or_none()
                         if invitee_user and invitee_user.telegram_user_id:
                             telegram_id = int(invitee_user.telegram_user_id)
-                            if telegram_id != creator_id:  # Exclude creator (gets admin DM separately)
+                            if (
+                                telegram_id != creator_id
+                            ):  # Exclude creator (gets admin DM separately)
                                 invitee_telegram_ids.add(telegram_id)
                                 recipient_telegram_ids.add(telegram_id)
                 except Exception as e:
                     logger.warning(f"Could not resolve @{username}: {e}")
-            
+
             if invitee_telegram_ids:
                 logger.info(
                     f"Event {event.event_id}: Adding {len(invitee_telegram_ids)} explicit invitees to recipients"
                 )
-            
+
             # Fallback: If group is empty and no invitees, warn
             if not group_members and not invitee_telegram_ids:
                 logger.warning(
                     f"Event {event.event_id}: No group members and no invitees. "
                     f"Only creator (ID: {creator_id}) will be notified."
                 )
-            
+
             logger.info(
                 f"Event {event.event_id}: Final recipient count: {len(recipient_telegram_ids)} "
                 f"(group_members: {len(group_members)}, invitees: {len(invitee_telegram_ids)}, "
@@ -2022,7 +2035,9 @@ async def _handle_organize_event_direct(
             if creator_id:
                 # Send full details to admin via DM
                 # Escape formatted text for Markdown safety
-                scheduled_time_display_escaped = _escape_for_markdown(scheduled_time_display)
+                scheduled_time_display_escaped = _escape_for_markdown(
+                    scheduled_time_display
+                )
                 commit_by_text_escaped = _escape_for_markdown(commit_by_text)
                 date_preset_text_escaped = _escape_for_markdown(date_preset_text)
                 time_window_text_escaped = _escape_for_markdown(time_window_text)
@@ -2030,7 +2045,7 @@ async def _handle_organize_event_direct(
                 location_text_escaped = _escape_for_markdown(location_text)
                 budget_text_escaped = _escape_for_markdown(budget_text)
                 transport_text_escaped = _escape_for_markdown(transport_text)
-                
+
                 full_admin_summary = (
                     f"✅ *Event Created Successfully!*\n\n"
                     f"Event ID: `{event.event_id}`\n"
@@ -2100,4 +2115,3 @@ async def _handle_organize_event_direct(
             group_announcement,
             parse_mode="Markdown",
         )
-

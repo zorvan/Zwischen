@@ -550,11 +550,6 @@ async def _show_modify_menu(
         ],
         [
             InlineKeyboardButton(
-                "⏳ Set Availability", callback_data=f"avail_{event_id}"
-            )
-        ],
-        [
-            InlineKeyboardButton(
                 "🔗 Manage Constraints",
                 callback_data=f"event_constraints_menu_{event_id}",
             )

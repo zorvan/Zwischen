@@ -244,7 +244,7 @@ def main():
             event_flow.handle_event_flow,
         ),  # Uncommit (separate from back)
         (
-            r"^event_(details|status|logs|constraints|close)_",
+            r"^event_(details|status|logs|constraints|close|modify_menu)_",
             event_details.handle_callback,
         ),
         (r"^event_modify_", mentions.handle_callback),
