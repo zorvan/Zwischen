@@ -18,6 +18,7 @@ from db.models import Event, EventMemory
 from bot.services.event_memory_service import EventMemoryService
 from bot.common.weekly_digest import WeeklyDigestService
 from config.logging import set_correlation_context, clear_correlation_context
+from config.settings import settings
 
 logger = logging.getLogger("coord_bot.commands.memory")
 
@@ -39,7 +40,7 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             from db.connection import get_session
             from bot.common.event_selection import build_my_events_selector_markup
 
-            async with get_session(context.bot_data.get("db_url")) as session:
+            async with get_session(settings.db_url) as session:
                 group_id = None
                 if update.effective_chat and update.effective_chat.type in [
                     "group",
@@ -72,7 +73,7 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text("Event ID must be a number.")
             return
 
-        async with get_session(context.bot_data.get("db_url")) as session:
+        async with get_session(settings.db_url) as session:
             # Get event
             from sqlalchemy import select
 
@@ -136,7 +137,7 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not update.effective_chat:
             return
 
-        async with get_session(context.bot_data.get("db_url")) as session:
+        async with get_session(settings.db_url) as session:
             # Get group
             from sqlalchemy import select
             from db.models import Group
@@ -231,7 +232,7 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             from db.connection import get_session
             from bot.common.event_selection import build_my_events_selector_markup
 
-            async with get_session(context.bot_data.get("db_url")) as session:
+            async with get_session(settings.db_url) as session:
                 group_id = None
                 if update.effective_chat and update.effective_chat.type in [
                     "group",
@@ -273,7 +274,7 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
             return
 
-        async with get_session(context.bot_data.get("db_url")) as session:
+        async with get_session(settings.db_url) as session:
             # Get event
             from sqlalchemy import select
 
@@ -350,7 +351,7 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         if not update.effective_chat:
             return
 
-        async with get_session(context.bot_data.get("db_url")) as session:
+        async with get_session(settings.db_url) as session:
             # Get group
             from sqlalchemy import select
             from db.models import Group
@@ -449,7 +450,7 @@ async def handle_digest_callback(
 
     action = query.data.split("_", 1)[1] if "_" in query.data else ""
 
-    async with get_session(context.bot_data.get("db_url")) as session:
+    async with get_session(settings.db_url) as session:
         from sqlalchemy import select
         from db.models import Group
 
@@ -503,9 +504,7 @@ async def handle_digest_callback(
             memories = result.scalars().all()
 
             if not memories:
-                await query.edit_message_text(
-                    "No memories found for this group."
-                )
+                await query.edit_message_text("No memories found for this group.")
                 return
 
             response = "📿 <b>Recent Memories</b>\n\n"
@@ -547,7 +546,7 @@ async def handle_memory_event_select(
     from db.models import Event
     from bot.services.event_memory_service import EventMemoryService
 
-    async with get_session(context.bot_data.get("db_url")) as session:
+    async with get_session(settings.db_url) as session:
         result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
 

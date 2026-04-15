@@ -254,6 +254,8 @@ def main():
         (r"^constraint_nl_", constraints.handle_callback),
         (r"^mentionact_", mentions.handle_mention_callback),
         (r"^suggest_time_retry_", suggest_time.handle_callback),
+        (r"^suggest_time_select_another$", suggest_time.handle_callback),
+        (r"^suggest_time_select_", suggest_time.handle_callback),
         (r"^modreq_", modify_event.handle_modify_request_callback),
         # Weekly digest callbacks
         (r"^digest_", memory.handle_digest_callback),
