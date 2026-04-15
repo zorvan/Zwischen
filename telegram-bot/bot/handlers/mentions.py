@@ -2139,8 +2139,10 @@ async def _submit_time_change_direct(
     from config.settings import settings
     from ai.llm import LLMClient
     from db.users import get_or_create_user_id
-    from bot.common.confirmation import invalidate_confirmations_and_notify
-    from bot.common.event_notifications import notify_attendees_of_modification
+    from bot.common.confirmation import (
+        invalidate_confirmations_and_notify,
+        notify_attendees_of_modification,
+    )
 
     if not update.message or not update.effective_user:
         return

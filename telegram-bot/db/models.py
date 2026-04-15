@@ -151,9 +151,11 @@ class Constraint(Base):
 
     constraint_id = Column(Integer, primary_key=True)
     user_id = Column(
-        Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
-    target_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"))
+    target_user_id = Column(
+        BigInteger, ForeignKey("users.user_id", ondelete="SET NULL")
+    )
     event_id = Column(
         Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
@@ -175,7 +177,7 @@ class Log(Base):
 
     log_id = Column(Integer, primary_key=True)
     event_id = Column(Integer, ForeignKey("events.event_id", ondelete="SET NULL"))
-    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"))
+    user_id = Column(BigInteger, ForeignKey("users.user_id", ondelete="SET NULL"))
     action = Column(String(100), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
     metadata_dict = Column("metadata", JSON, default=dict)

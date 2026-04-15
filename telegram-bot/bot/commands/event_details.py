@@ -587,16 +587,21 @@ async def _prompt_constraint_target(
     query, context: ContextTypes.DEFAULT_TYPE, event_id: int, constraint_type: str
 ) -> None:
     """Prompt user to select a target user for the constraint."""
-    from db.models import EventParticipant
+    from db.models import EventParticipant, User
     from sqlalchemy import select
 
     async with get_session(settings.db_url) as session:
         result = await session.execute(
-            select(EventParticipant)
+            select(EventParticipant, User)
+            .join(
+                User,
+                EventParticipant.telegram_user_id == User.telegram_user_id,
+                isouter=True,
+            )
             .where(EventParticipant.event_id == event_id)
             .limit(20)
         )
-        participants = result.scalars().all()
+        participants = result.all()
 
         if not participants:
             await query.edit_message_text(
@@ -605,18 +610,18 @@ async def _prompt_constraint_target(
             return
 
         keyboard = []
-        for p in participants[:8]:  # Show up to 8 participants
-            user_display = f"User {p.user_id}"
-            if p.user and p.user.username:
-                user_display = f"@{p.user.username}"
-            elif p.user and p.user.display_name:
-                user_display = p.user.display_name
+        for p, user in participants[:8]:  # Show up to 8 participants
+            user_display = f"User {p.telegram_user_id}"
+            if user and user.username:
+                user_display = f"@{user.username}"
+            elif user and user.display_name:
+                user_display = user.display_name
 
             keyboard.append(
                 [
                     InlineKeyboardButton(
                         user_display,
-                        callback_data=f"constraint_target_{event_id}_{p.user_id}_{constraint_type}",
+                        callback_data=f"constraint_target_{event_id}_{p.telegram_user_id}_{constraint_type}",
                     )
                 ]
             )
