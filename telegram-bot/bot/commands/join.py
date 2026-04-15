@@ -7,6 +7,7 @@ PRD v2 Refactoring:
 - Includes idempotency checking (optional, feature-flagged)
 - Triggers materialization announcements via lifecycle service
 """
+
 import logging
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -57,10 +58,40 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     event_id_str = context.args[0] if context.args else None
 
     if not event_id_str:
-        await message.reply_text(
-            "Usage: /join <event_id>\n\n"
-            "Example: /join 123"
-        )
+        async with get_session(settings.db_url) as session:
+            result = await session.execute(
+                select(Event).order_by(Event.created_at.desc()).limit(10)
+            )
+            events = result.scalars().all()
+
+            if not events:
+                await message.reply_text(
+                    "No events found. Use /join <event_id> to join an event."
+                )
+                return
+
+            event_list = "Recent events:\n\n"
+            for event in events:
+                event_list += (
+                    f"Event #{event.event_id}: {event.event_type}\n"
+                    f"  Time: {event.scheduled_time}\n"
+                    f"  State: {event.state}\n\n"
+                )
+
+            event_list += "Select an event to join:"
+
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        f"✅ Join Event #{event.event_id}",
+                        callback_data=f"event_join_{event.event_id}",
+                    )
+                ]
+                for event in events
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await message.reply_text(event_list, reply_markup=reply_markup)
         return
 
     try:
@@ -72,12 +103,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with get_session(settings.db_url) as session:
         # Check event visibility based on group membership
         chat_id = update.effective_chat.id if update.effective_chat else None
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, telegram_user_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        (
+            is_visible,
+            event,
+            group,
+            error_msg,
+        ) = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            telegram_user_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
 
         if not is_visible:
@@ -119,11 +155,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             if is_dup and status == "completed":
                 logger.info(
                     "Duplicate join command detected (idempotent)",
-                    extra={"event_id": event_id, "user": telegram_user_id}
+                    extra={"event_id": event_id, "user": telegram_user_id},
                 )
-                await message.reply_text(
-                    f"✅ Already joined event {event_id}!"
-                )
+                await message.reply_text(f"✅ Already joined event {event_id}!")
                 return
 
             # Register idempotency key
@@ -156,7 +190,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         logger.error(
                             "State transition failed: %s",
                             e,
-                            extra={"event_id": event_id}
+                            extra={"event_id": event_id},
                         )
                         # Continue anyway - user successfully joined
 
@@ -177,7 +211,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                         "timestamp": datetime.utcnow().isoformat(),
                         "source": "slash",
                         "participant_status": participant.status.value,
-                    }
+                    },
                 )
                 session.add(log)
 
@@ -217,7 +251,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 "Failed to join event %s: %s",
                 event_id,
                 e,
-                extra={"user": telegram_user_id}
+                extra={"user": telegram_user_id},
             )
 
             # Mark idempotency key as failed if enabled
@@ -229,9 +263,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             )
 
 
-async def handle_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle callback queries for join buttons.
 

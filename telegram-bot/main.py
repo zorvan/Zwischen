@@ -257,6 +257,8 @@ def main():
         (r"^modreq_", modify_event.handle_modify_request_callback),
         # Weekly digest callbacks
         (r"^digest_", memory.handle_digest_callback),
+        # Memory event selection (must come before general patterns)
+        (r"^select_event_", memory.handle_memory_event_select),
     ]
 
     for pattern, handler in callback_handlers:

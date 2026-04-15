@@ -8,6 +8,7 @@ Commands:
 - /remember [event_id] - Add a memory fragment outside the DM window
 - /digest - Get weekly digest for the group (manual trigger)
 """
+
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -35,10 +36,34 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         if not context.args:
-            await update.message.reply_text(
-                "Usage: /memory [event_id]\n\n"
-                "Example: /memory 123"
-            )
+            from db.connection import get_session
+            from bot.common.event_selection import build_my_events_selector_markup
+
+            async with get_session(context.bot_data.get("db_url")) as session:
+                group_id = None
+                if update.effective_chat and update.effective_chat.type in [
+                    "group",
+                    "supergroup",
+                ]:
+                    from db.models import Group
+                    from sqlalchemy import select
+
+                    result = await session.execute(
+                        select(Group).where(
+                            Group.telegram_group_id == update.effective_chat.id
+                        )
+                    )
+                    group = result.scalar_one_or_none()
+                    if group:
+                        group_id = group.group_id
+
+                keyboard = await build_my_events_selector_markup(
+                    session, update.effective_user.id, group_id
+                )
+
+                await update.message.reply_text(
+                    "Select an event to view its memory weave:", reply_markup=keyboard
+                )
             return
 
         try:
@@ -50,6 +75,7 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with get_session(context.bot_data.get("db_url")) as session:
             # Get event
             from sqlalchemy import select
+
             result = await session.execute(
                 select(Event).where(Event.event_id == event_id)
             )
@@ -75,7 +101,9 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             # Add lineage if present
             if memory_weave.lineage_event_ids:
-                lineage_str = ", ".join(str(eid) for eid in memory_weave.lineage_event_ids)
+                lineage_str = ", ".join(
+                    str(eid) for eid in memory_weave.lineage_event_ids
+                )
                 response += f"\n\n_Part of a series: {lineage_str}_"
 
             await update.message.reply_text(response, parse_mode="HTML")
@@ -85,7 +113,7 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 extra={
                     "event_id": event_id,
                     "user": update.effective_user.id,
-                }
+                },
             )
 
     finally:
@@ -120,14 +148,15 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             if not group:
                 await update.message.reply_text(
-                    "This group is not registered yet.\n"
-                    "Use /start to register."
+                    "This group is not registered yet.\nUse /start to register."
                 )
                 return
 
             # Get recent memories
             memory_service = EventMemoryService(context.bot, session)
-            memories = await memory_service.get_recent_memories(group.group_id, limit=10)
+            memories = await memory_service.get_recent_memories(
+                group.group_id, limit=10
+            )
 
             if not memories:
                 await update.message.reply_text(
@@ -137,18 +166,27 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
 
             # Build response
-            response_parts = [f"📿 <b>Recent memories for {group.group_name or 'this group'}</b>"]
+            response_parts = [
+                f"📿 <b>Recent memories for {group.group_name or 'this group'}</b>"
+            ]
 
             for memory in memories:
                 event = memory.event
-                event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                event_title = (
+                    f"{event.event_type} • "
+                    f"{event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                )
 
                 # Show first fragment preview
                 preview = ""
                 if memory.fragments and len(memory.fragments) > 0:
                     first_fragment = memory.fragments[0].get("text", "")[:50]
                     if first_fragment:
-                        preview = f"\n  \"{first_fragment}...\"" if len(first_fragment) >= 50 else f"\n  \"{first_fragment}\""
+                        preview = (
+                            f'\n  "{first_fragment}..."'
+                            if len(first_fragment) >= 50
+                            else f'\n  "{first_fragment}"'
+                        )
 
                 # Show hashtags
                 hashtags = ""
@@ -168,7 +206,7 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     "group_id": group.group_id,
                     "user": update.effective_user.id,
                     "count": len(memories),
-                }
+                },
             )
 
     finally:
@@ -190,10 +228,34 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         if not context.args or len(context.args) < 2:
-            await update.message.reply_text(
-                "Usage: /remember [event_id] [your memory]\n\n"
-                "Example: /remember 123 The moment when everyone laughed at the rain"
-            )
+            from db.connection import get_session
+            from bot.common.event_selection import build_my_events_selector_markup
+
+            async with get_session(context.bot_data.get("db_url")) as session:
+                group_id = None
+                if update.effective_chat and update.effective_chat.type in [
+                    "group",
+                    "supergroup",
+                ]:
+                    from db.models import Group
+                    from sqlalchemy import select
+
+                    result = await session.execute(
+                        select(Group).where(
+                            Group.telegram_group_id == update.effective_chat.id
+                        )
+                    )
+                    group = result.scalar_one_or_none()
+                    if group:
+                        group_id = group.group_id
+
+                keyboard = await build_my_events_selector_markup(
+                    session, update.effective_user.id, group_id
+                )
+
+                await update.message.reply_text(
+                    "Select an event to add a memory:", reply_markup=keyboard
+                )
             return
 
         try:
@@ -206,12 +268,15 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         memory_text = " ".join(context.args[1:])
 
         if len(memory_text) < 3:
-            await update.message.reply_text("Please share a bit more detail (at least 3 characters).")
+            await update.message.reply_text(
+                "Please share a bit more detail (at least 3 characters)."
+            )
             return
 
         async with get_session(context.bot_data.get("db_url")) as session:
             # Get event
             from sqlalchemy import select
+
             result = await session.execute(
                 select(Event).where(Event.event_id == event_id)
             )
@@ -223,6 +288,7 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             # Check if user was a participant
             from db.models import EventParticipant
+
             participant_result = await session.execute(
                 select(EventParticipant).where(
                     EventParticipant.event_id == event_id,
@@ -261,7 +327,7 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     "event_id": event_id,
                     "user": update.effective_user.id,
                     "fragment_length": len(memory_text),
-                }
+                },
             )
 
     finally:
@@ -296,8 +362,7 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
             if not group:
                 await update.message.reply_text(
-                    "This group is not registered yet.\n"
-                    "Use /start to register."
+                    "This group is not registered yet.\nUse /start to register."
                 )
                 return
 
@@ -313,14 +378,20 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 response_parts.append("📿 <b>Recent Memories</b>")
                 for memory in digest_data["memories"]:
                     event = memory.event
-                    event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                    event_title = (
+                        f"{event.event_type} • "
+                        f"{event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                    )
                     response_parts.append(f"• {event_title}")
 
             # Upcoming events
             if digest_data.get("upcoming_events"):
                 response_parts.append("\n📅 <b>Upcoming Events</b>")
                 for event in digest_data["upcoming_events"]:
-                    event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b %H:%M') if event.scheduled_time else 'TBD'}"
+                    event_title = (
+                        f"{event.event_type} • "
+                        f"{event.scheduled_time.strftime('%d %b %H:%M') if event.scheduled_time else 'TBD'}"
+                    )
                     response_parts.append(f"• {event_title}")
 
             # Stats
@@ -328,11 +399,15 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 stats = digest_data["stats"]
                 response_parts.append("\n📊 <b>This Week</b>")
                 if stats.get("events_completed"):
-                    response_parts.append(f"• {stats['events_completed']} events completed")
+                    response_parts.append(
+                        f"• {stats['events_completed']} events completed"
+                    )
                 if stats.get("participants"):
                     response_parts.append(f"• {stats['participants']} participants")
                 if stats.get("memory_fragments"):
-                    response_parts.append(f"• {stats['memory_fragments']} memories shared")
+                    response_parts.append(
+                        f"• {stats['memory_fragments']} memories shared"
+                    )
 
             if not response_parts:
                 await update.message.reply_text(
@@ -349,14 +424,16 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 extra={
                     "group_id": group.group_id,
                     "user": update.effective_user.id,
-                }
+                },
             )
 
     finally:
         clear_correlation_context()
 
 
-async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_digest_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """
     Handle callback queries from weekly digest inline keyboard.
 
@@ -389,6 +466,7 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
         if action == "events":
             # Show all events
             from db.models import Event
+
             result = await session.execute(
                 select(Event)
                 .where(Event.group_id == group.group_id)
@@ -404,7 +482,11 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
             response = "📅 <b>Recent Events</b>\n\n"
             for event in events:
                 status = event.status.value if event.status else "unknown"
-                time_str = event.scheduled_time.strftime("%d %b %H:%M") if event.scheduled_time else "TBD"
+                time_str = (
+                    event.scheduled_time.strftime("%d %b %H:%M")
+                    if event.scheduled_time
+                    else "TBD"
+                )
                 response += f"• {event.event_type} • {time_str} [{status}]\n"
 
             await query.edit_message_text(response, parse_mode="HTML")
@@ -421,13 +503,18 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
             memories = result.scalars().all()
 
             if not memories:
-                await query.edit_message_text("No memories found for this group.")
+                await query.edit_message_text(
+                    "No memories found for this group."
+                )
                 return
 
             response = "📿 <b>Recent Memories</b>\n\n"
             for memory in memories:
                 event = memory.event
-                event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                event_title = (
+                    f"{event.event_type} • "
+                    f"{event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                )
                 fragment_count = len(memory.fragments) if memory.fragments else 0
                 response += f"• {event_title} ({fragment_count} fragments)\n"
 
@@ -435,3 +522,62 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
 
         else:
             await query.edit_message_text("Unknown action.")
+
+
+async def handle_memory_event_select(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    """Handle event selection from /memory, /remember, etc. commands."""
+    query = update.callback_query
+    if query is None:
+        return
+
+    await query.answer()
+
+    if not query.data.startswith("select_event_"):
+        return
+
+    try:
+        event_id = int(query.data.split("_")[-1])
+    except ValueError:
+        await query.edit_message_text("Invalid event selection.")
+        return
+
+    from db.connection import get_session
+    from db.models import Event
+    from bot.services.event_memory_service import EventMemoryService
+
+    async with get_session(context.bot_data.get("db_url")) as session:
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event = result.scalar_one_or_none()
+
+        if not event:
+            await query.edit_message_text("Event not found.")
+            return
+
+        memory_service = EventMemoryService(context.bot, session)
+        memory_weave = await memory_service.get_memory_weave(event_id)
+
+        if not memory_weave:
+            await query.edit_message_text(
+                f"No memory weave yet for this {event.event_type}.\n\n"
+                f"(Memories are collected within 24 hours after the event.)",
+                reply_markup=None,
+            )
+            return
+
+        response = memory_weave.weave_text or "No weave text available."
+
+        if memory_weave.lineage_event_ids:
+            lineage_str = ", ".join(str(eid) for eid in memory_weave.lineage_event_ids)
+            response += f"\n\n_Part of a series: {lineage_str}_"
+
+        await query.edit_message_text(response, parse_mode="HTML", reply_markup=None)
+
+        logger.info(
+            "User viewed memory weave via selection",
+            extra={
+                "event_id": event_id,
+                "user": query.from_user.id,
+            },
+        )
