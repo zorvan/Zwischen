@@ -136,6 +136,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data and data.startswith("event_constraints_menu_"):
         event_id = int(data.replace("event_constraints_menu_", ""))
         await _show_constraints_menu(query, context, event_id)
+    elif data and data.startswith("event_constraints_"):
+        event_id = int(data.replace("event_constraints_", ""))
+        await _show_constraints_menu(query, context, event_id)
     elif data and data.startswith("constraint_add_"):
         parts = data.split("_")
         if len(parts) >= 4:
@@ -163,6 +166,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data and data.startswith("event_modify_menu_"):
         event_id = int(data.replace("event_modify_menu_", ""))
         await _show_modify_menu(query, context, event_id)
+    elif data and data.startswith("event_change_time_"):
+        event_id = int(data.replace("event_change_time_", ""))
+        await _prompt_change_time(query, context, event_id)
     elif data and data.startswith("avail_"):
         event_id = int(data.replace("avail_", ""))
         if data.startswith("avail_add_"):
@@ -1000,3 +1006,49 @@ async def build_event_details_action_markup(
         )
 
     return InlineKeyboardMarkup(keyboard)
+
+
+async def _prompt_change_time(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int
+) -> None:
+    """Prompt user to provide time change instruction."""
+    from db.models import Event
+    from sqlalchemy import select
+
+    async with get_session(settings.db_url) as session:
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event = result.scalar_one_or_none()
+        if not event:
+            await query.edit_message_text("❌ Event not found.")
+            return
+
+    # Store pending time change in context
+    context.user_data["pending_time_change"] = {
+        "event_id": event_id,
+    }
+
+    keyboard = [
+        [
+            InlineKeyboardButton(
+                "⬅️ Back to Modify Menu",
+                callback_data=f"event_modify_menu_{event_id}",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⬅️ Back to Event", callback_data=f"event_details_{event_id}"
+            )
+        ],
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+
+    await query.edit_message_text(
+        "📅 *Change Event Time*\n\n"
+        "Please type the new time for the event. Examples:\n"
+        "- March 8, 2026 at 18:00\n"
+        "- Next Friday at 7pm\n"
+        "- June 15, 2026 14:30\n\n"
+        "Type 'cancel' to abort.",
+        reply_markup=reply_markup,
+        parse_mode="Markdown",
+    )

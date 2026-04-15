@@ -842,11 +842,19 @@ async def handle_modify_message(
     text = message.text.strip()
 
     pending_keys = [k for k in context.user_data if k.startswith("pending_mod_text_")]
-    if not pending_keys:
-        return
-
-    request_id = pending_keys[0].replace("pending_mod_text_", "")
-    pending_data = context.user_data.pop(pending_keys[0])
+    if pending_keys:
+        request_id = pending_keys[0].replace("pending_mod_text_", "")
+        pending_data = context.user_data.pop(pending_keys[0])
+    else:
+        pending_time_keys = [k for k in context.user_data if k == "pending_time_change"]
+        if pending_time_keys:
+            pending_data = context.user_data.pop("pending_time_change")
+            change_text = text
+            event_id = pending_data.get("event_id")
+            await _submit_time_change_direct(update, context, event_id, change_text)
+            return
+        else:
+            return
 
     if text.lower() == "cancel":
         await message.reply_text("✅ Modification request cancelled.")
@@ -2114,4 +2122,114 @@ async def _handle_organize_event_direct(
         await update.message.reply_text(
             group_announcement,
             parse_mode="Markdown",
+        )
+
+
+async def _submit_time_change_direct(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_id: int,
+    change_text: str,
+) -> None:
+    """Submit time change directly or via admin approval."""
+    from db.connection import get_session
+    from db.models import Event
+    from bot.common.rbac import check_event_visibility_and_get_event
+    from bot.common.event_access import get_event_admin_telegram_id
+    from config.settings import settings
+    from ai.llm import LLMClient
+    from db.users import get_or_create_user_id
+    from bot.common.confirmation import invalidate_confirmations_and_notify
+    from bot.common.event_notifications import notify_attendees_of_modification
+
+    if not update.message or not update.effective_user:
+        return
+
+    async with get_session(settings.db_url) as session:
+        requester_id = int(update.effective_user.id)
+        chat_id = update.effective_chat.id if update.effective_chat else None
+        (
+            is_visible,
+            event,
+            group,
+            error_msg,
+        ) = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            requester_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
+        )
+        if not is_visible:
+            await update.message.reply_text(f"❌ {error_msg or 'Event not found.'}")
+            return
+        if event.state in {"locked", "completed", "cancelled"}:
+            await update.message.reply_text(
+                f"❌ Event {event_id} is {event.state}; modification is not allowed."
+            )
+            return
+        admin_id = get_event_admin_telegram_id(event)
+        requester_id = int(update.effective_user.id)
+        if admin_id is not None and requester_id != admin_id:
+            # Non-admin users need admin approval
+            await _submit_modify_request_via_message(
+                update,
+                context,
+                str(uuid4().hex[:8]),
+                event_id,
+                admin_id,
+                change_text,
+                requester_id,
+                update.effective_user.username or update.effective_user.full_name,
+            )
+            return
+
+        # Admin or no admin - apply directly using LLM
+        draft = {
+            "description": event.description or "",
+            "event_type": event.event_type,
+            "scheduled_time": (
+                event.scheduled_time.isoformat(timespec="minutes")
+                if event.scheduled_time
+                else None
+            ),
+            "duration_minutes": int(event.duration_minutes or 120),
+            "min_participants": int(event.min_participants or 2),
+            "target_participants": int(
+                event.target_participants or event.min_participants or 2
+            ),
+            "scheduling_mode": "fixed" if event.scheduled_time else "flexible",
+            "location_type": (event.planning_prefs or {}).get("location_type"),
+            "budget_level": (event.planning_prefs or {}).get("budget_level"),
+            "transport_mode": (event.planning_prefs or {}).get("transport_mode"),
+        }
+
+        llm = LLMClient()
+        try:
+            patch = await llm.infer_event_draft_patch(draft, change_text)
+        finally:
+            await llm.close()
+
+        # Apply the patch
+        if patch.get("scheduled_time_iso"):
+            try:
+                from datetime import datetime
+
+                parsed = datetime.fromisoformat(
+                    str(patch.get("scheduled_time_iso")).strip()
+                )
+                if event.scheduled_time != parsed:
+                    event.scheduled_time = parsed
+                    # Clear pending_time_change
+                    context.user_data.pop("pending_time_change", None)
+                    await session.commit()
+                    await update.message.reply_text(
+                        f"✅ Event time updated to {parsed.strftime('%Y-%m-%d %H:%M')}"
+                    )
+                    return
+            except ValueError:
+                pass
+
+        await update.message.reply_text(
+            "⚠️ Could not parse time from your message. Please try again."
         )
