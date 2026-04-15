@@ -136,15 +136,39 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data and data.startswith("event_constraints_menu_"):
         event_id = int(data.replace("event_constraints_menu_", ""))
         await _show_constraints_menu(query, context, event_id)
-    elif data and data.startswith("event_constraints_"):
-        event_id = int(data.replace("event_constraints_", ""))
-        await show_constraints(query, context, event_id)
+    elif data and data.startswith("constraint_add_"):
+        parts = data.split("_")
+        if len(parts) >= 4:
+            constraint_type = parts[2]
+            event_id = int(parts[3])
+            await _prompt_constraint_target(query, context, event_id, constraint_type)
+    elif data and data.startswith("constraint_target_"):
+        parts = data.split("_")
+        if len(parts) >= 5:
+            event_id = int(parts[2])
+            target_user_id = int(parts[3])
+            constraint_type = parts[4]
+            await _confirm_constraint(
+                query, context, event_id, target_user_id, constraint_type
+            )
+    elif data and data.startswith("avail_slot_"):
+        parts = data.split("_")
+        if len(parts) >= 4:
+            event_id = int(parts[2])
+            slot_index = int(parts[3])
+            await _handle_availability_slot(query, context, event_id, slot_index)
+    elif data and data.startswith("avail_confirm_"):
+        event_id = int(data.replace("avail_confirm_", ""))
+        await _save_availability(query, context, event_id)
     elif data and data.startswith("event_modify_menu_"):
         event_id = int(data.replace("event_modify_menu_", ""))
         await _show_modify_menu(query, context, event_id)
     elif data and data.startswith("avail_"):
         event_id = int(data.replace("avail_", ""))
-        await _show_availability_options(query, context, event_id)
+        if data.startswith("avail_add_"):
+            await _show_availability_slots(query, context, event_id)
+        else:
+            await _show_availability_options(query, context, event_id)
     elif data and data.startswith("event_close_"):
         await query.edit_message_text("✅ Event details closed.")
 
@@ -485,7 +509,18 @@ async def _show_constraints_menu(
     keyboard = [
         [
             InlineKeyboardButton(
-                "➕ Add Constraint", callback_data=f"event_constraint_add_{event_id}"
+                "🔗 If Joins", callback_data=f"constraint_add_if_joins_{event_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ If Attends", callback_data=f"constraint_add_if_attends_{event_id}"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "🚫 Unless Joins",
+                callback_data=f"constraint_add_unless_joins_{event_id}",
             )
         ],
         [
@@ -495,7 +530,7 @@ async def _show_constraints_menu(
         ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    await query.edit_message_text("🔧 Manage Constraints", reply_markup=reply_markup)
+    await query.edit_message_text("🔗 Add Constraint Type:", reply_markup=reply_markup)
 
 
 async def _show_modify_menu(
@@ -523,6 +558,158 @@ async def _show_modify_menu(
     await query.edit_message_text("🛠 Modify Event", reply_markup=reply_markup)
 
 
+async def _prompt_constraint_target(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int, constraint_type: str
+) -> None:
+    """Prompt user to select a target user for the constraint."""
+    from db.models import EventParticipant
+    from sqlalchemy import select
+
+    async with get_session(settings.db_url) as session:
+        result = await session.execute(
+            select(EventParticipant)
+            .where(EventParticipant.event_id == event_id)
+            .limit(20)
+        )
+        participants = result.scalars().all()
+
+        if not participants:
+            await query.edit_message_text(
+                "❌ No participants found for this event. Join the event first!"
+            )
+            return
+
+        keyboard = []
+        for p in participants[:8]:  # Show up to 8 participants
+            user_display = f"User {p.user_id}"
+            if p.user and p.user.username:
+                user_display = f"@{p.user.username}"
+            elif p.user and p.user.display_name:
+                user_display = p.user.display_name
+
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        user_display,
+                        callback_data=f"constraint_target_{event_id}_{p.user_id}_{constraint_type}",
+                    )
+                ]
+            )
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "⬅️ Back to Constraints",
+                    callback_data=f"event_constraints_menu_{event_id}",
+                )
+            ]
+        )
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    type_display = {
+        "if_joins": "joins if target joins",
+        "if_attends": "attends if target attends",
+        "unless_joins": "won't join if target joins",
+    }.get(constraint_type, constraint_type)
+
+    await query.edit_message_text(
+        f"🔗 Add Constraint: You {type_display}\n\nSelect a participant:",
+        reply_markup=reply_markup,
+    )
+
+
+async def _confirm_constraint(
+    query,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_id: int,
+    target_user_id: int,
+    constraint_type: str,
+) -> None:
+    """Confirm and save constraint."""
+    from db.models import Constraint, Event, EventParticipant, User
+    from db.users import get_or_create_user_id
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+
+    async with get_session(settings.db_url) as session:
+        # Check if user is an attendee
+        result = await session.execute(
+            select(EventParticipant).where(
+                EventParticipant.event_id == event_id,
+                EventParticipant.telegram_user_id == query.from_user.id,
+            )
+        )
+        participant = result.scalar_one_or_none()
+
+        if not participant:
+            await query.edit_message_text(
+                "❌ Only event participants can add constraints. Join the event first!"
+            )
+            return
+
+        # Get or create source user ID
+        source_user_id = await get_or_create_user_id(
+            session,
+            telegram_user_id=query.from_user.id,
+            display_name=query.from_user.full_name,
+            username=query.from_user.username,
+        )
+
+        # Check if constraint already exists
+        existing = await session.execute(
+            select(Constraint).where(
+                Constraint.event_id == event_id,
+                Constraint.user_id == source_user_id,
+                Constraint.target_user_id == target_user_id,
+                Constraint.type == constraint_type,
+            )
+        )
+
+        if existing.scalar_one_or_none():
+            await query.edit_message_text("❌ This constraint already exists!")
+            return
+
+        # Create constraint
+        constraint = Constraint(
+            user_id=source_user_id,
+            target_user_id=target_user_id,
+            event_id=event_id,
+            type=constraint_type,
+            confidence=0.8,
+        )
+        session.add(constraint)
+
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            await query.edit_message_text(
+                "❌ Failed to save constraint. It may already exist."
+            )
+            return
+
+        # Get target user display
+        target_result = await session.execute(
+            select(User).where(User.user_id == target_user_id)
+        )
+        target_user = target_result.scalar_one_or_none()
+        target_display = f"User {target_user_id}"
+        if target_user and target_user.username:
+            target_display = f"@{target_user.username}"
+        elif target_user and target_user.display_name:
+            target_display = target_user.display_name
+
+        type_display = {
+            "if_joins": "joins if target joins",
+            "if_attends": "attends if target attends",
+            "unless_joins": "won't join if target joins",
+        }.get(constraint_type, constraint_type)
+
+        await query.edit_message_text(
+            f"✅ Constraint added!\n\nYou {type_display}\nTarget: {target_display}"
+        )
+
+
 async def _show_availability_options(
     query, context: ContextTypes.DEFAULT_TYPE, event_id: int
 ) -> None:
@@ -530,13 +717,187 @@ async def _show_availability_options(
     keyboard = [
         [
             InlineKeyboardButton(
-                "⏰ Set Available Times", callback_data=f"avail_set_{event_id}"
+                "📅 Add Availability", callback_data=f"avail_add_{event_id}"
             )
         ],
-        [InlineKeyboardButton("❌ Cancel", callback_data=f"event_details_{event_id}")],
+        [
+            InlineKeyboardButton(
+                "⬅️ Back to Event", callback_data=f"event_details_{event_id}"
+            )
+        ],
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text("⏳ Availability Options", reply_markup=reply_markup)
+
+
+async def _show_availability_slots(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int
+) -> None:
+    """Show availability time slot buttons."""
+    from bot.services import ParticipantService
+    from db.models import Event, EventParticipant, Constraint
+    from sqlalchemy import select
+    from datetime import datetime, timedelta
+
+    async with get_session(settings.db_url) as session:
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event = result.scalar_one_or_none()
+        if not event:
+            await query.edit_message_text("❌ Event not found.")
+            return
+
+        # Generate time slots around the event time or default to next 7 days
+        keyboard = []
+        base_time = event.scheduled_time or datetime.utcnow()
+
+        # Generate slots: -2 hours, -1 hour, same time, +1 hour, +2 hours on same day
+        time_slots = []
+        for offset_hours in [-2, -1, 0, 1, 2]:
+            slot_time = base_time + timedelta(hours=offset_hours)
+            time_slots.append(slot_time)
+
+        # Also add next 3 days at base time
+        for offset_days in [1, 2, 3]:
+            slot_time = base_time + timedelta(days=offset_days)
+            time_slots.append(slot_time)
+
+        for i, slot in enumerate(time_slots[:9]):  # Limit to 9 slots
+            slot_str = slot.strftime("%Y-%m-%d %H:%M")
+            callback_data = f"avail_slot_{event_id}_{i}"
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"📅 {slot.strftime('%b %d, %H:%M')}",
+                        callback_data=callback_data,
+                    )
+                ]
+            )
+
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "⬅️ Back to Availability", callback_data=f"avail_{event_id}"
+                )
+            ]
+        )
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        "⏳ Select an available time slot:\n\n"
+        "After selecting, use /constraints <event_id> availability <slot> to mark it.",
+        reply_markup=reply_markup,
+    )
+
+
+async def _handle_availability_slot(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int, slot_index: int
+) -> None:
+    """Handle availability slot selection."""
+    from db.models import Event
+    from sqlalchemy import select
+    from datetime import datetime, timedelta
+
+    async with get_session(settings.db_url) as session:
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event = result.scalar_one_or_none()
+        if not event:
+            await query.answer("❌ Event not found")
+            return
+
+        base_time = event.scheduled_time or datetime.utcnow()
+        time_slots = []
+
+        # Generate slots: -2 hours, -1 hour, same time, +1 hour, +2 hours on same day
+        for offset_hours in [-2, -1, 0, 1, 2]:
+            slot_time = base_time + timedelta(hours=offset_hours)
+            time_slots.append(slot_time)
+
+        # Also add next 3 days at base time
+        for offset_days in [1, 2, 3]:
+            slot_time = base_time + timedelta(days=offset_days)
+            time_slots.append(slot_time)
+
+        if slot_index >= len(time_slots):
+            await query.answer("❌ Invalid slot selection")
+            return
+
+        selected_slot = time_slots[slot_index]
+        slot_str = selected_slot.strftime("%Y-%m-%d %H:%M")
+
+        # Store pending availability in context
+        context.user_data["pending_availability"] = {
+            "event_id": event_id,
+            "slot": slot_str,
+        }
+
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "✅ Confirm", callback_data=f"avail_confirm_{event_id}"
+                ),
+                InlineKeyboardButton("❌ Cancel", callback_data=f"avail_{event_id}"),
+            ]
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"⏳ You selected: {slot_str}\n\n"
+            "This will add the slot to your availability.\n"
+            "Continue?",
+            reply_markup=reply_markup,
+        )
+
+
+async def _save_availability(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int
+) -> None:
+    """Save selected availability slot."""
+    pending = context.user_data.get("pending_availability")
+    if not pending or pending.get("event_id") != event_id:
+        await query.edit_message_text("❌ No pending availability selection found.")
+        return
+
+    slot_str = pending.get("slot")
+    context.user_data.pop("pending_availability", None)
+
+    from db.models import Constraint, Event, EventParticipant
+    from db.users import get_or_create_user_id
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+
+    async with get_session(settings.db_url) as session:
+        # Get or create source user ID
+        source_user_id = await get_or_create_user_id(
+            session,
+            telegram_user_id=query.from_user.id,
+            display_name=query.from_user.full_name,
+            username=query.from_user.username,
+        )
+
+        # Add the availability constraint
+        constraint = Constraint(
+            user_id=source_user_id,
+            target_user_id=None,
+            event_id=event_id,
+            type=f"available:{slot_str}",
+            confidence=1.0,
+        )
+        session.add(constraint)
+
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            await query.edit_message_text(
+                "❌ Failed to save availability. It may already exist."
+            )
+            return
+
+    await query.edit_message_text(
+        f"✅ Availability saved!\n\n"
+        f"Slot: {slot_str}\n\n"
+        f"Use /suggest_time {event_id} to see suggested times."
+    )
 
 
 async def build_event_details_action_markup(
@@ -638,11 +999,21 @@ async def build_event_details_action_markup(
             ],
         )
 
-    # Add DM links
-    avail_link = build_start_link(bot_username, f"avail_{event.event_id}")
-    if avail_link:
-        keyboard.append(
-            [InlineKeyboardButton("📥 Set Availability in DM", url=avail_link)]
-        )
+    # Add availability and constraints inline buttons
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                "⏳ Set Availability", callback_data=f"avail_{event.event_id}"
+            )
+        ]
+    )
+    keyboard.append(
+        [
+            InlineKeyboardButton(
+                "🔗 Manage Constraints",
+                callback_data=f"event_constraints_menu_{event.event_id}",
+            )
+        ]
+    )
 
     return InlineKeyboardMarkup(keyboard)

@@ -223,13 +223,144 @@ async def _infer_and_confirm_constraint(
     )
 
 
+async def _handle_constraint_availability_slot(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int, slot_index: int
+) -> None:
+    """Handle inline availability slot selection from constraints command."""
+    from db.models import Event
+    from sqlalchemy import select
+    from datetime import datetime, timedelta
+
+    async with get_session(settings.db_url) as session:
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event = result.scalar_one_or_none()
+        if not event:
+            await query.answer("❌ Event not found")
+            return
+
+        base_time = event.scheduled_time or datetime.utcnow()
+        time_slots = []
+
+        # Generate slots: -2 hours, -1 hour, same time, +1 hour, +2 hours on same day
+        for offset_hours in [-2, -1, 0, 1, 2]:
+            slot_time = base_time + timedelta(hours=offset_hours)
+            time_slots.append(slot_time)
+
+        # Also add next 3 days at base time
+        for offset_days in [1, 2, 3]:
+            slot_time = base_time + timedelta(days=offset_days)
+            time_slots.append(slot_time)
+
+        if slot_index >= len(time_slots):
+            await query.answer("❌ Invalid slot selection")
+            return
+
+        selected_slot = time_slots[slot_index]
+        slot_str = selected_slot.strftime("%Y-%m-%d %H:%M")
+
+        # Store pending availability in context
+        context.user_data["pending_constraint_availability"] = {
+            "event_id": event_id,
+            "slot": slot_str,
+        }
+
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "✅ Confirm", callback_data=f"constraint_avail_confirm_{event_id}"
+                ),
+                InlineKeyboardButton(
+                    "❌ Cancel", callback_data=f"event_constraints_{event_id}"
+                ),
+            ]
+        ]
+
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        await query.edit_message_text(
+            f"⏳ You selected: {slot_str}\n\n"
+            "This will add the slot to your availability.\n"
+            "Continue?",
+            reply_markup=reply_markup,
+        )
+
+
+async def _save_constraint_availability(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int
+) -> None:
+    """Save selected availability slot."""
+    pending = context.user_data.get("pending_constraint_availability")
+    if not pending or pending.get("event_id") != event_id:
+        await query.edit_message_text("❌ No pending availability selection found.")
+        return
+
+    slot_str = pending.get("slot")
+    context.user_data.pop("pending_constraint_availability", None)
+
+    from db.models import Constraint, Event, EventParticipant
+    from db.users import get_or_create_user_id
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+
+    async with get_session(settings.db_url) as session:
+        # Get or create source user ID
+        source_user_id = await get_or_create_user_id(
+            session,
+            telegram_user_id=query.from_user.id,
+            display_name=query.from_user.full_name,
+            username=query.from_user.username,
+        )
+
+        # Add the availability constraint
+        constraint = Constraint(
+            user_id=source_user_id,
+            target_user_id=None,
+            event_id=event_id,
+            type=f"available:{slot_str}",
+            confidence=1.0,
+        )
+        session.add(constraint)
+
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+            await query.edit_message_text(
+                "❌ Failed to save availability. It may already exist."
+            )
+            return
+
+    await query.edit_message_text(
+        f"✅ Availability saved!\n\n"
+        f"Slot: {slot_str}\n\n"
+        f"Use /suggest_time {event_id} to see suggested times."
+    )
+
+
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle callbacks for AI-parsed constraints confirmation."""
+    """Handle callbacks for AI-parsed constraints confirmation and inline availability."""
     query = update.callback_query
     if not query:
         return
     await query.answer()
     data = query.data or ""
+
+    # Handle inline availability slot confirmation
+    if data and data.startswith("constraint_avail_confirm_"):
+        event_id = int(data.replace("constraint_avail_confirm_", ""))
+        await _save_constraint_availability(query, context, event_id)
+        return
+
+    # Handle inline availability slot selection
+    if data and data.startswith("constraint_avail_"):
+        parts = data.split("_")
+        if len(parts) >= 4:
+            event_id = int(parts[2])
+            slot_index = int(parts[3])
+            await _handle_constraint_availability_slot(
+                query, context, event_id, slot_index
+            )
+            return
+
     if context.user_data is None:
         await query.edit_message_text("❌ User session data unavailable.")
         return
@@ -448,14 +579,61 @@ async def add_availability_slots(
         return
 
     args = context.args or []
+
+    # If no slots provided, show inline time slot buttons
     if len(args) < 3:
-        await update.message.reply_text(
-            "Usage: /constraints <event_id> availability "
-            "<YYYY-MM-DD HH:MM,YYYY-MM-DD HH:MM>\n"
-            "Example: /constraints 123 availability "
-            "2026-03-20 18:00,2026-03-21 10:30"
-        )
-        return
+        from datetime import datetime, timedelta
+        from db.models import Event
+        from sqlalchemy import select
+
+        async with get_session(settings.db_url) as session:
+            result = await session.execute(
+                select(Event).where(Event.event_id == event_id)
+            )
+            event = result.scalar_one_or_none()
+
+            if not event:
+                await update.message.reply_text("❌ Event not found.")
+                return
+
+            base_time = event.scheduled_time or datetime.utcnow()
+
+            # Generate time slots
+            time_slots = []
+            for offset_hours in [-2, -1, 0, 1, 2]:
+                slot_time = base_time + timedelta(hours=offset_hours)
+                time_slots.append(slot_time)
+
+            for offset_days in [1, 2, 3]:
+                slot_time = base_time + timedelta(days=offset_days)
+                time_slots.append(slot_time)
+
+            keyboard = []
+            for i, slot in enumerate(time_slots[:9]):
+                slot_str = slot.strftime("%Y-%m-%d %H:%M")
+                callback_data = f"constraint_avail_{event_id}_{i}"
+                keyboard.append(
+                    [
+                        InlineKeyboardButton(
+                            f"📅 {slot.strftime('%b %d, %H:%M')}",
+                            callback_data=callback_data,
+                        )
+                    ]
+                )
+
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        "⬅️ Back", callback_data=f"event_constraints_{event_id}"
+                    )
+                ]
+            )
+
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await update.message.reply_text(
+                "⏳ Select availability slot:", reply_markup=reply_markup
+            )
+            return
 
     slots_input = " ".join(args[2:])
     raw_slots = [s.strip() for s in slots_input.split(",") if s.strip()]
