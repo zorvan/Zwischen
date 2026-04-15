@@ -21,6 +21,7 @@ from bot.common.event_access import get_event_admin_telegram_id, get_event_organ
 from bot.common.rbac import check_event_visibility_and_get_event
 from bot.common.participant_state_reconcile import reconcile_event_state_after_participant_change
 from bot.services import ParticipantService, EventLifecycleService
+from bot.services.event_live_card_service import EventLiveCardService
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +209,9 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
         )
         session.add(log)
         await session.commit()
+
+        # Phase 3.3: Update live card after participant change
+        await update_live_card_on_change(context, event_id)
 
         # Refresh event to get latest state
         result = await session.execute(
@@ -428,6 +432,9 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
         )
         session.add(log)
         await session.commit()
+
+        # Phase 3.3: Update live card after participant change
+        await update_live_card_on_change(context, event_id)
 
         # Refresh event to get latest state
         result = await session.execute(
@@ -739,3 +746,19 @@ async def show_event_details(query, context: ContextTypes.DEFAULT_TYPE, event_id
             f"Capacity: {event.target_participants}\n"
             f"Attendees: {total_attendees}"
         )
+
+
+async def update_live_card_on_change(
+    context: ContextTypes.DEFAULT_TYPE, event_id: int
+) -> None:
+    """Update live card after participant change."""
+    bot = context.bot
+    db_url = settings.db_url or ""
+
+    async with get_session(db_url) as session:
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event = result.scalar_one_or_none()
+
+        if event and event.group_id:
+            service = EventLiveCardService(bot, session)
+            await service.update_live_card(event)

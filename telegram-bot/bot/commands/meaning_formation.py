@@ -8,12 +8,13 @@ clarifying questions until intent is clear. No timeout forces structure.
 v3.2: Repeated failure pattern surface — checks for ≥3 failed attempts
 before showing memories.
 """
+
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
 from config.settings import settings
@@ -188,28 +189,37 @@ async def handle_meaning_formation_message(
     formation_data["clarified"] = clarified
 
     # After 2-3 turns, check if we have enough to start structured creation
-    has_enough = (
-        "description" in clarified or
-        "event_type" in clarified
-    )
+    has_enough = "description" in clarified or "event_type" in clarified
 
-    if turns >= 2 and has_enough:
-        # Transition to structured flow
-        flow_data["stage"] = "structured_transition"
-        flow_data["data"].update(clarified)
-
-        description = clarified.get("description", "Group event")
-        event_type = clarified.get("event_type", "social")
-        scheduling_mode = formation_data.get("scheduling_mode", "fixed")
-
-        mode_label = "fixed date/time" if scheduling_mode == "fixed" else "flexible"
-
-        await update.effective_message.reply_text(
-            f"Got it — a {description} ({event_type}).\n\n"
-            f"Let me set up the details. Mode: {mode_label}.\n"
-            f"I'll guide you through the rest inline."
+    # After 2 turns, add skip option
+    if turns >= 2:
+        skip_button = InlineKeyboardButton(
+            "🚀 Skip to structured", callback_data=f"{flow_key}_skip_to_structured"
         )
-        return False  # Signal to transition out
+        continue_button = InlineKeyboardButton(
+            "🤔 Keep clarifying", callback_data=f"{flow_key}_keep_clarifying"
+        )
+
+        keyboard = [[skip_button], [continue_button]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        if turns == 2 and has_enough:
+            await update.effective_message.reply_text(
+                "Want to build the details now, or keep clarifying?",
+                reply_markup=reply_markup,
+            )
+        elif turns == 2 and not has_enough:
+            next_question = _next_clarifying_question(clarified, turns)
+            await update.effective_message.reply_text(
+                next_question, reply_markup=reply_markup
+            )
+        else:
+            # Beyond 2 turns, show skip option
+            next_question = _next_clarifying_question(clarified, turns)
+            await update.effective_message.reply_text(
+                next_question, reply_markup=reply_markup
+            )
+        return True
 
     # Continue with another clarifying question
     next_question = _next_clarifying_question(clarified, turns)
@@ -223,11 +233,21 @@ def _extract_intent_from_text(text: str, clarified: dict[str, Any]) -> None:
 
     # Event type detection
     type_keywords = {
-        "football": "sports", "soccer": "sports", "basketball": "sports",
-        "hiking": "outdoor", "walk": "outdoor", "run": "outdoor",
-        "board game": "social", "game night": "social", "dinner": "social",
-        "lunch": "social", "coffee": "social", "drinks": "social",
-        "meeting": "work", "workshop": "work", "study": "work",
+        "football": "sports",
+        "soccer": "sports",
+        "basketball": "sports",
+        "hiking": "outdoor",
+        "walk": "outdoor",
+        "run": "outdoor",
+        "board game": "social",
+        "game night": "social",
+        "dinner": "social",
+        "lunch": "social",
+        "coffee": "social",
+        "drinks": "social",
+        "meeting": "work",
+        "workshop": "work",
+        "study": "work",
     }
     for keyword, etype in type_keywords.items():
         if keyword in lower:
@@ -256,9 +276,9 @@ def _next_clarifying_question(
             "or something else?"
         )
 
-    # If we have basics, offer to proceed
+    # If we have basics, offer to proceed or clarify more
     return (
-        "Sounds good. Want me to set up the details (time, place, etc.) "
+        "Sounds good. Want to build the details (time, place, etc.) "
         "or is there anything else you want to clarify first?"
     )
 

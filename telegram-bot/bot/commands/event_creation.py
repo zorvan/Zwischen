@@ -32,8 +32,14 @@ from bot.common.event_formatters import (
     format_commit_by,
     format_duration,
 )
-from bot.common.keyboards import build_threshold_markup, build_min_participants_markup, build_target_participants_markup
+from bot.common.keyboards import (
+    build_threshold_markup,
+    build_min_participants_markup,
+    build_target_participants_markup,
+)
 from bot.common.scheduling import find_user_event_conflict
+from bot.services.event_live_card_service import EventLiveCardService
+from bot.services.event_hashtag_service import EventHashtagService
 from db.connection import get_session
 from db.models import Event, Group, User
 from db.users import get_user_id_by_username
@@ -77,7 +83,13 @@ WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 def _escape_md(text: str) -> str:
     """Escape text for safe Telegram Markdown parsing."""
-    return str(text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
+    return (
+        str(text)
+        .replace("_", "\\_")
+        .replace("*", "\\*")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+    )
 
 
 def compute_commit_by_time(scheduled_time: datetime | None) -> datetime | None:
@@ -395,7 +407,7 @@ def build_event_summary_text(data: dict[str, Any], is_private: bool = False) -> 
         else f"{len(invitees)} users ({', '.join(invitees) if invitees else 'none'})"
     )
     notes = data.get("planning_notes", [])
-    
+
     # Use human-readable formatters for planning preferences
     date_preset_label = format_date_preset(data.get("date_preset"))
     time_window_label = format_time_window(data.get("time_window"))
@@ -523,7 +535,9 @@ async def _apply_final_stage_patch(
                 warnings.append("Minimum participants must be at least 1.")
             else:
                 flow_data["min_participants"] = min_participants
-                existing_target = int(flow_data.get("target_participants", min_participants))
+                existing_target = int(
+                    flow_data.get("target_participants", min_participants)
+                )
                 if existing_target < min_participants:
                     flow_data["target_participants"] = min_participants
                 changes.append(f"minimum set to {min_participants}")
@@ -838,9 +852,7 @@ async def start_event_flow_from_prefill(
         event_type if event_type in ALLOWED_EVENT_TYPES else "social"
     )
     try:
-        flow_data["min_participants"] = max(
-            1, int(pre.get("min_participants", 3))
-        )
+        flow_data["min_participants"] = max(1, int(pre.get("min_participants", 3)))
     except (TypeError, ValueError):
         flow_data["min_participants"] = 3
     try:
@@ -1243,12 +1255,15 @@ async def _handle_callback_common(
         flow_data["min_participants"] = min_val
         # Default target = ceil(min * 1.5)
         import math
+
         flow_data["target_participants"] = math.ceil(min_val * 1.5)
         context.user_data[flow_key] = event_flow
         await query.edit_message_text(
             f"✅ *Minimum: {min_val}*\n\n"
             f"How many people can this comfortably fit? (Default: {flow_data['target_participants']})",
-            reply_markup=build_target_participants_markup(min_val, f"{prefix}_min_{min_val}"),
+            reply_markup=build_target_participants_markup(
+                min_val, f"{prefix}_min_{min_val}"
+            ),
         )
 
     # v3.2: Handle target_participants selection
@@ -1677,7 +1692,9 @@ async def finalize_event(
             commit_by=commit_by,
             duration_minutes=duration_minutes,
             min_participants=data.get("min_participants", 2),
-            target_participants=data.get("target_participants", max(data.get("min_participants", 2), 5)),
+            target_participants=data.get(
+                "target_participants", max(data.get("min_participants", 2), 5)
+            ),
             planning_prefs={
                 "date_preset": data.get("date_preset"),
                 "time_window": data.get("time_window"),
@@ -1735,6 +1752,24 @@ async def finalize_event(
                 event.event_id,
                 lineage_event_ids[:3],
             )
+
+        # Phase 3.3: Create hashtag service and assign hashtags if provided
+        hashtags = data.get("hashtags", [])
+        if hashtags:
+            hashtag_service = EventHashtagService(session)
+            try:
+                event = await hashtag_service.assign_hashtags(event, hashtags)
+                logger.info(
+                    "Assigned hashtags to event %s: %s",
+                    event.event_id,
+                    hashtags,
+                )
+            except ValueError as e:
+                logger.warning(f"Failed to assign hashtags: {e}")
+
+        # Phase 3.3: Create live card after commit
+        live_card_service = EventLiveCardService(context.bot, session)
+        await live_card_service.create_live_card(event, hashtags=hashtags)
 
     context.user_data.pop("event_flow", None)
 
@@ -1982,7 +2017,9 @@ async def finalize_private_event(
             commit_by=commit_by,
             duration_minutes=duration_minutes,
             min_participants=data.get("min_participants", 2),
-            target_participants=data.get("target_participants", max(data.get("min_participants", 2), 5)),
+            target_participants=data.get(
+                "target_participants", max(data.get("min_participants", 2), 5)
+            ),
             planning_prefs={
                 "date_preset": data.get("date_preset"),
                 "time_window": data.get("time_window"),
@@ -2007,6 +2044,25 @@ async def finalize_private_event(
             source="creation",
             role="organizer",
         )
+
+        # Phase 3.3: Create hashtag service and assign hashtags if provided
+        hashtags = data.get("hashtags", [])
+        if hashtags:
+            hashtag_service = EventHashtagService(session)
+            try:
+                event = await hashtag_service.assign_hashtags(event, hashtags)
+                logger.info(
+                    "Assigned hashtags to private event %s: %s",
+                    event.event_id,
+                    hashtags,
+                )
+            except ValueError as e:
+                logger.warning(f"Failed to assign hashtags: {e}")
+
+        # Phase 3.3: Create live card after commit
+        # For private events, we still create a live card but it won't display in group
+        live_card_service = EventLiveCardService(context.bot, session)
+        await live_card_service.create_live_card(event, hashtags=hashtags)
 
     # Send invitations to invitees (private events)
     # Private events: DM ONLY to listed invitees + admin (NOT to all group members)

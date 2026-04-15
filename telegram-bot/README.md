@@ -2,8 +2,14 @@
 
 **Pure Mediation: From Behavioral Inference to Relational Perception**
 
-Current release: `v3.2.0`
+Current release: `v3.3.0` - Social Visibility
 Supported Python: `3.13` to `3.14`
+
+New features:
+- Live event cards with participant counts and hashtags
+- Memory-first event creation flow
+- Living artifacts with event lineage
+- Hashtag search and permanent event identity
 
 A Telegram bot that mediates group coordination through perception, not prediction. It shapes how people relate to what is forming — without modeling users, inferring reliability, or steering outcomes.
 

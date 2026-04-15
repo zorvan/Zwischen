@@ -2,11 +2,22 @@
 Database models for the coordination bot - v2.
 Aligned with Coordination Engine PRD: From Coordination Tool to Shared Experience Engine.
 """
+
 from datetime import datetime
 from typing import Any
 from sqlalchemy import (
-    Column, Integer, BigInteger, String, Float, DateTime, JSON, Text,
-    ForeignKey, CheckConstraint, UniqueConstraint, Enum as SQLEnum
+    Column,
+    Integer,
+    BigInteger,
+    String,
+    Float,
+    DateTime,
+    JSON,
+    Text,
+    ForeignKey,
+    CheckConstraint,
+    UniqueConstraint,
+    Enum as SQLEnum,
 )
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -17,6 +28,7 @@ Base: Any = declarative_base()
 
 class User(Base):
     """Users table - global identity across groups."""
+
     __tablename__ = "users"
 
     user_id = Column(Integer, primary_key=True)
@@ -27,14 +39,12 @@ class User(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     constraints = relationship(
-        "Constraint",
-        back_populates="user",
-        foreign_keys="[Constraint.user_id]"
+        "Constraint", back_populates="user", foreign_keys="[Constraint.user_id]"
     )
     target_constraints = relationship(
         "Constraint",
         back_populates="target_user",
-        foreign_keys="[Constraint.target_user_id]"
+        foreign_keys="[Constraint.target_user_id]",
     )
     logs = relationship("Log", back_populates="user")
     preferences = relationship("UserPreference", back_populates="user", uselist=False)
@@ -42,6 +52,7 @@ class User(Base):
 
 class Group(Base):
     """Groups table - Telegram group context."""
+
     __tablename__ = "groups"
 
     group_id = Column(Integer, primary_key=True)
@@ -56,13 +67,12 @@ class Group(Base):
 
 class Event(Base):
     """Events table - gathering lifecycle."""
+
     __tablename__ = "events"
 
     event_id = Column(Integer, primary_key=True)
     group_id = Column(
-        Integer,
-        ForeignKey("groups.group_id", ondelete="CASCADE"),
-        nullable=False
+        Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), nullable=False
     )
     event_type = Column(String(100), nullable=False)
     description = Column(Text)
@@ -73,7 +83,9 @@ class Event(Base):
     duration_minutes = Column(Integer, default=120)
     # PRD v2: Explicit threshold fields (Section 2.1)
     min_participants = Column(Integer, default=2)  # Absolute floor for viability
-    target_participants = Column(Integer, default=6)  # Desired count for optimal experience
+    target_participants = Column(
+        Integer, default=6
+    )  # Desired count for optimal experience
     collapse_at = Column(DateTime)  # Auto-cancel deadline for underthreshold events
     lock_deadline = Column(DateTime)  # Cutoff for attendance changes
 
@@ -88,28 +100,25 @@ class Event(Base):
 
     group = relationship("Group", back_populates="events")
     constraints = relationship(
-        "Constraint",
-        back_populates="event",
-        cascade="all, delete-orphan"
+        "Constraint", back_populates="event", cascade="all, delete-orphan"
     )
     logs = relationship("Log", back_populates="event")
     # PRD v2: Normalized participants table (Priority 1)
     participants = relationship(
-        "EventParticipant",
-        back_populates="event",
-        cascade="all, delete-orphan"
+        "EventParticipant", back_populates="event", cascade="all, delete-orphan"
     )
     # PRD v2: Memory layer (Priority 3)
     memories = relationship(
         "EventMemory",
         back_populates="event",
         cascade="all, delete-orphan",
-        uselist=False
+        uselist=False,
     )
 
 
 class UserPreference(Base):
     """User preferences table - private preference profiles."""
+
     __tablename__ = "user_preferences"
 
     preference_id = Column(Integer, primary_key=True)
@@ -117,7 +126,7 @@ class UserPreference(Base):
         Integer,
         ForeignKey("users.user_id", ondelete="CASCADE"),
         nullable=False,
-        unique=True
+        unique=True,
     )
     time_preference = Column(String(50), default="any")
     activity_preference = Column(String(100), default="any")
@@ -133,53 +142,36 @@ class UserPreference(Base):
 
 class Constraint(Base):
     """Constraints table - conditional participation."""
+
     __tablename__ = "constraints"
 
     constraint_id = Column(Integer, primary_key=True)
     user_id = Column(
-        Integer,
-        ForeignKey("users.user_id", ondelete="CASCADE"),
-        nullable=False
+        Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
-    target_user_id = Column(
-        Integer,
-        ForeignKey("users.user_id", ondelete="SET NULL")
-    )
+    target_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"))
     event_id = Column(
-        Integer,
-        ForeignKey("events.event_id", ondelete="CASCADE"),
-        nullable=False
+        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
     type = Column(String(50), nullable=False)
     confidence = Column(Float, default=1.0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
-    user = relationship(
-        "User",
-        back_populates="constraints",
-        foreign_keys=[user_id]
-    )
+    user = relationship("User", back_populates="constraints", foreign_keys=[user_id])
     target_user = relationship(
-        "User",
-        back_populates="target_constraints",
-        foreign_keys=[target_user_id]
+        "User", back_populates="target_constraints", foreign_keys=[target_user_id]
     )
     event = relationship("Event", back_populates="constraints")
 
 
 class Log(Base):
     """Logs table - audit trail."""
+
     __tablename__ = "logs"
 
     log_id = Column(Integer, primary_key=True)
-    event_id = Column(
-        Integer,
-        ForeignKey("events.event_id", ondelete="SET NULL")
-    )
-    user_id = Column(
-        Integer,
-        ForeignKey("users.user_id", ondelete="SET NULL")
-    )
+    event_id = Column(Integer, ForeignKey("events.event_id", ondelete="SET NULL"))
+    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"))
     action = Column(String(100), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
     metadata_dict = Column("metadata", JSON, default=dict)
@@ -192,8 +184,10 @@ class Log(Base):
 # PRD v2: New Tables for Priority 1 - Structural Foundations
 # ============================================================================
 
+
 class ParticipantStatus(enum.Enum):
     """Participant status enum."""
+
     joined = "joined"
     confirmed = "confirmed"
     cancelled = "cancelled"
@@ -202,6 +196,7 @@ class ParticipantStatus(enum.Enum):
 
 class ParticipantRole(enum.Enum):
     """Participant role enum."""
+
     organizer = "organizer"
     participant = "participant"
     observer = "observer"
@@ -212,28 +207,25 @@ class EventParticipant(Base):
     EventParticipant table - Normalized participation tracking.
     PRD v2 Section 2.1: Replaces attendance_list JSON column.
     """
+
     __tablename__ = "event_participants"
 
     event_id = Column(
         Integer,
         ForeignKey("events.event_id", ondelete="CASCADE"),
         primary_key=True,
-        nullable=False
+        nullable=False,
     )
-    telegram_user_id = Column(
-        BigInteger,
-        primary_key=True,
-        nullable=False
-    )
+    telegram_user_id = Column(BigInteger, primary_key=True, nullable=False)
     status = Column(
         SQLEnum(ParticipantStatus, name="participant_status"),
         default=ParticipantStatus.joined,
-        nullable=False
+        nullable=False,
     )
     role = Column(
         SQLEnum(ParticipantRole, name="participant_role"),
         default=ParticipantRole.participant,
-        nullable=False
+        nullable=False,
     )
     joined_at = Column(DateTime, default=datetime.utcnow)
     confirmed_at = Column(DateTime)
@@ -248,6 +240,7 @@ class IdempotencyKey(Base):
     IdempotencyKey table - Prevents duplicate command execution.
     PRD v2 Priority 1: Idempotent Command Execution.
     """
+
     __tablename__ = "idempotency_keys"
 
     idempotency_key = Column(String(255), primary_key=True)
@@ -269,13 +262,12 @@ class EventStateTransition(Base):
     EventStateTransition table - Audit trail for state changes.
     PRD v2 Section 2.1: Each transition records actor, timestamp, reason, source.
     """
+
     __tablename__ = "event_state_transitions"
 
     transition_id = Column(Integer, primary_key=True)
     event_id = Column(
-        Integer,
-        ForeignKey("events.event_id", ondelete="CASCADE"),
-        nullable=False
+        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
     from_state = Column(String(20), nullable=False)
     to_state = Column(String(20), nullable=False)
@@ -293,6 +285,7 @@ class GroupEventTypeStats(Base):
     PRD v3.2: Used only for the repeated failure pattern surface in meaning-formation.
     No individual user data. No attribution.
     """
+
     __tablename__ = "group_event_type_stats"
 
     stat_id = Column(Integer, primary_key=True)
@@ -318,11 +311,13 @@ class GroupEventTypeStats(Base):
 # PRD v2: New Tables for Priority 3 - Layer 3 Memory
 # ============================================================================
 
+
 class EventMemory(Base):
     """
     EventMemory table - Memory Weave storage.
     PRD v2 Section 2.3: Makes events mean something through shared narratives.
     """
+
     __tablename__ = "event_memories"
 
     memory_id = Column(Integer, primary_key=True)
@@ -330,7 +325,7 @@ class EventMemory(Base):
         Integer,
         ForeignKey("events.event_id", ondelete="CASCADE"),
         nullable=False,
-        unique=True
+        unique=True,
     )
     fragments = Column(JSON, default=list)
     # Each fragment: {text, contributor_hash, submitted_at, word_count}
@@ -347,6 +342,7 @@ class EventMemory(Base):
 # PRD v2: Waitlist Support (TODO-023)
 # ============================================================================
 
+
 class EventWaitlist(Base):
     """
     EventWaitlist table - Waitlist for oversubscribed events.
@@ -355,13 +351,12 @@ class EventWaitlist(Base):
     When events reach capacity, users can join waitlist.
     Automatic promotion when confirmed participants cancel.
     """
+
     __tablename__ = "event_waitlist"
 
     waitlist_id = Column(Integer, primary_key=True)
     event_id = Column(
-        Integer,
-        ForeignKey("events.event_id", ondelete="CASCADE"),
-        nullable=False
+        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
     telegram_user_id = Column(BigInteger, nullable=False)
     # Legacy compatibility field. Active v3.2 ordering is by added_at only.
@@ -371,7 +366,7 @@ class EventWaitlist(Base):
     status = Column(
         String(20),
         default="waiting",  # waiting, offered, promoted, expired, cancelled
-        nullable=False
+        nullable=False,
     )
 
     __table_args__ = (
@@ -387,5 +382,74 @@ Event.waitlist = relationship(
     "EventWaitlist",
     back_populates="event",
     cascade="all, delete-orphan",
-    order_by="EventWaitlist.added_at"
+    order_by="EventWaitlist.added_at",
 )
+
+
+class EventLiveCard(Base):
+    """
+    EventLiveCard table - Live status card in group chat.
+    PRD v3.3: Makes forming events socially visible in group chat.
+    """
+
+    __tablename__ = "event_live_cards"
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(
+        Integer,
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    message_id = Column(BigInteger, nullable=False)
+    chat_id = Column(BigInteger, nullable=False)
+    participant_count = Column(Integer, default=0)
+    confirmed_count = Column(Integer, default=0)
+    reaction_counts = Column(JSON, default=dict)
+    hashtags = Column(JSON, default=list)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    event = relationship("Event", back_populates="live_card")
+
+
+class GroupSettings(Base):
+    """
+    GroupSettings table - Per-group configuration.
+    PRD v3.3: Group-level settings for v3.3 features.
+    """
+
+    __tablename__ = "group_settings"
+
+    group_id = Column(
+        Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), primary_key=True
+    )
+    enable_live_cards = Column(
+        Integer, default=1
+    )  # Boolean as Integer for SQLite compatibility
+    memory_first_skip_enabled = Column(Integer, default=1)  # Boolean as Integer
+    lineage_selection_method = Column(String(20), default="llm")
+    max_hashtags = Column(Integer, default=5)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    group = relationship("Group", back_populates="settings")
+
+
+# ============================================================================
+# PRD v3.3: Event Identity - Hashtags
+# ============================================================================
+
+# Add columns to Event model
+Event.formation_hashtag = Column(JSON, default=list)  # list of hashtag strings
+Event.locked_hashtag = Column(JSON, default=list)  # list of hashtag strings (frozen)
+Event.mosaic_message_id = Column(BigInteger)  # pinned mosaic message ID
+
+# Add back-populates
+Event.live_card = relationship("EventLiveCard", back_populates="event", uselist=False)
+
+Group.settings = relationship("GroupSettings", back_populates="group", uselist=False)
+
+# Update EventMemory model with lineage fields
+EventMemory.is_lineage_door = Column(Integer, default=0)  # Boolean as Integer
+EventMemory.selected_at = Column(DateTime)

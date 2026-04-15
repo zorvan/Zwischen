@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Main entry point for the Telegram bot.
 
+Version: v3.3.0 - Social Visibility Release
+
 PRD v3: Pure mediation through timing, framing, visibility, language, sequence, and memory.
+PRD v3.3: Live event cards, memory-first flow, and living artifacts.
 """
+
 import asyncio
 import logging
 from telegram.ext import (
@@ -17,22 +21,48 @@ from telegram.ext import (
 from config.settings import Settings
 from config.logging import setup_logging
 from bot.commands import (
-    start, my_groups, profile, organize_event, private_organize_event,
-    join, confirm, back, cancel, lock, request_confirmations, modify_event, constraints, suggest_time, status,
-    event_details, events, check_deadlines, memory, my_history,
-    personal_attendance_mirror, meaning_formation,
+    start,
+    my_groups,
+    profile,
+    organize_event,
+    private_organize_event,
+    join,
+    confirm,
+    back,
+    cancel,
+    lock,
+    request_confirmations,
+    modify_event,
+    constraints,
+    suggest_time,
+    status,
+    event_details,
+    events,
+    check_deadlines,
+    memory,
+    my_history,
+    personal_attendance_mirror,
+    meaning_formation,
 )
-from bot.handlers import event_flow, membership, mentions, menus, waitlist as waitlist_handlers
+from bot.handlers import (
+    event_flow,
+    membership,
+    mentions,
+    menus,
+    waitlist as waitlist_handlers,
+)
 from ai.llm import LLMClient
 from db.connection import check_db_connection, create_engine, init_db
+
+__version__ = "3.3.0"
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log full traceback for uncaught update handling errors."""
     logger = logging.getLogger("coord_bot.bot")
-    logger.exception("Unhandled Telegram update error. update=%r",
-                     update,
-                     exc_info=context.error)
+    logger.exception(
+        "Unhandled Telegram update error. update=%r", update, exc_info=context.error
+    )
 
 
 async def check_llm_availability(logger: logging.Logger) -> None:
@@ -81,7 +111,13 @@ def main():
 
     if not settings.telegram_token:
         raise ValueError("TELEGRAM_TOKEN is not set. Define it in environment or .env.")
-    if settings.telegram_token in {"test-token", "dummy-token", "changeme", "your-token-here", "<set-me>"}:
+    if settings.telegram_token in {
+        "test-token",
+        "dummy-token",
+        "changeme",
+        "your-token-here",
+        "<set-me>",
+    }:
         raise ValueError(
             "TELEGRAM_TOKEN is still a placeholder value. "
             "Set a real BotFather token in .env before starting the bot."
@@ -103,7 +139,9 @@ def main():
     loop.run_until_complete(check_llm_availability(logger))
     if settings.db_url:
         if not settings.db_url.startswith("postgresql+asyncpg://"):
-            db_url = settings.db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            db_url = settings.db_url.replace(
+                "postgresql://", "postgresql+asyncpg://", 1
+            )
         else:
             db_url = settings.db_url
         loop.run_until_complete(check_db_availability(logger, db_url))
@@ -114,11 +152,7 @@ def main():
         logger.info("Database initialization complete")
 
     # Build application with job queue for scheduled tasks
-    application = (
-        ApplicationBuilder()
-        .token(settings.telegram_token)
-        .build()
-    )
+    application = ApplicationBuilder().token(settings.telegram_token).build()
 
     # Store settings in bot_data for access by handlers and jobs
     application.bot_data["settings"] = settings
@@ -193,25 +227,26 @@ def main():
     callback_handlers = [
         # Menu handlers (must come before general patterns)
         (r"^menu_", menus.handle_menu_callback),
-
         # Waitlist handlers (must come before general event_ patterns)
         (r"^waitlist_(join|accept|decline)_", waitlist_handlers.handle_menu_callback),
         (r"^extend_deadline_", waitlist_handlers.handle_menu_callback),
         (r"^view_waitlist_", waitlist_handlers.handle_menu_callback),
-
         # Event flow handlers (more specific, must come before general event_)
         (r"^event_(join|confirm|back|cancel|lock)_", event_flow.handle_event_flow),
-        (r"^event_unconfirm_", event_flow.handle_event_flow),  # Uncommit (separate from back)
-        (r"^event_(details|status|logs|constraints|close)_", event_details.handle_callback),
+        (
+            r"^event_unconfirm_",
+            event_flow.handle_event_flow,
+        ),  # Uncommit (separate from back)
+        (
+            r"^event_(details|status|logs|constraints|close)_",
+            event_details.handle_callback,
+        ),
         (r"^event_modify_", mentions.handle_callback),
-
         # Event creation handlers (general, comes after specific ones)
         (r"^event_", organize_event.handle_callback),
         (r"^private_event_", organize_event.private_handle_callback),
-
         # Modify input handlers
         (r"^modinput_", mentions.handle_callback),
-
         # Other handlers
         (r"^constraint_nl_", constraints.handle_callback),
         (r"^mentionact_", mentions.handle_mention_callback),
@@ -259,7 +294,11 @@ def main():
     logger.info("Bot started. Press Ctrl+C to stop.")
 
     # Check if webhook mode is enabled
-    if settings.environment == "production" and hasattr(settings, 'webhook_url') and settings.webhook_url:
+    if (
+        settings.environment == "production"
+        and hasattr(settings, "webhook_url")
+        and settings.webhook_url
+    ):
         # Production: Use webhook with worker queue
         logger.info("Starting in webhook mode: %s", settings.webhook_url)
         from bot.common.webhook import setup_webhook, shutdown_webhook

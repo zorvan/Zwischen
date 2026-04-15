@@ -17,6 +17,8 @@ from bot.services.event_materialization_service import EventMaterializationServi
 from bot.services.event_memory_service import EventMemoryService
 from bot.services.event_lifecycle_service import EventLifecycleService
 from bot.services.waitlist_service import WaitlistService
+from bot.services.event_live_card_service import EventLiveCardService
+from bot.services.event_hashtag_service import EventHashtagService
 
 __all__ = [
     "EventStateTransitionService",
@@ -32,4 +34,6 @@ __all__ = [
     "EventMemoryService",
     "EventLifecycleService",
     "WaitlistService",
+    "EventLiveCardService",
+    "EventHashtagService",
 ]
