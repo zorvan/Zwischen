@@ -20,7 +20,7 @@
 
 -- 1. Users: Global identity across groups
 CREATE TABLE IF NOT EXISTS users (
-    user_id SERIAL PRIMARY KEY,
+    user_id BIGSERIAL PRIMARY KEY,
     telegram_user_id BIGINT UNIQUE NOT NULL,
     username VARCHAR(255) UNIQUE,
     display_name VARCHAR(255),
@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- 2. Groups: Telegram group context
 CREATE TABLE IF NOT EXISTS groups (
-    group_id SERIAL PRIMARY KEY,
+    group_id BIGSERIAL PRIMARY KEY,
     telegram_group_id BIGINT UNIQUE NOT NULL,
     group_name VARCHAR(255),
     group_type VARCHAR(50) DEFAULT 'casual' CHECK (group_type IN ('casual', 'gathering', 'tournament')),
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS groups (
 
 -- 3. Events: Gathering lifecycle
 CREATE TABLE IF NOT EXISTS events (
-    event_id SERIAL PRIMARY KEY,
+    event_id BIGSERIAL PRIMARY KEY,
     group_id INTEGER REFERENCES groups(group_id) ON DELETE CASCADE,
     event_type VARCHAR(100) NOT NULL,
     description TEXT,
@@ -68,10 +68,10 @@ CREATE TABLE IF NOT EXISTS events (
 
 -- 4. Constraints: Conditional participation
 CREATE TABLE IF NOT EXISTS constraints (
-    constraint_id SERIAL PRIMARY KEY,
+    constraint_id BIGSERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
     target_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
-    event_id INTEGER REFERENCES events(event_id) ON DELETE CASCADE,
+    event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
     type VARCHAR(50) NOT NULL CHECK (
         type IN ('if_joins', 'if_attends', 'unless_joins')
         OR type LIKE 'available:%'
@@ -82,8 +82,8 @@ CREATE TABLE IF NOT EXISTS constraints (
 
 -- 5. Logs: Audit trail
 CREATE TABLE IF NOT EXISTS logs (
-    log_id SERIAL PRIMARY KEY,
-    event_id INTEGER REFERENCES events(event_id) ON DELETE SET NULL,
+    log_id BIGSERIAL PRIMARY KEY,
+    event_id BIGINT REFERENCES events(event_id) ON DELETE SET NULL,
     user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     action VARCHAR(100) NOT NULL CHECK (action IN ('organize_event', 'join', 'confirm', 'cancel', 'suggest_time', 'nudge', 'constraint_update')),
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -92,7 +92,7 @@ CREATE TABLE IF NOT EXISTS logs (
 
 -- 6. UserPreference: Private user preference profiles
 CREATE TABLE IF NOT EXISTS user_preferences (
-    preference_id SERIAL PRIMARY KEY,
+    preference_id BIGSERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     time_preference VARCHAR(50) DEFAULT 'any',
     activity_preference VARCHAR(100) DEFAULT 'any',
@@ -129,7 +129,7 @@ END $$;
 
 -- 7. EventParticipant: Normalized participation tracking
 CREATE TABLE IF NOT EXISTS event_participants (
-    event_id INTEGER NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+    event_id BIGINT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
     telegram_user_id BIGINT NOT NULL,
     status participant_status NOT NULL DEFAULT 'joined',
     role participant_role NOT NULL DEFAULT 'participant',
@@ -145,7 +145,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     idempotency_key VARCHAR(255) PRIMARY KEY,
     command_type VARCHAR(100) NOT NULL,
     user_id INTEGER REFERENCES users(user_id),
-    event_id INTEGER REFERENCES events(event_id),
+    event_id BIGINT REFERENCES events(event_id),
     status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed')),
     response_hash VARCHAR(255),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -155,8 +155,8 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 
 -- 9. EventStateTransition: Audit trail for state changes
 CREATE TABLE IF NOT EXISTS event_state_transitions (
-    transition_id SERIAL PRIMARY KEY,
-    event_id INTEGER NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+    transition_id BIGSERIAL PRIMARY KEY,
+    event_id BIGINT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
     from_state VARCHAR(20) NOT NULL,
     to_state VARCHAR(20) NOT NULL,
     actor_telegram_user_id BIGINT,
@@ -171,8 +171,8 @@ CREATE TABLE IF NOT EXISTS event_state_transitions (
 
 -- 10. EventMemory: Memory Weave storage
 CREATE TABLE IF NOT EXISTS event_memories (
-    memory_id SERIAL PRIMARY KEY,
-    event_id INTEGER NOT NULL REFERENCES events(event_id) ON DELETE CASCADE UNIQUE,
+    memory_id BIGSERIAL PRIMARY KEY,
+    event_id BIGINT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE UNIQUE,
     fragments JSONB DEFAULT '[]',
     hashtags JSONB DEFAULT '[]',
     outcome_markers JSONB DEFAULT '[]',
@@ -183,8 +183,8 @@ CREATE TABLE IF NOT EXISTS event_memories (
 
 -- 11. EventWaitlist: Waitlist for oversubscribed events
 CREATE TABLE IF NOT EXISTS event_waitlist (
-    waitlist_id SERIAL PRIMARY KEY,
-    event_id INTEGER NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
+    waitlist_id BIGSERIAL PRIMARY KEY,
+    event_id BIGINT NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
     telegram_user_id BIGINT NOT NULL,
     position INTEGER,
     added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,

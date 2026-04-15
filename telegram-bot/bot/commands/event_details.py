@@ -182,12 +182,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "Type 'cancel' to abort.",
             parse_mode="Markdown",
         )
+    elif data and data.startswith("avail_add_"):
+        event_id = int(data.replace("avail_add_", ""))
+        await _show_availability_slots(query, context, event_id)
     elif data and data.startswith("avail_"):
         event_id = int(data.replace("avail_", ""))
-        if data.startswith("avail_add_"):
-            await _show_availability_slots(query, context, event_id)
-        else:
-            await _show_availability_options(query, context, event_id)
+        await _show_availability_options(query, context, event_id)
     elif data and data.startswith("event_close_"):
         await query.edit_message_text("✅ Event details closed.")
 

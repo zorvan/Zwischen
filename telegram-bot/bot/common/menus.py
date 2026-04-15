@@ -108,7 +108,7 @@ def build_event_detail_keyboard(
     keyboard.append(
         [
             InlineKeyboardButton(
-                "📅 Set Availability", callback_data=f"event_constraints_{event_id}"
+                "📅 Set Availability", callback_data=f"avail_add_{event_id}"
             ),
         ]
     )

@@ -70,7 +70,7 @@ class Event(Base):
 
     __tablename__ = "events"
 
-    event_id = Column(Integer, primary_key=True)
+    event_id = Column(BigInteger, primary_key=True)
     group_id = Column(
         Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), nullable=False
     )
@@ -157,7 +157,7 @@ class Constraint(Base):
         BigInteger, ForeignKey("users.user_id", ondelete="SET NULL")
     )
     event_id = Column(
-        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
     type = Column(String(50), nullable=False)
     confidence = Column(Float, default=1.0)
@@ -176,7 +176,7 @@ class Log(Base):
     __tablename__ = "logs"
 
     log_id = Column(Integer, primary_key=True)
-    event_id = Column(Integer, ForeignKey("events.event_id", ondelete="SET NULL"))
+    event_id = Column(BigInteger, ForeignKey("events.event_id", ondelete="SET NULL"))
     user_id = Column(BigInteger, ForeignKey("users.user_id", ondelete="SET NULL"))
     action = Column(String(100), nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
@@ -217,7 +217,7 @@ class EventParticipant(Base):
     __tablename__ = "event_participants"
 
     event_id = Column(
-        Integer,
+        BigInteger,
         ForeignKey("events.event_id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
@@ -252,7 +252,7 @@ class IdempotencyKey(Base):
     idempotency_key = Column(String(255), primary_key=True)
     command_type = Column(String(100), nullable=False)
     user_id = Column(Integer, ForeignKey("users.user_id"))
-    event_id = Column(Integer, ForeignKey("events.event_id"))
+    event_id = Column(BigInteger, ForeignKey("events.event_id"))
     status = Column(String(50), default="pending")  # pending, completed, failed
     response_hash = Column(String(255))
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -273,7 +273,7 @@ class EventStateTransition(Base):
 
     transition_id = Column(Integer, primary_key=True)
     event_id = Column(
-        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
     from_state = Column(String(20), nullable=False)
     to_state = Column(String(20), nullable=False)
@@ -328,7 +328,7 @@ class EventMemory(Base):
 
     memory_id = Column(Integer, primary_key=True)
     event_id = Column(
-        Integer,
+        BigInteger,
         ForeignKey("events.event_id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
@@ -362,7 +362,7 @@ class EventWaitlist(Base):
 
     waitlist_id = Column(Integer, primary_key=True)
     event_id = Column(
-        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
+        BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
     telegram_user_id = Column(BigInteger, nullable=False)
     # Legacy compatibility field. Active v3.2 ordering is by added_at only.
@@ -402,7 +402,7 @@ class EventLiveCard(Base):
 
     id = Column(Integer, primary_key=True)
     event_id = Column(
-        Integer,
+        BigInteger,
         ForeignKey("events.event_id", ondelete="CASCADE"),
         nullable=False,
         unique=True,
