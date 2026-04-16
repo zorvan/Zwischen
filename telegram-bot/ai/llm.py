@@ -855,6 +855,225 @@ class LLMClient:
 
         return "\n".join(schema_parts)
 
+
+    async def infer_event_draft_from_action(
+        self,
+        text: str,
+        history: list[dict[str, Any]] | None = None,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Phase 4: Inference using action registry for event creation.
+        
+        Uses the create_event action to infer full draft parameters.
+        """
+        compact_history = (history or [])[-15:]
+        
+        # Build context for the LLM
+        active_events = (context or {}).get("active_events", [])
+        user_events = (context or {}).get("user_events", [])
+        
+        prompt = f"""
+        You are building an event draft. Extract parameters from the conversation.
+        
+        Available actions: use create_event when user wants to organize/gather.
+        
+        User message:
+        {text}
+        
+        Recent chat history:
+        {compact_history}
+        
+        Group context:
+        - Active events: {active_events}
+        - User's joined events: {user_events}
+        
+        Extract ALL parameters from conversation. Be generous with inference.
+        
+        Output JSON ONLY:
+        {{
+          "action": "create_event",
+          "params": {{
+            "description": "short natural text with location if mentioned",
+            "event_type": "social|sports|work",
+            "scheduled_time": "YYYY-MM-DDTHH:MM or null",
+            "duration_minutes": number,
+            "min_participants": number,
+            "target_participants": number,
+            "invite_all_members": true,
+            "invitees": ["@alice", "@bob"],
+            "planning_notes": ["note 1"],
+            "date_preset": "today|tomorrow|weekend|nextweek|custom",
+            "time_window": "early-morning|morning|afternoon|evening|night",
+            "location_type": "home|outdoor|cafe|office|gym or null",
+            "budget_level": "free|low|medium|high or null",
+            "transport_mode": "walk|public_transit|drive|any or null"
+          }},
+          "confidence": 0.0-1.0,
+          "assistant_response": "brief helpful message"
+        }}
+        """.strip()
+        
+        try:
+            response = await self._call_llm(prompt, max_tokens=800)
+            parsed = json.loads(response)
+            
+            # Validate
+            from ai.validator import create_validator
+            validator = create_validator()
+            result = validator.validate(parsed)
+            
+            if not result.valid:
+                return self._infer_draft_fallback(text, compact_history)
+            
+            return parsed.get("params", {})
+            
+        except Exception:
+            return self._infer_draft_fallback(text, compact_history)
+
+    def _infer_draft_fallback(
+        self,
+        text: str,
+        history: list[dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Fallback for event draft inference when LLM fails."""
+        # Extract simple parameters from text
+        import re
+        
+        text_lower = text.lower()
+        
+        draft = {
+            "description": "Group planned event",
+            "event_type": "social",
+            "scheduled_time": None,
+            "duration_minutes": 120,
+            "min_participants": 3,
+            "target_participants": 6,
+            "invite_all_members": True,
+            "invitees": [],
+            "planning_notes": [],
+        }
+        
+        # Extract invitees
+        mentions = re.findall(r'@([A-Za-z][A-Za-z0-9_]{3,31})', text)
+        if mentions:
+            draft["invitees"] = [f"@{m.lower()}" for m in mentions]
+            draft["invite_all_members"] = False  # Explicit mentions suggest limited invitees
+        
+        # Extract scheduling mode
+        if "flexible" in text_lower or "when" in text_lower or "tbd" in text_lower:
+            draft["scheduled_time"] = None
+        
+        # Extract type hints
+        if any(w in text_lower for w in ["game", "games", "play", "fun", "hangout"]):
+            draft["event_type"] = "social"
+        elif any(w in text_lower for w in ["sport", "run", "workout", "gym", "train"]):
+            draft["event_type"] = "sports"
+        elif any(w in text_lower for w in ["work", "coding", "meeting", "professional"]):
+            draft["event_type"] = "work"
+        
+        # Extract min participants
+        min_match = re.search(r'(?:minimum|at least|need)\s+(\d+)', text)
+        if min_match:
+            draft["min_participants"] = int(min_match.group(1))
+        
+        return draft
+
+    async def infer_event_patch_from_action(
+        self,
+        current_draft: Dict[str, Any],
+        text: str,
+    ) -> Dict[str, Any]:
+        """
+        Phase 4: Inference using action registry for event draft patch.
+        
+        Uses the edit_event action with params for revisions.
+        """
+        prompt = f"""
+        You update an event draft using user requested modifications.
+        
+        Current draft:
+        {current_draft}
+        
+        User modification request:
+        {text}
+        
+        Output ONLY the JSON with changes for fields that are explicitly modified:
+        {{
+          "action": "edit_event",
+          "params": {{
+            "event_id": event_id_if_applicable,
+            "description": "updated text or null",
+            "scheduled_time": "YYYY-MM-DDTHH:MM or null",
+            "duration_minutes": number or null,
+            "min_participants": number or null,
+            "clear_time": true/false
+          }},
+          "confidence": 0.0-1.0,
+          "assistant_response": "brief helpful message"
+        }}
+        """.strip()
+        
+        try:
+            response = await self._call_llm(prompt, max_tokens=500)
+            parsed = json.loads(response)
+            
+            from ai.validator import create_validator
+            validator = create_validator()
+            result = validator.validate(parsed)
+            
+            if not result.valid:
+                # Use fallback for specific fields
+                return self._infer_patch_fallback(text, current_draft)
+            
+            return parsed.get("params", {})
+            
+        except Exception:
+            return self._infer_patch_fallback(text, current_draft)
+
+    def _infer_patch_fallback(
+        self,
+        text: str,
+        current_draft: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Fallback for patch inference when LLM fails."""
+        text_lower = text.lower()
+        patch = {}
+        
+        # Time changes
+        if "change time" in text_lower or "move" in text_lower or "set time" in text_lower:
+            patch["scheduled_time"] = None  # User wants to change, but don't guess
+        
+        # Participant changes
+        if "minimum" in text_lower or "at least" in text_lower or "capacity" in text_lower:
+            import re
+            num_match = re.search(r'(\d+)', text)
+            if num_match:
+                patch["min_participants"] = int(num_match.group(1))
+        
+        # Duration changes
+        if "hour" in text_lower or "minute" in text_lower:
+            import re
+            hour_match = re.search(r'(\d+)\s*(?:hour|hr)', text)
+            if hour_match:
+                patch["duration_minutes"] = int(hour_match.group(1)) * 60
+        
+        # Type changes
+        if "sports" in text_lower:
+            patch["event_type"] = "sports"
+        elif "work" in text_lower:
+            patch["event_type"] = "work"
+        
+        # Location changes
+        if "cafe" in text_lower or "coffee" in text_lower:
+            patch["location_type"] = "cafe"
+        elif "home" in text_lower or "house" in text_lower:
+            patch["location_type"] = "home"
+        elif "park" in text_lower or "outdoor" in text_lower:
+            patch["location_type"] = "outdoor"
+        
+        return patch if patch else {}
+
     async def _call_llm(
         self,
         prompt: str,

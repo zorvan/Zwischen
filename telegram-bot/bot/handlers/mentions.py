@@ -282,43 +282,50 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     else:
         llm = LLMClient()
         try:
-            action = await llm.infer_group_mention_action(
+            # Phase 4: Use new action registry-based inference
+            context = {
+                "history": history,
+                "active_events": [],
+                "user_events": [],
+            }
+            action = await llm.infer_action(
                 text=text,
-                history=history,
+                context=context,
             )
         finally:
             await llm.close()
 
-    action_type = str(action.get("action_type", "opinion")).strip().lower()
+    action_type = str(action.get("action", "opinion")).strip().lower()
     logger.debug(
-        f"Mention inference: action_type={action_type}, event_id={action.get('event_id')}, text={text[:100]}"
+        f"Mention inference: action_type={action_type}, params={action.get('params')}, text={text[:100]}"
     )
 
-    # Handle organize_event actions (these don't need event_id - they CREATE events)
-    if action_type in {"organize_event", "organize_event_flexible"}:
-        mode = "flexible" if action_type == "organize_event_flexible" else "public"
-        scheduling_mode = (
-            "flexible" if action_type == "organize_event_flexible" else "fixed"
-        )
-        llm = LLMClient()
-        try:
-            draft = await llm.infer_event_draft_from_context(
-                message_text=text,
-                history=history,
-                scheduling_mode=scheduling_mode,
-            )
-        finally:
-            await llm.close()
+    # Phase 4: Handle create_event action (uses registry)
+    if action_type == "create_event":
+        params = action.get("params", {})
+        draft = {
+            "description": params.get("description", "Group planned event"),
+            "event_type": params.get("event_type", "social"),
+            "scheduled_time": params.get("scheduled_time"),
+            "duration_minutes": params.get("duration_minutes", 120),
+            "min_participants": params.get("min_participants", 3),
+            "target_participants": params.get("target_participants", 6),
+            "invite_all_members": params.get("invite_all_members", True),
+            "invitees": params.get("invitees", []),
+        }
+        scheduling_mode = "flexible" if not draft.get("scheduled_time") else "fixed"
+
         await _handle_organize_event_direct(
             update=update,
             context=context,
-            mode=mode,
+            mode="flexible" if scheduling_mode == "flexible" else "public",
             draft=draft,
             chat=chat,
             user=user,
         )
         return
 
+    # Handle opinion (chat/conversation)
     if action_type == "opinion":
         response = str(action.get("assistant_response", "")).strip()
         if not response:
