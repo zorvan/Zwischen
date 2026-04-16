@@ -22,6 +22,7 @@ from db.models import (
     Event,
     EventLiveCard,
     EventParticipant,
+    EventEnrichment,
     ParticipantStatus,
     GroupSettings,
 )
@@ -45,10 +46,13 @@ class EventLiveCardService:
         self.session = session
 
     async def create_live_card(
-        self, event: Event, hashtags: Optional[list[str]] = None
+        self,
+        event: Event,
+        hashtags: Optional[list[str]] = None,
+        lineage_fragment: Optional[str] = None,
     ) -> Optional[EventLiveCard]:
         """
-        Create live status card for a new event.
+        Create live status card for a new event (v3.4: supports lineage fragments).
 
         Posts initial card to group chat, stores reference.
         """
@@ -62,7 +66,9 @@ class EventLiveCardService:
             logger.info(f"Live cards disabled for group {group_id}")
             return None
 
-        card_text = self._build_live_card_text(event, hashtags=hashtags or [])
+        card_text = self._build_live_card_text(
+            event, hashtags=hashtags or [], lineage_fragment=lineage_fragment
+        )
 
         message = await self.bot.send_message(
             chat_id=event.group_id, text=card_text, parse_mode="Markdown"
@@ -83,11 +89,13 @@ class EventLiveCardService:
         logger.info(f"Created live card for event {event.event_id}")
         return card
 
-    async def update_live_card(self, event: Event) -> Optional[EventLiveCard]:
+    async def update_live_card(
+        self, event: Event, enrichments_service=None
+    ) -> Optional[EventLiveCard]:
         """
         Update live card after participant changes.
 
-        Updates: participant count, confirmed count, hashtags
+        Updates: participant count, confirmed count, hashtags from enrichments
         """
         card = await self._get_live_card(event.event_id)
         if not card:
@@ -106,7 +114,11 @@ class EventLiveCardService:
             1 for p in participants if p.status == ParticipantStatus.confirmed
         )
 
-        hashtags = event.formation_hashtag or []
+        # Get hashtags from enrichments (v3.4) - falls back to event.formation_hashtag for legacy
+        if enrichments_service:
+            hashtags = await enrichments_service.get_public_hashtags(event, min_count=2)
+        else:
+            hashtags = event.formation_hashtag or []
 
         card_text = self._build_live_card_text(
             event, participant_count, confirmed_count, hashtags
@@ -182,8 +194,9 @@ class EventLiveCardService:
         participant_count: Optional[int] = None,
         confirmed_count: Optional[int] = None,
         hashtags: Optional[list[str]] = None,
+        lineage_fragment: Optional[str] = None,
     ) -> str:
-        """Build the live card text."""
+        """Build the live card text (v3.4: includes lineage and gravity)."""
         from bot.common.event_formatters import format_scheduled_time
 
         if participant_count is None or confirmed_count is None:
@@ -208,12 +221,37 @@ class EventLiveCardService:
             else "TBD"
         )
 
+        # Gravity state indicator (v3.4)
+        min_participants = event.min_participants or 2
+        gravity_met = confirmed_count >= min_participants
+
+        # Gravity state emoji
+        if event.state == "completed":
+            gravity_state = "🏁"
+        elif event.state == "locked":
+            gravity_state = "🔒"
+        elif gravity_met:
+            gravity_state = "✅"
+        elif event.state == "proposed":
+            gravity_state = "⏳"
+        else:
+            gravity_state = "💬"
+
         text = (
-            f"🚀 {event.event_type}: {event.description[:50]}\n"
-            f"{hashtag_str}\n\n"
+            f"{gravity_state} {event.event_type}: {event.description[:50]}\n"
+            f"{hashtag_str}\n"
+        )
+
+        # Lineage fragment (v3.4: memory as coordination input)
+        if lineage_fragment:
+            text += f"↩ From last time: {lineage_fragment}\n\n"
+        else:
+            text += "\n"
+
+        text += (
             f"📅 {scheduled}\n"
             f"⏳ {time_str}\n\n"
-            f"👥 {participant_count or 0}/{event.min_participants} joined\n"
+            f"👥 {participant_count or 0}/{min_participants} joined\n"
             f"✅ {confirmed_count or 0} confirmed"
         )
 

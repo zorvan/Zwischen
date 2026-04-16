@@ -8,6 +8,7 @@ This service manages:
 - Event lineage (connecting related events)
 - Memory-first event creation support
 """
+
 from __future__ import annotations
 
 import logging
@@ -49,29 +50,35 @@ class EventMemoryService:
         "something that didn't quite go as planned" as a valid frame.
         """
         if not event.completed_at:
-            logger.warning("Attempted memory collection for incomplete event %s", event.event_id)
+            logger.warning(
+                "Attempted memory collection for incomplete event %s", event.event_id
+            )
             return
 
         result = await self.session.execute(
-            select(EventParticipant)
-            .where(
+            select(EventParticipant).where(
                 EventParticipant.event_id == event.event_id,
-                EventParticipant.status.in_([
-                    ParticipantStatus.confirmed,
-                    ParticipantStatus.joined,
-                ])
+                EventParticipant.status.in_(
+                    [
+                        ParticipantStatus.confirmed,
+                        ParticipantStatus.joined,
+                    ]
+                ),
             )
         )
         participants = result.scalars().all()
 
         if not participants:
-            logger.info("No participants to collect memories from", extra={"event_id": event.event_id})
+            logger.info(
+                "No participants to collect memories from",
+                extra={"event_id": event.event_id},
+            )
             return
 
         logger.info(
             "Starting memory collection for %d participants",
             len(participants),
-            extra={"event_id": event.event_id}
+            extra={"event_id": event.event_id},
         )
 
         # v3.2: Check for reflexive lineage fragment
@@ -102,19 +109,23 @@ class EventMemoryService:
         user = user_result.scalar_one_or_none()
 
         if not user or not user.telegram_user_id:
-            logger.warning("Cannot find user for participant %s", participant.telegram_user_id)
+            logger.warning(
+                "Cannot find user for participant %s", participant.telegram_user_id
+            )
             return
 
         # v3.2: Build reflexive lineage door message
         event_name = f"{event.event_type}"
         if event.scheduled_time:
-            event_name = f"{event.event_type} on {event.scheduled_time.strftime('%d %b')}"
+            event_name = (
+                f"{event.event_type} on {event.scheduled_time.strftime('%d %b')}"
+            )
 
         if lineage_fragment:
             # Reflexive lineage door with prior fragment
             message = (
                 f"How was {event_name}? The last time your group did something like this, "
-                f"someone said: \"{lineage_fragment}\".\n\n"
+                f'someone said: "{lineage_fragment}".\n\n'
                 f"Anything from today you'd want to remember? A moment that worked, "
                 f"something that surprised you, something that didn't quite go as planned. "
                 f"Whatever comes to mind."
@@ -135,9 +146,14 @@ class EventMemoryService:
                 # No parse_mode — plain text to avoid issues with user-contributed
                 # fragments containing HTML special characters
             )
-            logger.info("Sent memory request", extra={"event_id": event.event_id, "user": user.user_id})
+            logger.info(
+                "Sent memory request",
+                extra={"event_id": event.event_id, "user": user.user_id},
+            )
         except Exception as e:
-            logger.error("Failed to send memory request to user %s: %s", user.user_id, e)
+            logger.error(
+                "Failed to send memory request to user %s: %s", user.user_id, e
+            )
 
     async def collect_memory_fragment(
         self,
@@ -169,7 +185,12 @@ class EventMemoryService:
 
         logger.info(
             "Collected memory fragment",
-            extra={"event_id": event_id, "contributor_hash": contributor_hash, "tone": fragment["tone_tag"], "word_count": word_count},
+            extra={
+                "event_id": event_id,
+                "contributor_hash": contributor_hash,
+                "tone": fragment["tone_tag"],
+                "word_count": word_count,
+            },
         )
 
         return fragment
@@ -218,6 +239,7 @@ class EventMemoryService:
 
         try:
             from ai.llm import LLMClient
+
             llm = LLMClient()
 
             fragments_json = json.dumps(
@@ -280,22 +302,42 @@ class EventMemoryService:
         return "\n".join(parts)
 
     async def post_memory_weave(self, event: Event, group_chat_id: int) -> bool:
-        """Generate and post memory weave to group chat."""
+        """Generate and post memory weave to group chat (v3.4: records lineage)."""
         weave_text = await self.generate_memory_weave(event)
 
         if not weave_text:
             return False
 
         try:
-            await self.bot.send_message(
+            message = await self.bot.send_message(
                 chat_id=group_chat_id,
                 text=weave_text,
                 parse_mode="HTML",
             )
-            logger.info("Posted memory weave to group", extra={"event_id": event.event_id})
+            logger.info(
+                "Posted memory weave to group", extra={"event_id": event.event_id}
+            )
+
+            # v3.4: Record mosaic_message_id and lineage for next cycle
+            result = await self.session.execute(
+                select(EventMemory).where(EventMemory.event_id == event.event_id)
+            )
+            memory = result.scalar_one_or_none()
+            if memory:
+                memory.mosaic_message_id = message.message_id
+                logger.info(
+                    "Stored mosaic_message_id",
+                    extra={
+                        "event_id": event.event_id,
+                        "message_id": message.message_id,
+                    },
+                )
+
             return True
         except Exception as e:
-            logger.error("Failed to post memory weave to group %s: %s", group_chat_id, e)
+            logger.error(
+                "Failed to post memory weave to group %s: %s", group_chat_id, e
+            )
             return False
 
     async def add_hashtags(self, event_id: int, hashtags: List[str]) -> EventMemory:
@@ -359,7 +401,9 @@ class EventMemoryService:
         )
         return result.scalar_one_or_none()
 
-    async def get_recent_memories(self, group_id: int, limit: int = 10) -> List[EventMemory]:
+    async def get_recent_memories(
+        self, group_id: int, limit: int = 10
+    ) -> List[EventMemory]:
         """Get recent memory weaves for a group (for /recall)."""
         result = await self.session.execute(
             select(EventMemory)
@@ -393,6 +437,7 @@ class EventMemoryService:
                 all_hashtags.extend(hashtags)
 
         from collections import Counter
+
         counts = Counter(all_hashtags)
         return [tag for tag, _ in counts.most_common(3)]
 
@@ -453,7 +498,9 @@ class EventMemoryService:
         if not memory or not memory.fragments:
             return None
 
-        qualifying = [f for f in memory.fragments if f.get("word_count", 999) <= max_words]
+        qualifying = [
+            f for f in memory.fragments if f.get("word_count", 999) <= max_words
+        ]
         if not qualifying:
             return None
 
@@ -508,18 +555,36 @@ class EventMemoryService:
         if not memory or not memory.fragments:
             return None
 
-        qualifying = [f for f in memory.fragments if f.get("word_count", 999) <= max_words]
+        qualifying = [
+            f for f in memory.fragments if f.get("word_count", 999) <= max_words
+        ]
         if not qualifying:
             return None
 
         # Reflexive keyword heuristic
         reflexive_keywords = {
-            "almost", "hard", "wrong", "late", "cold", "rain", "tired",
-            "difficult", "unexpected", "surprised", "didn't", "couldn't",
-            "changed", "figured", "adapted", "anyway", "despite", "still",
+            "almost",
+            "hard",
+            "wrong",
+            "late",
+            "cold",
+            "rain",
+            "tired",
+            "difficult",
+            "unexpected",
+            "surprised",
+            "didn't",
+            "couldn't",
+            "changed",
+            "figured",
+            "adapted",
+            "anyway",
+            "despite",
+            "still",
         }
         reflexive = [
-            f for f in qualifying
+            f
+            for f in qualifying
             if any(kw in f.get("text", "").lower() for kw in reflexive_keywords)
         ]
         if reflexive:
