@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS groups (
     group_id BIGSERIAL PRIMARY KEY,
     telegram_group_id BIGINT UNIQUE NOT NULL,
     group_name VARCHAR(255),
-    group_type VARCHAR(50) DEFAULT 'casual' CHECK (group_type IN ('casual', 'gathering', 'tournament')),
+    group_type VARCHAR(50) DEFAULT 'casual',
     member_list JSONB DEFAULT '[]',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -72,10 +72,7 @@ CREATE TABLE IF NOT EXISTS constraints (
     user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
     target_user_id BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
     event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
-    type VARCHAR(50) NOT NULL CHECK (
-        type IN ('if_joins', 'if_attends', 'unless_joins')
-        OR type LIKE 'available:%'
-    ),
+    type VARCHAR(50) NOT NULL,
     confidence FLOAT DEFAULT 1.0 CHECK (confidence >= 0 AND confidence <= 1),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -85,7 +82,7 @@ CREATE TABLE IF NOT EXISTS logs (
     log_id BIGSERIAL PRIMARY KEY,
     event_id BIGINT REFERENCES events(event_id) ON DELETE SET NULL,
     user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
-    action VARCHAR(100) NOT NULL CHECK (action IN ('organize_event', 'join', 'confirm', 'cancel', 'suggest_time', 'nudge', 'constraint_update')),
+    action VARCHAR(100) NOT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     metadata JSONB DEFAULT '{}'
 );
@@ -218,3 +215,41 @@ CREATE INDEX IF NOT EXISTS idx_idempotency_keys_expires ON idempotency_keys(expi
 CREATE INDEX IF NOT EXISTS idx_event_waitlist_event_id ON event_waitlist(event_id);
 CREATE INDEX IF NOT EXISTS idx_event_waitlist_user_id ON event_waitlist(telegram_user_id);
 CREATE INDEX IF NOT EXISTS idx_event_waitlist_status ON event_waitlist(status);
+
+-- ============================================================================
+-- PRD v3.4: Event Enrichments (ideas, hashtags, memories)
+-- ============================================================================
+
+-- 12. EventEnrichments: Member contributions during event formation
+CREATE TABLE IF NOT EXISTS event_enrichments (
+    enrichment_id BIGSERIAL PRIMARY KEY,
+    event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
+    user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+    enrichment_type VARCHAR(30) NOT NULL,
+    -- Values: 'idea', 'hashtag', 'memory'
+    content TEXT NOT NULL,
+    is_public BOOLEAN DEFAULT FALSE,
+    contributor_hash VARCHAR(64),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_enrichments_event_id ON event_enrichments(event_id);
+CREATE INDEX IF NOT EXISTS idx_event_enrichments_user_id ON event_enrichments(user_id);
+CREATE INDEX IF NOT EXISTS idx_event_enrichments_type ON event_enrichments(enrichment_type);
+CREATE INDEX IF NOT EXISTS idx_event_enrichments_is_public ON event_enrichments(is_public);
+
+-- ============================================================================
+-- PRD v3.4: Event Lineage (connecting related events)
+-- ============================================================================
+
+-- 13. EventLineage: Links events of the same type for memory reuse
+CREATE TABLE IF NOT EXISTS event_lineage (
+    parent_event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
+    child_event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
+    relation_type VARCHAR(30) DEFAULT 'same_type',
+    linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (parent_event_id, child_event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_event_lineage_parent ON event_lineage(parent_event_id);
+CREATE INDEX IF NOT EXISTS idx_event_lineage_child ON event_lineage(child_event_id);

@@ -48,6 +48,9 @@ class User(Base):
     )
     logs = relationship("Log", back_populates="user")
     preferences = relationship("UserPreference", back_populates="user", uselist=False)
+    enrichments = relationship(
+        "EventEnrichment", back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Group(Base):
@@ -113,6 +116,10 @@ class Event(Base):
         back_populates="event",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    # PRD v3.4: Enrichments (ideas, hashtags, memories)
+    enrichments = relationship(
+        "EventEnrichment", back_populates="event", cascade="all, delete-orphan"
     )
     # PRD v3.3: Event Identity - Hashtags
     formation_hashtag = Column(JSON, default=list)
@@ -445,6 +452,82 @@ class GroupSettings(Base):
 # ============================================================================
 # PRD v3.3: Event Identity - Hashtags
 # ============================================================================
+
+# ============================================================================
+# PRD v3.4: Event Enrichments (ideas, hashtags, memories)
+# ============================================================================
+
+
+class EventEnrichment(Base):
+    """
+    EventEnrichment table - Member contributions during event formation.
+    PRD v3.4 Section 2.2: Replaces JSONB planning_prefs for member input.
+
+    Stores:
+    - Ideas: Planning suggestions visible only to organizer until lock
+    - Hashtags: Up to 3 per member, surface after 2+ exist
+    - Memories: Member reflections after event completion
+    """
+
+    __tablename__ = "event_enrichments"
+
+    enrichment_id = Column(Integer, primary_key=True)
+    event_id = Column(
+        BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
+    )
+    user_id = Column(
+        BigInteger, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
+    enrichment_type = Column(String(30), nullable=False)
+    # Values: 'idea', 'hashtag', 'memory'
+    content = Column(Text, nullable=False)
+    is_public = Column(Integer, default=0)  # Boolean as Integer for SQLite
+    contributor_hash = Column(String(64))  # Hash of user_id for privacy
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    event = relationship("Event", back_populates="enrichments")
+    user = relationship("User", back_populates="enrichments")
+
+
+# ============================================================================
+# PRD v3.4: Event Lineage (connecting related events)
+# ============================================================================
+
+
+class EventLineage(Base):
+    """
+    EventLineage table - Links events of the same type for memory reuse.
+    PRD v3.4 Section 2.2: Replaces JSONB lineage_event_ids in EventMemory.
+
+    Enables:
+    - Finding all events descended from a given event
+    - Showing "Group's 3rd hiking event" lineage
+    - Quoting prior mosaic fragment in new event creation
+    """
+
+    __tablename__ = "event_lineage"
+
+    parent_event_id = Column(
+        BigInteger,
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    child_event_id = Column(
+        BigInteger,
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
+    relation_type = Column(String(30), default="same_type")
+    linked_at = Column(DateTime, default=datetime.utcnow)
+
+
+# ============================================================================
+# PRD v3.3: Event Identity - Hashtags
+# ============================================================================
+
+# PRD v3.3: Event Identity - Hashtags
 
 # Add back-populates
 Event.live_card = relationship("EventLiveCard", back_populates="event", uselist=False)

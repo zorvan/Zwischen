@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Dict, Any, Tuple
 from config.settings import settings
 from db.models import Event
+from ai.actions import ActionsRegistry
+from ai.validator import create_validator, ValidationResult
 
 logger = logging.getLogger(__name__)
 
@@ -727,195 +729,131 @@ class LLMClient:
                 "inferred_constraints": [],
             }
 
-    async def infer_group_mention_action(
+    async def infer_action(
         self,
         text: str,
-        history: list[dict[str, Any]] | None = None,
-        system: str | None = None,
+        context: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        """Infer mention intent into a concrete action payload."""
-        compact_history = (history or [])[-20:]
+        """
+        Phase 1: Inference using canonical action registry.
+
+        v3.4 Design:
+        - Uses ai/actions.py for action registry
+        - Single structured prompt with schema injection
+        - ai/validator.py enforces output contract before dispatch
+        - No regex fallbacks - user clarifies when validation fails
+
+        Args:
+            text: The user message
+            context: Dict with 'active_events', 'user_events', 'group_id' etc
+
+        Returns:
+            Dict with keys: action, params, confidence, assistant_response
+        """
+        from ai.actions import ActionsRegistry
+        from ai.validator import create_validator, ValidationResult
+
+        actions = ActionsRegistry.get_actions()
+        schema = self._build_action_schema(actions)
+
+        compact_history = (context or {}).get("history", [])[-10:]
+        active_events = (context or {}).get("active_events", [])
+        user_events = (context or {}).get("user_events", [])
+
         prompt = f"""
         You are a Telegram group coordination assistant.
-        Infer the best action from a message that mentioned the bot.
-
-        Allowed action_type values:
-        - opinion
-        - organize_event
-        - organize_event_flexible
-        - status
-        - event_details
-        - suggest_time
-        - constraint_add
-        - join
-        - confirm
-        - cancel
-        - lock
-        - request_confirmations
-
-        If action is unclear, use opinion.
-        If event_id is unknown, set event_id to null.
-
-        CONSTRAINT INFERENCE:
-        When action_type is constraint_add, you MUST infer:
-        - target_username: the person the constraint is about (without @)
-        - constraint_type: "if_joins" (I'll come if X comes), "if_attends" (I'll come if X attends), or "unless_joins" (I won't go if X goes)
-        Look for conditional language: "if", "unless", "only if", "as long as"
-        Examples:
-          "I'll come if @alice comes" → constraint_add, target_username="alice", constraint_type="if_joins"
-          "I won't go unless @bob is there" → constraint_add, target_username="bob", constraint_type="unless_joins"
-          "Count me in if @carol joins" → constraint_add, target_username="carol", constraint_type="if_joins"
-
-        Mention text:
-        {text}
-
-        Recent chat history (newest last):
-        {compact_history}
-
-        Output JSON only:
+        
+        Available actions and when to use them:
+        {schema}
+        
+        Group context:
+        - Active events: {active_events}
+        - User's joined events: {user_events}
+        - Recent chat (last 5 messages): {compact_history[-5:] if compact_history else "empty"}
+        
+        User message: {text}
+        
+        Select the best action. Return ONLY this JSON:
         {{
-          "action_type": "<see allowed list above>",
-          "event_id": 123 or null,
-          "target_username": "alice" or null,
-          "constraint_type": "if_joins|if_attends|unless_joins|null",
-          "assistant_response": "short response"
+          "action": "<action_name from registry>",
+          "params": {{...required and optional params}},
+          "confidence": 0.0-1.0,
+          "assistant_response": "brief helpful message to user"
         }}
-        """
+        """.strip()
+
         try:
-            response = await self._call_llm(
-                prompt,
-                max_tokens=600,
-                system=system if system is not None else MEDIATOR_SYSTEM,
-            )
+            response = await self._call_llm(prompt, max_tokens=600)
             parsed = json.loads(response)
-            action_type = str(parsed.get("action_type", "opinion")).strip().lower()
-            logger.debug(
-                "LLM raw response: action_type=%s, event_id=%s, text=%s",
-                action_type,
-                parsed.get("event_id"),
-                text[:100],
-            )
-            if action_type not in {
-                "opinion",
-                "organize_event",
-                "organize_event_flexible",
-                "status",
-                "event_details",
-                "suggest_time",
-                "constraint_add",
-                "join",
-                "confirm",
-                "cancel",
-                "lock",
-                "request_confirmations",
-            }:
-                action_type = "opinion"
-            event_id = parsed.get("event_id")
-            try:
-                event_id = int(event_id) if event_id is not None else None
-            except (TypeError, ValueError):
-                event_id = None
-            constraint_type = parsed.get("constraint_type")
-            if constraint_type is not None:
-                constraint_type = str(constraint_type).strip().lower()
-                if constraint_type not in {"if_joins", "if_attends", "unless_joins"}:
-                    constraint_type = None
-            target_username = parsed.get("target_username")
-            if target_username is not None:
-                target_username = str(target_username).strip().lstrip("@")
-                if not target_username:
-                    target_username = None
-            return {
-                "action_type": action_type,
-                "event_id": event_id,
-                "target_username": target_username,
-                "constraint_type": constraint_type,
-                "assistant_response": str(parsed.get("assistant_response", "")).strip(),
-            }
-        except Exception:
-            lowered = text.lower()
-            fallback_action = "opinion"
-            if (
-                "organize" in lowered
-                or "organise" in lowered
-                or "create event" in lowered
-                or "new event" in lowered
-                or "plan event" in lowered
-            ):
-                if "flexible" in lowered:
-                    fallback_action = "organize_event_flexible"
+
+            # Validate against registry
+            validator = create_validator()
+            result = validator.validate(parsed)
+
+            if not result.valid:
+                # Non-recoverable error or missing params
+                if result.recoverable:
+                    return {
+                        "action": "clarify",
+                        "params": {},
+                        "confidence": 0.0,
+                        "assistant_response": f"{result.reason}. {validator.get_missing_params_message(result.missing_params)}",
+                    }
                 else:
-                    fallback_action = "organize_event"
-            elif "status" in lowered:
-                fallback_action = "status"
-            elif "detail" in lowered:
-                fallback_action = "event_details"
-            elif "suggest" in lowered or "time" in lowered:
-                fallback_action = "suggest_time"
-            elif (
-                "constraint" in lowered
-                or " if " in lowered
-                or "unless" in lowered
-                or "only if" in lowered
-                or "as long as" in lowered
-            ):
-                fallback_action = "constraint_add"
-            elif (
-                "request confirmation" in lowered
-                or "confirm button" in lowered
-                or "ask confirmations" in lowered
-            ):
-                fallback_action = "request_confirmations"
-            elif "join" in lowered:
-                fallback_action = "join"
-            elif (
-                "confirm" in lowered or "interested" in lowered or "interest" in lowered
-            ):
-                fallback_action = "confirm"
-            elif "cancel" in lowered:
-                fallback_action = "cancel"
-            elif "lock" in lowered:
-                fallback_action = "lock"
+                    logger.warning("LLM output validation failed: %s", result.reason)
+                    return {
+                        "action": "opinion",
+                        "params": {},
+                        "confidence": 0.0,
+                        "assistant_response": "I had trouble understanding that. Can you try again?",
+                    }
 
-            # Basic event id extraction fallback
-            event_id = None
-            for token in text.split():
-                if token.isdigit():
-                    event_id = int(token)
-                    break
+            return parsed
 
-            # Constraint type and target extraction for constraint_add
-            fallback_constraint_type = None
-            fallback_target_username = None
-            if fallback_action == "constraint_add":
-                # Detect constraint type
-                if "unless" in lowered or "won't" in lowered or "won t" in lowered:
-                    fallback_constraint_type = "unless_joins"
-                elif (
-                    " if " in lowered or "only if" in lowered or "as long as" in lowered
-                ):
-                    fallback_constraint_type = "if_joins"
-                elif "attend" in lowered:
-                    fallback_constraint_type = "if_attends"
-                else:
-                    fallback_constraint_type = "if_joins"
-
-                # Extract @username
-                mention_match = re.search(r"@([A-Za-z][A-Za-z0-9_]{4,31})", text)
-                if mention_match:
-                    fallback_target_username = mention_match.group(1)
-
-            logger.debug(
-                f"LLM fallback inference: action={fallback_action}, event_id={event_id}, constraint_type={fallback_constraint_type}, target={fallback_target_username}, text={text[:100]}"
-            )
-
+        except json.JSONDecodeError as e:
+            logger.warning("LLM returned invalid JSON: %s", e)
             return {
-                "action_type": fallback_action,
-                "event_id": event_id,
-                "target_username": fallback_target_username,
-                "constraint_type": fallback_constraint_type,
-                "assistant_response": "I inferred a best-effort action from your mention.",
+                "action": "opinion",
+                "params": {},
+                "confidence": 0.0,
+                "assistant_response": "I had trouble understanding that. Can you try again?",
             }
+        except Exception as e:
+            logger.error("LLM action inference failed: %s", e)
+            return {
+                "action": "opinion",
+                "params": {},
+                "confidence": 0.0,
+                "assistant_response": "I had trouble understanding that. Can you try again?",
+            }
+
+    def _build_action_schema(self, actions: Dict[str, Dict[str, Any]]) -> str:
+        """
+        Build a structured schema description for the prompt.
+
+        Each action is described with:
+        - name
+        - when to use (description)
+        - required params
+        - optional params
+        """
+        schema_parts = []
+        for action_name, action_def in actions.items():
+            description = action_def.get("description", "No description")
+            required = action_def.get("required_params", [])
+            optional = action_def.get("optional_params", [])
+
+            params_list = []
+            if required:
+                params_list.append(f"required: {', '.join(required)}")
+            if optional:
+                params_list.append(f"optional: {', '.join(optional)}")
+
+            schema_parts.append(f"- **{action_name}**: {description}")
+            if params_list:
+                schema_parts.append(f"  Parameters: {', '.join(params_list)}")
+
+        return "\n".join(schema_parts)
 
     async def _call_llm(
         self,
