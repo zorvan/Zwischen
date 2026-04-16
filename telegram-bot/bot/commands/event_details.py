@@ -695,7 +695,31 @@ async def _confirm_constraint(
             )
         )
 
-        if existing.scalar_one_or_none():
+        existing_constraint = existing.scalar_one_or_none()
+        if existing_constraint:
+            await query.edit_message_text(
+                f"❌ This constraint already exists! (ID: {existing_constraint.constraint_id})"
+            )
+            return
+
+        import logging
+
+        logging.debug(
+            f"Constraint check: event_id={event_id}, user_id={source_user_id}, "
+            f"target_user_id={target_user_id}, type={constraint_type}"
+        )
+
+        # Check again before creating (race condition protection)
+        existing_check = await session.execute(
+            select(Constraint).where(
+                Constraint.event_id == event_id,
+                Constraint.user_id == source_user_id,
+                Constraint.target_user_id == target_user_id,
+                Constraint.type == constraint_type,
+            )
+        )
+
+        if existing_check.scalar_one_or_none():
             await query.edit_message_text("❌ This constraint already exists!")
             return
 
@@ -711,8 +735,12 @@ async def _confirm_constraint(
 
         try:
             await session.commit()
-        except IntegrityError:
+        except IntegrityError as e:
             await session.rollback()
+            # Log the actual error for debugging
+            import logging
+
+            logging.error(f"IntegrityError saving constraint: {e}")
             await query.edit_message_text(
                 "❌ Failed to save constraint. It may already exist."
             )
@@ -896,6 +924,14 @@ async def _save_availability(
     from sqlalchemy.exc import IntegrityError
 
     async with get_session(settings.db_url) as session:
+        # Verify event exists
+        event_result = await session.execute(
+            select(Event).where(Event.event_id == event_id)
+        )
+        if not event_result.scalar_one_or_none():
+            await query.edit_message_text("❌ Event not found.")
+            return
+
         # Get or create source user ID
         source_user_id = await get_or_create_user_id(
             session,
@@ -903,6 +939,19 @@ async def _save_availability(
             display_name=query.from_user.full_name,
             username=query.from_user.username,
         )
+
+        # Check if this availability constraint already exists
+        existing = await session.execute(
+            select(Constraint).where(
+                Constraint.event_id == event_id,
+                Constraint.user_id == source_user_id,
+                Constraint.type == f"available:{slot_str}",
+            )
+        )
+
+        if existing.scalar_one_or_none():
+            await query.edit_message_text("❌ This availability slot is already saved!")
+            return
 
         # Add the availability constraint
         constraint = Constraint(

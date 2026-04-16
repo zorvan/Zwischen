@@ -1142,6 +1142,37 @@ async def _handle_message_common(
                 ),
             )
 
+    elif stage == "min_participants":
+        text = update.message.text
+        if text is None:
+            await update.message.reply_text(
+                "❌ Please send a number for the minimum participants."
+            )
+            return
+
+        try:
+            min_val = int(text.strip())
+            if min_val < 1:
+                await update.message.reply_text(
+                    "❌ Minimum participants must be at least 1."
+                )
+                return
+            event_flow["stage"] = "target_participants"
+            flow_data["min_participants"] = min_val
+            import math
+
+            flow_data["target_participants"] = math.ceil(min_val * 1.5)
+            context.user_data[flow_key] = event_flow
+            await update.message.reply_text(
+                f"✅ *Minimum: {min_val}*\n\n"
+                f"How many people can this comfortably fit? (Default: {flow_data['target_participants']})",
+                reply_markup=None,
+            )
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Invalid number. Please send a valid number for minimum participants."
+            )
+
     elif stage == "final":
         text = (update.message.text or "").strip()
         if not text:

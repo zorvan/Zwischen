@@ -69,8 +69,8 @@ CREATE TABLE IF NOT EXISTS events (
 -- 4. Constraints: Conditional participation
 CREATE TABLE IF NOT EXISTS constraints (
     constraint_id BIGSERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
-    target_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
+    user_id BIGINT REFERENCES users(user_id) ON DELETE CASCADE,
+    target_user_id BIGINT REFERENCES users(user_id) ON DELETE SET NULL,
     event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
     type VARCHAR(50) NOT NULL CHECK (
         type IN ('if_joins', 'if_attends', 'unless_joins')
