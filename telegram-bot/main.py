@@ -282,6 +282,12 @@ def main():
         group=0,
     )
 
+    # Register text message handler for event details edit
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, event_details.handle_message),
+        group=1,
+    )
+
     # Register text message handler for pending modification requests
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, mentions.handle_modify_message),

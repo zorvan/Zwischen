@@ -1070,3 +1070,48 @@ async def _prompt_change_time(
         reply_markup=reply_markup,
         parse_mode="Markdown",
     )
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle message after 'Edit Event Details' button is clicked."""
+    if not update.message:
+        return
+
+    pending_edit = context.user_data.get("pending_event_edit")
+    if not pending_edit:
+        return
+
+    user_input = update.message.text
+
+    # Handle cancel
+    if user_input.lower() == "cancel":
+        context.user_data.pop("pending_event_edit", None)
+        await update.message.reply_text("❌ Edit cancelled.")
+        return
+
+    # Fetch event
+    event_id = pending_edit["event_id"]
+    db_url = settings.db_url or ""
+
+    async with get_session(db_url) as session:
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event = result.scalar_one_or_none()
+
+        if not event:
+            context.user_data.pop("pending_event_edit", None)
+            await update.message.reply_text("❌ Event not found.")
+            return
+
+        # Here you would call the AI/LLM to parse and apply changes
+        context.user_data.pop("pending_event_edit", None)
+
+        await update.message.reply_text(
+            f"✅ Edit request received for event #{event_id}:\n\n"
+            f"`{user_input}`\n\n"
+            f"Note: AI-based event editing is not yet implemented. "
+            f"Please use manual edit commands.",
+            parse_mode="Markdown",
+        )
+
+
+__all__ = ["handle", "handle_callback", "handle_message"]

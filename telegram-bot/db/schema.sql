@@ -41,7 +41,7 @@ CREATE TABLE IF NOT EXISTS groups (
 -- 3. Events: Gathering lifecycle
 CREATE TABLE IF NOT EXISTS events (
     event_id BIGSERIAL PRIMARY KEY,
-    group_id INTEGER REFERENCES groups(group_id) ON DELETE CASCADE,
+    group_id BIGINT REFERENCES groups(group_id) ON DELETE CASCADE,
     event_type VARCHAR(100) NOT NULL,
     description TEXT,
     organizer_telegram_user_id BIGINT,
