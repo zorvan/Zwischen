@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-"""Event details command handler."""
+"""DEPRECATED: v3.4 - Use /events instead.
+
+Event details command handler.
+"""
+
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from sqlalchemy import select

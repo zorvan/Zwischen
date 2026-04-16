@@ -4,6 +4,8 @@ from typing import Any
 
 from sqlalchemy import select
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 from bot.common.event_states import STATE_EXPLANATIONS
 from bot.common.event_formatters import (
     format_date_preset,
@@ -462,3 +464,307 @@ async def format_status_message(
         f"📝 *Logs:* {log_count} | *Constraints:* {constraint_count}"
         f"{mutual_dependence_text}"
     )
+
+
+# ============================================================================
+# v3.4: Event Panel Formatters (Progressive Disclosure)
+# ============================================================================
+
+
+async def format_events_list(
+    events_data: list[dict], user_id: int
+) -> tuple[str, list[list[InlineKeyboardButton]]]:
+    """
+    Phase 2: Level 1 - Event List formatter.
+
+    Shows brief event info with tappable buttons.
+    Each row shows: description (first 5 words), date/TBD, state, user's status.
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    lines = []
+    inline_keyboard = []
+
+    if not events_data:
+        return 'No events found. Tap "Create New Event" to start one!', []
+
+    lines.append("📋 *Your Events*\n")
+    lines.append("Tap an event to see details and actions")
+    lines.append("")
+
+    for idx, event in enumerate(events_data):
+        event_id = event.get("event_id")
+        description = event.get("description", "")[:50]
+        first_words = " ".join(description.split()[:5])
+        if len(description) > 50:
+            first_words += "..."
+
+        scheduled_time = event.get("scheduled_time")
+        time_text = format_scheduled_time(scheduled_time) if scheduled_time else "TBD"
+
+        state = event.get("state", "unknown")
+        state_emoji = {
+            "proposed": "⏳",
+            "interested": "💬",
+            "confirmed": "✅",
+            "locked": "🔒",
+            "completed": "🏁",
+            "cancelled": "❌",
+        }.get(state, "⚪")
+
+        user_status = event.get("user_status", "not_involved")
+        status_emoji = {
+            "invited": "📧",
+            "joined": "👋",
+            "confirmed": "✔️",
+            "not_involved": "👤",
+        }.get(user_status, "👤")
+
+        lines.append(f"{state_emoji} *{first_words}*")
+        lines.append(f"  {time_text}  |  {status_emoji}")
+        lines.append("")
+
+        inline_keyboard.append(
+            [
+                InlineKeyboardButton(
+                    f"View Event #{event_id}", callback_data=f"ev:{event_id}:det"
+                )
+            ]
+        )
+
+    # Create New Event button
+    inline_keyboard.append(
+        [InlineKeyboardButton("✨ Create New Event", callback_data="ev:new:menu")]
+    )
+
+    text = "\n".join(lines)
+    return text, inline_keyboard
+
+
+async def format_event_panel(
+    event: Any,
+    user_status: str,
+    is_organizer: bool,
+    enrichment_service=None,
+    lineage_fragment: str | None = None,
+) -> tuple[str, list[list[InlineKeyboardButton]]]:
+    """
+    Phase 2: Level 2 - Event Panel formatter.
+
+    Shows full event card with context-aware action buttons.
+    Buttons appear only when they would actually work.
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    # Event header
+    event_type = event.event_type or "Event"
+    description = event.description or "No description"
+    scheduled_time = format_scheduled_time(event.scheduled_time)
+
+    # Count participants
+    interested_count = len(
+        [p for p in (getattr(event, "participants", []) or []) if p.status == "joined"]
+    )
+    confirmed_count = len(
+        [
+            p
+            for p in (getattr(event, "participants", []) or [])
+            if p.status == "confirmed"
+        ]
+    )
+    total_count = interested_count + confirmed_count
+    min_participants = event.min_participants or 2
+
+    # Get active hashtags
+    active_hashtags = []
+    if enrichment_service:
+        hashtags = await enrichment_service.get_public_hashtags(event, min_count=2)
+        active_hashtags = hashtags
+
+    # Build text
+    lines = []
+    lines.append(f"📋 *Event Details*\n")
+    lines.append(f"📌 *{event_type}*\n")
+    lines.append(f"{description}")
+    lines.append("")
+
+    lines.append(
+        f"📅 Time: {scheduled_time}  |  📊 {total_count}/{min_participants} needed"
+    )
+    if active_hashtags:
+        lines.append(f"🏷️  {', '.join(f'#{tag}' for tag in active_hashtags)}")
+
+    if lineage_fragment:
+        lines.append("")
+        lines.append(f"↩ From last time: {lineage_fragment}")
+
+    lines.append("")
+    lines.append(
+        f"State: {event.state.upper()}  |  {STATE_EXPLANATIONS.get(event.state, '')}"
+    )
+
+    # Build context-aware action buttons
+    inline_keyboard = []
+
+    # Back button (always shown)
+    inline_keyboard.append(
+        [InlineKeyboardButton("⬅️ Back to List", callback_data="ev:list")]
+    )
+
+    # Join button (if invited but not joined)
+    if user_status == "invited" and event.state in ["proposed", "interested"]:
+        inline_keyboard.append(
+            [InlineKeyboardButton("✅ Join", callback_data=f"ev:{event.event_id}:join")]
+        )
+
+    # If user has joined, show different options
+    if user_status in ["joined", "confirmed"]:
+        inline_keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "✋ Relinquish", callback_data=f"ev:{event.event_id}:relinquish"
+                )
+            ]
+        )
+
+        # Enrich menu
+        inline_keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "✨ Enrich", callback_data=f"ev:{event.event_id}:enrich"
+                )
+            ]
+        )
+
+        # Constraint menu
+        inline_keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "🎯 Constraint", callback_data=f"ev:{event.event_id}:constraint"
+                )
+            ]
+        )
+
+        # Commit button (if gravity met)
+        if confirmed_count >= min_participants and event.state in [
+            "proposed",
+            "interested",
+        ]:
+            inline_keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        "✅ Commit", callback_data=f"ev:{event.event_id}:commit"
+                    )
+                ]
+            )
+
+    # Lock button (if organizer)
+    if is_organizer:
+        inline_keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "🔒 Lock Event", callback_data=f"ev:{event.event_id}:lock"
+                )
+            ]
+        )
+        inline_keyboard.append(
+            [
+                InlineKeyboardButton(
+                    "✏️ Edit Event", callback_data=f"ev:{event.event_id}:edit"
+                )
+            ]
+        )
+
+    text = "\n".join(lines)
+    return text, inline_keyboard
+
+
+async def format_enrich_menu(
+    event_id: int,
+) -> tuple[str, list[list[InlineKeyboardButton]]]:
+    """
+    Phase 2: Level 3a - Enrich sub-menu formatter.
+
+    Shows enrichment options: add idea, add hashtag, add memory, view contributions.
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    lines = []
+    lines.append("✨ *Enrich Event*\n")
+    lines.append("Add your thoughts during event formation")
+    lines.append("")
+
+    inline_keyboard = [
+        [InlineKeyboardButton("💡 Add an idea", callback_data=f"ev:{event_id}:idea")],
+        [
+            InlineKeyboardButton(
+                "🏷️ Add a hashtag", callback_data=f"ev:{event_id}:hashtag"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "📜 Add a memory", callback_data=f"ev:{event_id}:memory"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👁️ View my contributions", callback_data=f"ev:{event_id}:my_contribs"
+            )
+        ],
+        [InlineKeyboardButton("⬅️ Back", callback_data=f"ev:{event_id}:det")],
+    ]
+
+    text = "\n".join(lines)
+    return text, inline_keyboard
+
+
+async def format_constraint_menu(
+    event_id: int,
+) -> tuple[str, list[list[InlineKeyboardButton]]]:
+    """
+    Phase 2: Level 3b - Constraint sub-menu formatter.
+
+    Shows constraint options for conditional participation.
+    """
+    from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+    lines = []
+    lines.append("🎯 *Add Constraint*\n")
+    lines.append("Express conditional participation (DM-only, hidden from group)")
+    lines.append("")
+
+    inline_keyboard = [
+        [
+            InlineKeyboardButton(
+                "🤝 I'll join if [person] joins",
+                callback_data=f"ev:{event_id}:constraint_if_joins",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "✅ I'll join only if [person] attends",
+                callback_data=f"ev:{event_id}:constraint_if_attends",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "❌ I won't join if [person] joins",
+                callback_data=f"ev:{event_id}:constraint_unless_joins",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "⏰ My availability", callback_data=f"ev:{event_id}:availability"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "👁️ View/remove my constraints",
+                callback_data=f"ev:{event_id}:my_constraints",
+            )
+        ],
+        [InlineKeyboardButton("⬅️ Back", callback_data=f"ev:{event_id}:det")],
+    ]
+
+    text = "\n".join(lines)
+    return text, inline_keyboard

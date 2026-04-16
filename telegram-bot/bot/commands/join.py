@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Join event command handler - mark attendance intent.
 
+DEPRECATED: v3.4 - Use /events and Join button in event panel instead.
+
 PRD v2 Refactoring:
 - Uses ParticipantService as single write path
 - Integrates EventLifecycleService for state transitions
@@ -33,7 +35,9 @@ logger = logging.getLogger("coord_bot.commands.join")
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
-    Handle /join command - mark attendance intent.
+    DEPRECATED: Handle /join command - mark attendance intent.
+
+    Use /events and Join button in event panel instead.
 
     Flow:
     1. Validate event ID parameter
@@ -47,6 +51,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if not message:
         return
+
+    # Deprecation notice
+    await message.reply_text(
+        "ℹ️ `/join` is deprecated.\\n\\n"
+        "Use `/events` and tap an event to see the Join button.",
+        parse_mode="Markdown",
+    )
+    return
 
     user = update.effective_user
     if not user:

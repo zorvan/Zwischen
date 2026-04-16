@@ -12,9 +12,16 @@ from bot.common.event_presenters import format_status_message
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /status command - show event progress."""
+    """Handle /status command - DEPRECATED: Use /events instead."""
     if not update.message or not update.effective_user:
         return
+
+    # Deprecation notice
+    await update.message.reply_text(
+        "ℹ️ `/status` is deprecated.\n\n"
+        "Use `/events` to view all your events with progressive disclosure.",
+        parse_mode="Markdown",
+    )
 
     args = context.args or []
     event_id_raw = args[0] if args else None
@@ -90,8 +97,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await update.message.reply_text(
                 await format_status_message(
                     event_id, event, log_count, constraint_count, context.bot
+                )
             )
-        )
         except Exception:
             pass
 
