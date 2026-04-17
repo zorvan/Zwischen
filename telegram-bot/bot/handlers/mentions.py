@@ -383,15 +383,16 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await message.reply_text(f"🤖 {response}")
         return
 
-    # For actions that need an event_id, check if we have one
+    # Phase 4: For actions that need an event_id, check if we have one
     # If not, ask user to clarify which event
     if action_type in {
-        "join",
-        "confirm",
-        "cancel",
-        "lock",
+        "join_event",
+        "confirm_event",
+        "relinquish_event",
+        "unconfirm_event",
+        "lock_event",
         "request_confirmations",
-    } and not action.get("event_id"):
+    } and not action.get("params", {}).get("event_id"):
         # Check if the message might be about organizing a new event
         lowered_text = text.lower()
         if any(
@@ -400,14 +401,25 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ):
             # User might be trying to organize - start that flow instead
             mode = "flexible" if "flexible" in lowered_text else "public"
-            scheduling_mode = "flexible" if "flexible" in lowered_text else "fixed"
             llm = LLMClient()
             try:
-                draft = await llm.infer_event_draft_from_context(
-                    message_text=text,
+                # Use registry-based event draft inference
+                draft_params = await llm.infer_event_draft_from_action(
+                    text=text,
                     history=history,
-                    scheduling_mode=scheduling_mode,
                 )
+                draft = {
+                    "description": draft_params.get(
+                        "description", "Group planned event"
+                    ),
+                    "event_type": draft_params.get("event_type", "social"),
+                    "scheduled_time": draft_params.get("scheduled_time"),
+                    "duration_minutes": draft_params.get("duration_minutes", 120),
+                    "min_participants": draft_params.get("min_participants", 3),
+                    "target_participants": draft_params.get("target_participants", 6),
+                    "invite_all_members": draft_params.get("invite_all_members", True),
+                    "invitees": draft_params.get("invitees", []),
+                }
             finally:
                 await llm.close()
             await _handle_organize_event_direct(

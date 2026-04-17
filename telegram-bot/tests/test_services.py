@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Tests for v2 service integrations."""
+
 import pytest
 from unittest.mock import MagicMock, AsyncMock
 from datetime import datetime, timedelta
@@ -62,9 +63,7 @@ class TestParticipantService:
         session.add = MagicMock()
 
         participant, is_new = await participant_service.join(
-            event_id=1,
-            telegram_user_id=123,
-            source="test"
+            event_id=1, telegram_user_id=123, source="test"
         )
 
         assert is_new is True
@@ -78,9 +77,7 @@ class TestParticipantService:
         """Test rejoining an existing cancelled participant."""
         # Mock existing cancelled participant
         existing_participant = EventParticipant(
-            event_id=1,
-            telegram_user_id=123,
-            status=ParticipantStatus.cancelled
+            event_id=1, telegram_user_id=123, status=ParticipantStatus.cancelled
         )
 
         session.execute = AsyncMock()
@@ -89,9 +86,7 @@ class TestParticipantService:
         session.execute.return_value = result
 
         participant, is_new = await participant_service.join(
-            event_id=1,
-            telegram_user_id=123,
-            source="test"
+            event_id=1, telegram_user_id=123, source="test"
         )
 
         assert is_new is True
@@ -102,9 +97,7 @@ class TestParticipantService:
         """Test confirming a participant."""
         # Mock existing joined participant
         existing_participant = EventParticipant(
-            event_id=1,
-            telegram_user_id=123,
-            status=ParticipantStatus.joined
+            event_id=1, telegram_user_id=123, status=ParticipantStatus.joined
         )
 
         session.execute = AsyncMock()
@@ -113,9 +106,7 @@ class TestParticipantService:
         session.execute.return_value = result
 
         participant, is_new = await participant_service.confirm(
-            event_id=1,
-            telegram_user_id=123,
-            source="test"
+            event_id=1, telegram_user_id=123, source="test"
         )
 
         assert is_new is True
@@ -127,9 +118,7 @@ class TestParticipantService:
         """Test cancelling a participant."""
         # Mock existing confirmed participant
         existing_participant = EventParticipant(
-            event_id=1,
-            telegram_user_id=123,
-            status=ParticipantStatus.confirmed
+            event_id=1, telegram_user_id=123, status=ParticipantStatus.confirmed
         )
 
         session.execute = AsyncMock()
@@ -138,9 +127,7 @@ class TestParticipantService:
         session.execute.return_value = result
 
         participant, is_new = await participant_service.cancel(
-            event_id=1,
-            telegram_user_id=123,
-            source="test"
+            event_id=1, telegram_user_id=123, source="test"
         )
 
         assert is_new is True
@@ -152,9 +139,7 @@ class TestParticipantService:
         """Test unconfirming a participant."""
         # Mock existing confirmed participant
         existing_participant = EventParticipant(
-            event_id=1,
-            telegram_user_id=123,
-            status=ParticipantStatus.confirmed
+            event_id=1, telegram_user_id=123, status=ParticipantStatus.confirmed
         )
 
         session.execute = AsyncMock()
@@ -163,9 +148,7 @@ class TestParticipantService:
         session.execute.return_value = result
 
         participant, is_new = await participant_service.unconfirm(
-            event_id=1,
-            telegram_user_id=123,
-            source="test"
+            event_id=1, telegram_user_id=123, source="test"
         )
 
         assert is_new is True
@@ -210,10 +193,7 @@ class TestEventStateTransitionService:
     async def test_valid_transition(self, transition_service, session):
         """Test a valid state transition."""
         event = Event(
-            event_id=1,
-            state="proposed",
-            organizer_telegram_user_id=123,
-            version=1
+            event_id=1, state="proposed", organizer_telegram_user_id=123, version=1
         )
 
         result = MagicMock()
@@ -225,7 +205,7 @@ class TestEventStateTransitionService:
             target_state="interested",
             actor_telegram_user_id=123,
             source="test",
-            reason="Test transition"
+            reason="Test transition",
         )
 
         assert transitioned is True
@@ -234,11 +214,7 @@ class TestEventStateTransitionService:
     @pytest.mark.asyncio
     async def test_invalid_transition(self, transition_service, session):
         """Test an invalid state transition."""
-        event = Event(
-            event_id=1,
-            state="proposed",
-            organizer_telegram_user_id=123
-        )
+        event = Event(event_id=1, state="proposed", organizer_telegram_user_id=123)
 
         result = MagicMock()
         result.scalar_one_or_none.return_value = event
@@ -249,7 +225,7 @@ class TestEventStateTransitionService:
                 event_id=1,
                 target_state="completed",  # Invalid transition
                 actor_telegram_user_id=123,
-                source="test"
+                source="test",
             )
 
 
@@ -259,52 +235,55 @@ class TestEventLifecycleService:
     @pytest.mark.asyncio
     async def test_transition_with_lifecycle_locked(self, lifecycle_service, session):
         """Test lifecycle transition to locked state."""
-        event = Event(
-            event_id=1,
-            state="confirmed",
-            organizer_telegram_user_id=123
-        )
+        event = Event(event_id=1, state="confirmed", organizer_telegram_user_id=123)
 
         # Mock transition service
         lifecycle_service.transition_service = MagicMock()
-        lifecycle_service.transition_service.transition = AsyncMock(return_value=(event, True))
+        lifecycle_service.transition_service.transition = AsyncMock(
+            return_value=(event, True)
+        )
 
         # Mock materialization service
         lifecycle_service.materialization_service = MagicMock()
         lifecycle_service.materialization_service.announce_event_locked = AsyncMock()
+
+        # Mock lifecycle methods that access database
+        lifecycle_service._delete_live_card = AsyncMock()
+        lifecycle_service._freeze_hashtags = AsyncMock()
 
         # Mock group chat ID
         lifecycle_service._get_group_chat_id = AsyncMock(return_value=456)
         lifecycle_service._get_confirmed_participants = AsyncMock(return_value=[])
 
         updated_event, transitioned = await lifecycle_service.transition_with_lifecycle(
-            event_id=1,
-            target_state="locked",
-            actor_telegram_user_id=123,
-            source="test"
+            event_id=1, target_state="locked", actor_telegram_user_id=123, source="test"
         )
 
         assert transitioned is True
         lifecycle_service.materialization_service.announce_event_locked.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_transition_with_lifecycle_completed(self, lifecycle_service, session):
+    async def test_transition_with_lifecycle_completed(
+        self, lifecycle_service, session
+    ):
         """Test lifecycle transition to completed state."""
-        event = Event(
-            event_id=1,
-            state="locked",
-            organizer_telegram_user_id=123
-        )
+        event = Event(event_id=1, state="locked", organizer_telegram_user_id=123)
 
         # Mock transition service
         lifecycle_service.transition_service = MagicMock()
-        lifecycle_service.transition_service.transition = AsyncMock(return_value=(event, True))
+        lifecycle_service.transition_service.transition = AsyncMock(
+            return_value=(event, True)
+        )
 
         # Mock services
         lifecycle_service.materialization_service = MagicMock()
         lifecycle_service.materialization_service.announce_event_completed = AsyncMock()
         lifecycle_service.memory_service = MagicMock()
         lifecycle_service.memory_service.start_memory_collection = AsyncMock()
+
+        # Mock lifecycle methods that access database
+        lifecycle_service._delete_live_card = AsyncMock()
+        lifecycle_service._freeze_hashtags = AsyncMock()
 
         # Mock helper methods
         lifecycle_service._get_group_chat_id = AsyncMock(return_value=456)
@@ -314,7 +293,7 @@ class TestEventLifecycleService:
             event_id=1,
             target_state="completed",
             actor_telegram_user_id=123,
-            source="test"
+            source="test",
         )
 
         assert transitioned is True
@@ -326,15 +305,14 @@ class TestServiceIntegration:
     """Test integration between services."""
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Complex async DB call sequence - use scenario simulator instead")
+    @pytest.mark.xfail(
+        reason="Complex async DB call sequence - use scenario simulator instead"
+    )
     async def test_full_event_lifecycle(self, session):
         """Test a complete event lifecycle with all services."""
         # Create event
         event = Event(
-            event_id=1,
-            state="proposed",
-            organizer_telegram_user_id=123,
-            version=1
+            event_id=1, state="proposed", organizer_telegram_user_id=123, version=1
         )
 
         # Mock services
@@ -378,7 +356,9 @@ class TestServiceIntegration:
         assert participant2.status == ParticipantStatus.joined
 
         # 3. Participants confirm
-        existing_participant = EventParticipant(event_id=1, telegram_user_id=456, status=ParticipantStatus.joined)
+        existing_participant = EventParticipant(
+            event_id=1, telegram_user_id=456, status=ParticipantStatus.joined
+        )
         result.scalar_one_or_none.return_value = existing_participant
 
         participant2, _ = await participant_service.confirm(1, 456, "callback")

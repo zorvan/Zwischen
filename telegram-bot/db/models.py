@@ -58,7 +58,7 @@ class Group(Base):
 
     __tablename__ = "groups"
 
-    group_id = Column(BigInteger, primary_key=True)
+    group_id = Column(Integer, primary_key=True, autoincrement=True)
     telegram_group_id = Column(BigInteger, unique=True, nullable=False)
     group_name = Column(String(255))
     group_type = Column(String(50), default="casual")
@@ -73,7 +73,7 @@ class Event(Base):
 
     __tablename__ = "events"
 
-    event_id = Column(BigInteger, primary_key=True)
+    event_id = Column(Integer, primary_key=True, autoincrement=True)
     group_id = Column(
         BigInteger, ForeignKey("groups.group_id", ondelete="CASCADE"), nullable=False
     )

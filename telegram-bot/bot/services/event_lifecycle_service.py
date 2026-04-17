@@ -130,11 +130,11 @@ class EventLifecycleService:
 
         # Phase 3.3: Delete live card on state change
         if target_state in {"locked", "completed", "cancelled"}:
-            await self._delete_live_card(event.event_id)
+            await self._delete_live_card(event.event_id, self.session)
 
             # Phase 3.3: Freeze hashtags
             if target_state == "locked":
-                await self._freeze_hashtags(event)
+                await self._freeze_hashtags(event, self.session)
 
     async def _get_group_chat_id(self, event: Event) -> Optional[int]:
         """Get the Telegram group chat ID for the event."""
@@ -173,33 +173,59 @@ class EventLifecycleService:
         result = await self.session.execute(
             select(func.count(EventParticipant.telegram_user_id)).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.status.in_([
-                    ParticipantStatus.confirmed,
-                    ParticipantStatus.joined,
-                ])
+                EventParticipant.status.in_(
+                    [
+                        ParticipantStatus.confirmed,
+                        ParticipantStatus.joined,
+                    ]
+                ),
             )
         )
         return result.scalar_one() or 0
 
-    async def _delete_live_card(self, event_id: int) -> None:
+    async def _delete_live_card(
+        self, event_id: int, session: Optional[AsyncSession] = None
+    ) -> None:
         """Delete live card when event reaches terminal state."""
         from db.connection import get_session
         from sqlalchemy import select
-        
-        async with get_session(settings.db_url) as session:
-            result = await session.execute(
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        use_session = session or self.session
+
+        if use_session is None:
+            async with get_session(settings.db_url) as sess:
+                result = await sess.execute(
+                    select(Event).where(Event.event_id == event_id)
+                )
+                event = result.scalar_one_or_none()
+
+                if event and event.group_id:
+                    service = EventLiveCardService(self.bot, sess)
+                    await service.delete_live_card(event_id)
+        else:
+            result = await use_session.execute(
                 select(Event).where(Event.event_id == event_id)
             )
             event = result.scalar_one_or_none()
-            
+
             if event and event.group_id:
-                service = EventLiveCardService(self.bot, session)
+                service = EventLiveCardService(self.bot, use_session)
                 await service.delete_live_card(event_id)
 
-    async def _freeze_hashtags(self, event: Event) -> None:
+    async def _freeze_hashtags(
+        self, event: Event, session: Optional[AsyncSession] = None
+    ) -> None:
         """Freeze hashtags when event locks."""
         from db.connection import get_session
-        
-        async with get_session(settings.db_url) as session:
-            service = EventHashtagService(session)
+        from sqlalchemy.ext.asyncio import AsyncSession
+
+        use_session = session or self.session
+
+        if use_session is None:
+            async with get_session(settings.db_url) as sess:
+                service = EventHashtagService(sess)
+                await service.freeze_hashtags(event)
+        else:
+            service = EventHashtagService(use_session)
             await service.freeze_hashtags(event)

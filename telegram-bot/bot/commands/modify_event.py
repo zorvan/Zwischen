@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Modify existing event command handler."""
+
 from __future__ import annotations
 
 import logging
@@ -28,17 +29,22 @@ logger = logging.getLogger("coord_bot.modify_event")
 
 def _build_event_draft(event: Event) -> dict[str, object]:
     """Build the current event draft used for LLM patch inference."""
-    planning_prefs = event.planning_prefs if isinstance(event.planning_prefs, dict) else {}
+    planning_prefs = (
+        event.planning_prefs if isinstance(event.planning_prefs, dict) else {}
+    )
     return {
         "description": event.description or "",
         "event_type": event.event_type,
         "scheduled_time": (
             event.scheduled_time.isoformat(timespec="minutes")
-            if event.scheduled_time else None
+            if event.scheduled_time
+            else None
         ),
         "duration_minutes": int(event.duration_minutes or 120),
         "min_participants": int(event.min_participants or 2),
-        "target_participants": int(event.target_participants or event.min_participants or 2),
+        "target_participants": int(
+            event.target_participants or event.min_participants or 2
+        ),
         "scheduling_mode": "fixed" if event.scheduled_time else "flexible",
         "location_type": planning_prefs.get("location_type"),
         "budget_level": planning_prefs.get("budget_level"),
@@ -65,7 +71,10 @@ def _apply_inferred_event_patch(
     event_type = patch.get("event_type")
     if isinstance(event_type, str):
         normalized = event_type.strip().lower()
-        if normalized in {"social", "sports", "work"} and normalized != event.event_type:
+        if (
+            normalized in {"social", "sports", "work"}
+            and normalized != event.event_type
+        ):
             event.event_type = normalized
             changed_fields.append("event_type")
             reason_parts.append("event type changed")
@@ -124,10 +133,11 @@ def _apply_inferred_event_patch(
             pass
 
     planning_prefs = (
-        dict(event.planning_prefs)
-        if isinstance(event.planning_prefs, dict)
-        else {}
+        dict(event.planning_prefs) if isinstance(event.planning_prefs, dict) else {}
     )
+    # DEPRECATED: v3.4 - planning_prefs is being migrated to direct event fields
+    # For now, continue to use planning_prefs but should migrate to:
+    # - event.location_type, event.budget_level, event.transport_mode
     planning_changed = False
 
     for pref_key in ["location_type", "budget_level", "transport_mode"]:
@@ -171,12 +181,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with get_session(settings.db_url) as session:
         requester_id = int(update.effective_user.id)
         chat_id = update.effective_chat.id if update.effective_chat else None
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, requester_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        (
+            is_visible,
+            event,
+            group,
+            error_msg,
+        ) = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            requester_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
         if not is_visible:
             await update.message.reply_text(f"❌ {error_msg or 'Event not found.'}")
@@ -252,7 +267,8 @@ async def _submit_modify_request(
     context.bot_data.setdefault("pending_modify_requests", {})[pending_key] = {
         "event_id": event.event_id,
         "requester_id": requester_id,
-        "requester_username": update.effective_user.username or update.effective_user.full_name,
+        "requester_username": update.effective_user.username
+        or update.effective_user.full_name,
         "change_text": change_text,
         "admin_id": admin_id,
         "created_at": datetime.utcnow().isoformat(),
@@ -275,7 +291,8 @@ async def _submit_modify_request(
             "event_type": event.event_type,
             "scheduled_time": (
                 event.scheduled_time.isoformat(timespec="minutes")
-                if event.scheduled_time else None
+                if event.scheduled_time
+                else None
             ),
             "duration_minutes": int(event.duration_minutes or 120),
             "min_participants": int(event.min_participants or 2),
@@ -288,7 +305,8 @@ async def _submit_modify_request(
                 else None
             ),
             "change_text": change_text,
-            "requester": update.effective_user.username or update.effective_user.full_name,
+            "requester": update.effective_user.username
+            or update.effective_user.full_name,
         },
         event_id=int(event.event_id),
         deadline_info=(
@@ -338,7 +356,9 @@ async def handle_modify_request_callback(
     change_text = pending.get("change_text")
 
     if query.from_user.id != admin_id:
-        await query.answer("Only the event admin can approve/reject this request.", show_alert=True)
+        await query.answer(
+            "Only the event admin can approve/reject this request.", show_alert=True
+        )
         return
 
     pending_root.pop(f"modreq_{request_id}", None)
@@ -352,21 +372,28 @@ async def handle_modify_request_callback(
             try:
                 await context.bot.send_message(
                     chat_id=requester_id,
-                    text=f"❌ Your modify request for event {event_id} was rejected by the event admin."
+                    text=f"❌ Your modify request for event {event_id} was rejected by the event admin.",
                 )
             except Exception as e:
-                logger.warning(f"Could not notify requester ({requester_id}) of rejection: {e}")
+                logger.warning(
+                    f"Could not notify requester ({requester_id}) of rejection: {e}"
+                )
         return
 
     async with get_session(settings.db_url) as session:
         # Admin is already authorized via pending request check above
         chat_id = getattr(getattr(query, "message", None), "chat_id", None)
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, query.from_user.id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        (
+            is_visible,
+            event,
+            group,
+            error_msg,
+        ) = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            query.from_user.id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
         if not is_visible:
             await query.edit_message_text(f"❌ {error_msg or 'Event not found.'}")
@@ -428,7 +455,9 @@ async def handle_modify_request_callback(
                 text=(
                     f"✅ Your modify request for event {event_id} was approved by the event admin.\n"
                     f"Changed fields: {', '.join(changed_fields)}"
-                )
+                ),
             )
         except Exception as e:
-            logger.warning(f"Could not notify requester ({requester_id}) of approval: {e}")
+            logger.warning(
+                f"Could not notify requester ({requester_id}) of approval: {e}"
+            )

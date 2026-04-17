@@ -197,13 +197,24 @@ async def test_availability_flow_complete_save() -> None:
     mock_session.__aenter__ = AsyncMock(return_value=mock_session)
     mock_session.__aexit__ = AsyncMock(return_value=None)
 
+    # Mock event lookup
+    event_result = MagicMock()
+    event_result.scalar_one_or_none = MagicMock(return_value=event)
+
     # Mock user lookup
     user_result = MagicMock()
     user_result.scalar_one_or_none = MagicMock(return_value=None)
-    mock_session.execute = AsyncMock(return_value=user_result)
+
+    # Mock constraint lookup
+    constraint_result = MagicMock()
+    constraint_result.scalar_one_or_none = MagicMock(return_value=None)
+
+    # Use side_effect to return different results for each execute call
+    mock_session.execute = AsyncMock(
+        side_effect=[event_result, user_result, constraint_result]
+    )
 
     # Mock constraint save
-    mock_constraint = MagicMock()
     mock_session.add = MagicMock()
     mock_session.commit = AsyncMock()
 

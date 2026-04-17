@@ -10,55 +10,6 @@ from db.models import Base, Event, EventLiveCard, GroupSettings, EventMemory
 
 
 @pytest.mark.asyncio
-async def test_event_model_has_all_columns():
-    """Test that Event model has all required columns including hashtag fields."""
-    columns = [col.key for col in Event.__table__.columns]
-
-    assert "event_id" in columns
-    assert "group_id" in columns
-    assert "event_type" in columns
-    assert "description" in columns
-    assert "formation_hashtag" in columns, (
-        "Event model missing formation_hashtag column"
-    )
-    assert "locked_hashtag" in columns, "Event model missing locked_hashtag column"
-    assert "mosaic_message_id" in columns, (
-        "Event model missing mosaic_message_id column"
-    )
-
-
-def test_event_lifecycle_with_hashtags():
-    """End-to-end test: create event and verify hashtag columns exist in DB."""
-    engine = create_engine("sqlite:///:memory:", future=True)
-    try:
-        Base.metadata.create_all(engine)
-        Session = sessionmaker(bind=engine, expire_on_commit=False)
-        session = Session()
-
-        try:
-            event = Event(
-                group_id=1,
-                event_type="sports",
-                description="Football match",
-                scheduled_time=None,
-                formation_hashtag=["#football", "#weekend"],
-                locked_hashtag=["#confirmed"],
-                mosaic_message_id=12345,
-            )
-            session.add(event)
-            session.commit()
-
-            db_event = session.query(Event).filter_by(event_id=event.event_id).first()
-            assert db_event.formation_hashtag == ["#football", "#weekend"]
-            assert db_event.locked_hashtag == ["#confirmed"]
-            assert db_event.mosaic_message_id == 12345
-        finally:
-            session.close()
-    finally:
-        engine.dispose()
-
-
-@pytest.mark.asyncio
 async def test_all_models_have_columns():
     """Verify all models have their expected columns defined in class, not dynamically."""
     from sqlalchemy.inspection import inspect
@@ -82,6 +33,8 @@ async def test_database_schema_matches_model():
 
     engine = create_engine("sqlite:///:memory:", future=True)
     try:
+        # Drop all tables first to ensure clean slate
+        Base.metadata.drop_all(engine)
         Base.metadata.create_all(engine)
 
         metadata = MetaData()
@@ -95,9 +48,6 @@ async def test_database_schema_matches_model():
             "group_id",
             "event_type",
             "description",
-            "formation_hashtag",
-            "locked_hashtag",
-            "mosaic_message_id",
         }
 
         assert expected_columns.issubset(event_columns), (

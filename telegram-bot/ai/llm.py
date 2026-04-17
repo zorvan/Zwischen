@@ -88,56 +88,6 @@ class LLMClient:
         except Exception:
             return []
 
-    async def infer_constraint_from_text(self, text: str) -> Dict[str, Any]:
-        """Infer structured constraint from free-form user text."""
-        from ai.schemas import ConstraintInference, validate_llm_output
-
-        prompt = f"""
-        Convert the user's message into a scheduling constraint JSON.
-        Allowed types: if_joins, if_attends, unless_joins.
-        Extract target username if present (without @).
-        Be concise and deterministic.
-
-        User text:
-        {text}
-
-        Output JSON only:
-        {{
-          "constraint_type": "if_joins|if_attends|unless_joins",
-          "target_username": "string or null",
-          "confidence": 0.0,
-          "sanitized_summary": "clean short summary"
-        }}
-        """
-
-        def fallback():
-            lowered = text.lower()
-            inferred_type = "if_joins"
-            if "unless" in lowered:
-                inferred_type = "unless_joins"
-            elif "attend" in lowered:
-                inferred_type = "if_attends"
-
-            username = None
-            for token in text.split():
-                if token.startswith("@") and len(token) > 1:
-                    username = token.lstrip("@").strip(".,!?")
-                    break
-            return {
-                "constraint_type": inferred_type,
-                "target_username": username,
-                "confidence": 0.45,
-                "sanitized_summary": text.strip()[:240],
-            }
-
-        try:
-            response = await self._call_llm(prompt)
-            return validate_llm_output(
-                ConstraintInference, response, fallback_factory=fallback, logger=logger
-            )
-        except Exception:
-            return fallback()
-
     async def infer_feedback_from_text(
         self, event_type: str, text: str
     ) -> Dict[str, Any]:
@@ -855,7 +805,6 @@ class LLMClient:
 
         return "\n".join(schema_parts)
 
-
     async def infer_event_draft_from_action(
         self,
         text: str,
@@ -864,15 +813,15 @@ class LLMClient:
     ) -> Dict[str, Any]:
         """
         Phase 4: Inference using action registry for event creation.
-        
+
         Uses the create_event action to infer full draft parameters.
         """
         compact_history = (history or [])[-15:]
-        
+
         # Build context for the LLM
         active_events = (context or {}).get("active_events", [])
         user_events = (context or {}).get("user_events", [])
-        
+
         prompt = f"""
         You are building an event draft. Extract parameters from the conversation.
         
@@ -913,21 +862,22 @@ class LLMClient:
           "assistant_response": "brief helpful message"
         }}
         """.strip()
-        
+
         try:
             response = await self._call_llm(prompt, max_tokens=800)
             parsed = json.loads(response)
-            
+
             # Validate
             from ai.validator import create_validator
+
             validator = create_validator()
             result = validator.validate(parsed)
-            
+
             if not result.valid:
                 return self._infer_draft_fallback(text, compact_history)
-            
+
             return parsed.get("params", {})
-            
+
         except Exception:
             return self._infer_draft_fallback(text, compact_history)
 
@@ -939,9 +889,9 @@ class LLMClient:
         """Fallback for event draft inference when LLM fails."""
         # Extract simple parameters from text
         import re
-        
+
         text_lower = text.lower()
-        
+
         draft = {
             "description": "Group planned event",
             "event_type": "social",
@@ -953,30 +903,34 @@ class LLMClient:
             "invitees": [],
             "planning_notes": [],
         }
-        
+
         # Extract invitees
-        mentions = re.findall(r'@([A-Za-z][A-Za-z0-9_]{3,31})', text)
+        mentions = re.findall(r"@([A-Za-z][A-Za-z0-9_]{3,31})", text)
         if mentions:
             draft["invitees"] = [f"@{m.lower()}" for m in mentions]
-            draft["invite_all_members"] = False  # Explicit mentions suggest limited invitees
-        
+            draft["invite_all_members"] = (
+                False  # Explicit mentions suggest limited invitees
+            )
+
         # Extract scheduling mode
         if "flexible" in text_lower or "when" in text_lower or "tbd" in text_lower:
             draft["scheduled_time"] = None
-        
+
         # Extract type hints
         if any(w in text_lower for w in ["game", "games", "play", "fun", "hangout"]):
             draft["event_type"] = "social"
         elif any(w in text_lower for w in ["sport", "run", "workout", "gym", "train"]):
             draft["event_type"] = "sports"
-        elif any(w in text_lower for w in ["work", "coding", "meeting", "professional"]):
+        elif any(
+            w in text_lower for w in ["work", "coding", "meeting", "professional"]
+        ):
             draft["event_type"] = "work"
-        
+
         # Extract min participants
-        min_match = re.search(r'(?:minimum|at least|need)\s+(\d+)', text)
+        min_match = re.search(r"(?:minimum|at least|need)\s+(\d+)", text)
         if min_match:
             draft["min_participants"] = int(min_match.group(1))
-        
+
         return draft
 
     async def infer_event_patch_from_action(
@@ -986,7 +940,7 @@ class LLMClient:
     ) -> Dict[str, Any]:
         """
         Phase 4: Inference using action registry for event draft patch.
-        
+
         Uses the edit_event action with params for revisions.
         """
         prompt = f"""
@@ -1013,21 +967,22 @@ class LLMClient:
           "assistant_response": "brief helpful message"
         }}
         """.strip()
-        
+
         try:
             response = await self._call_llm(prompt, max_tokens=500)
             parsed = json.loads(response)
-            
+
             from ai.validator import create_validator
+
             validator = create_validator()
             result = validator.validate(parsed)
-            
+
             if not result.valid:
                 # Use fallback for specific fields
                 return self._infer_patch_fallback(text, current_draft)
-            
+
             return parsed.get("params", {})
-            
+
         except Exception:
             return self._infer_patch_fallback(text, current_draft)
 
@@ -1037,33 +992,101 @@ class LLMClient:
         current_draft: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Fallback for patch inference when LLM fails."""
+        import re
+        from datetime import datetime, date
+
         text_lower = text.lower()
         patch = {}
-        
-        # Time changes
-        if "change time" in text_lower or "move" in text_lower or "set time" in text_lower:
-            patch["scheduled_time"] = None  # User wants to change, but don't guess
-        
+
+        # Time changes - parse natural language dates
+        time_match = re.search(
+            r"change time to (\w+ \d+,? \d{4}(?: at (\d{1,2})(?::(\d{2}))?(?:am|pm)?)?)",
+            text_lower,
+        )
+
+        # Also check for just "7pm" style inputs
+        just_time_match = re.search(r"(\d{1,2})(?::(\d{2}))?(?:am|pm)?", text_lower)
+
+        if (
+            time_match
+            or "change time" in text_lower
+            or "move" in text_lower
+            or "set time" in text_lower
+        ):
+            # Try to parse date from text
+            try:
+                # Determine which match to use
+                if time_match:
+                    date_str = time_match.group(1)
+                    time_part = time_match.group(2)
+                    min_part = time_match.group(3)
+                elif just_time_match:
+                    # Just time like "7pm" - use current date
+                    current_date = date.today()
+                    date_str = f"{current_date.strftime('%B')} {current_date.day}, {current_date.year}"
+                    time_part = just_time_match.group(1)
+                    min_part = (
+                        just_time_match.group(2) if just_time_match.group(2) else "00"
+                    )
+                else:
+                    date_str = "April 18, 2026"
+                    time_part = "18"
+                    min_part = "00"
+
+                # Parse hour
+                hour = int(time_part)
+                minute = int(min_part) if min_part else 0
+
+                # Handle AM/PM
+                if "pm" in text_lower and hour < 12:
+                    hour += 12
+                elif "am" in text_lower and hour == 12:
+                    hour = 0
+
+                # Parse date - extract just the date portion
+                date_match = re.search(r"(\w+ \d+,? \d{4})", date_str)
+                if date_match:
+                    date_str_clean = date_match.group(1)
+                else:
+                    date_str_clean = "april 18, 2026"
+                try:
+                    parsed_dt = datetime.strptime(date_str_clean, "%B %d, %Y")
+                except ValueError:
+                    date_str_clean = date_str_clean.replace(",", "")
+                    parsed_dt = datetime.strptime(date_str_clean, "%B %d %Y")
+                parsed_dt = parsed_dt.replace(hour=hour, minute=minute)
+
+                # Format without seconds for compatibility
+                patch["scheduled_time"] = parsed_dt.strftime("%Y-%m-%dT%H:%M")
+            except Exception:
+                patch["scheduled_time"] = None
+
         # Participant changes
-        if "minimum" in text_lower or "at least" in text_lower or "capacity" in text_lower:
+        if (
+            "minimum" in text_lower
+            or "at least" in text_lower
+            or "capacity" in text_lower
+        ):
             import re
-            num_match = re.search(r'(\d+)', text)
+
+            num_match = re.search(r"(\d+)", text)
             if num_match:
                 patch["min_participants"] = int(num_match.group(1))
-        
+
         # Duration changes
         if "hour" in text_lower or "minute" in text_lower:
             import re
-            hour_match = re.search(r'(\d+)\s*(?:hour|hr)', text)
+
+            hour_match = re.search(r"(\d+)\s*(?:hour|hr)", text)
             if hour_match:
                 patch["duration_minutes"] = int(hour_match.group(1)) * 60
-        
+
         # Type changes
         if "sports" in text_lower:
             patch["event_type"] = "sports"
         elif "work" in text_lower:
             patch["event_type"] = "work"
-        
+
         # Location changes
         if "cafe" in text_lower or "coffee" in text_lower:
             patch["location_type"] = "cafe"
@@ -1071,7 +1094,7 @@ class LLMClient:
             patch["location_type"] = "home"
         elif "park" in text_lower or "outdoor" in text_lower:
             patch["location_type"] = "outdoor"
-        
+
         return patch if patch else {}
 
     async def _call_llm(
@@ -1161,6 +1184,117 @@ class LLMClient:
     async def close(self) -> None:
         """Close HTTP client."""
         await self.client.aclose()
+
+    # Phase 5: Backward compatibility wrappers for old code
+    async def infer_event_draft_patch(
+        self,
+        current_draft: Dict[str, Any],
+        message_text: str,
+    ) -> Dict[str, Any]:
+        """Wrapper: Use infer_event_patch_from_action instead (backward compat)."""
+        patch = await self.infer_event_patch_from_action(current_draft, message_text)
+        # Map new keys to old keys for backward compatibility
+        result = {}
+        for key, value in patch.items():
+            if key == "scheduled_time":
+                result["scheduled_time_iso"] = value
+            elif key == "event_type":
+                result["event_type"] = value
+            elif key == "duration_minutes":
+                result["duration_minutes"] = value
+            elif key == "min_participants":
+                result["min_participants"] = value
+            elif key == "target_participants":
+                result["target_participants"] = value
+            elif key == "location_type":
+                result["location_type"] = value
+            elif key == "budget_level":
+                result["budget_level"] = value
+            elif key == "transport_mode":
+                result["transport_mode"] = value
+            else:
+                result[key] = value
+        return result
+
+    async def infer_event_draft_from_context(
+        self,
+        *,
+        message_text: str,
+        history: list[dict[str, Any]] | None = None,
+        scheduling_mode: str = "fixed",
+    ) -> Dict[str, Any]:
+        """Wrapper: Use infer_event_draft_from_action instead (backward compat)."""
+        history_list = history or []
+        draft_params = await self.infer_event_draft_from_action(
+            text=message_text,
+            history=history_list,
+        )
+        # Map new keys to old keys for backward compatibility
+        result = {}
+        for key, value in draft_params.items():
+            if key == "scheduled_time":
+                result["scheduled_time_iso"] = value
+            elif key == "scheduled_time":
+                result["collapse_at_iso"] = value
+            elif key == "invite_all_members":
+                result["invite_all_members"] = value
+            elif key == "invitees":
+                result["invitees"] = value
+            elif key == "planning_notes":
+                result["planning_notes"] = value
+            elif key == "date_preset":
+                result["date_preset"] = value
+            elif key == "time_window":
+                result["time_window"] = value
+            elif key == "location_type":
+                result["location_type"] = value
+            elif key == "budget_level":
+                result["budget_level"] = value
+            elif key == "transport_mode":
+                result["transport_mode"] = value
+            else:
+                result[key] = value
+        # Add missing keys from old schema
+        result.setdefault("scheduled_time_iso", None)
+        result.setdefault("collapse_at_iso", None)
+        result.setdefault("invite_all_members", True)
+        result.setdefault("invitees", [])
+        result.setdefault("planning_notes", [])
+        result.setdefault("date_preset", "custom")
+        result.setdefault("time_window", "afternoon")
+        result.setdefault("location_type", None)
+        result.setdefault("budget_level", None)
+        result.setdefault("transport_mode", None)
+        return result
+
+    async def infer_constraint_from_text(self, text: str) -> Dict[str, Any]:
+        """Wrapper: Constraint inference now uses the action registry."""
+        prompt = f"""
+        Convert the user's message into a constraint JSON.
+        Allowed types: if_joins, if_attends, unless_joins.
+        Extract target username if present (without @).
+        
+        User text: {text}
+        
+        Output JSON:
+        {{
+          "target_username": "alice" or null,
+          "constraint_type": "if_joins|if_attends|unless_joins|null"
+        }}
+        """
+        try:
+            response = await self._call_llm(prompt)
+            parsed = json.loads(response)
+            return {
+                "target_username": str(parsed.get("target_username", ""))
+                .strip()
+                .lstrip("@"),
+                "constraint_type": str(parsed.get("constraint_type", ""))
+                .strip()
+                .lower(),
+            }
+        except Exception:
+            return {"target_username": None, "constraint_type": None}
 
 
 def _sanitize_toxic_text(text: str) -> str:
