@@ -189,7 +189,6 @@ class EventLifecycleService:
         """Delete live card when event reaches terminal state."""
         from db.connection import get_session
         from sqlalchemy import select
-        from sqlalchemy.ext.asyncio import AsyncSession
 
         use_session = session or self.session
 
@@ -218,7 +217,6 @@ class EventLifecycleService:
     ) -> None:
         """Freeze hashtags when event locks."""
         from db.connection import get_session
-        from sqlalchemy.ext.asyncio import AsyncSession
 
         use_session = session or self.session
 

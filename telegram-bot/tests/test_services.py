@@ -3,18 +3,14 @@
 
 import pytest
 from unittest.mock import MagicMock, AsyncMock
-from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from bot.services import (
     ParticipantService,
     EventStateTransitionService,
     EventLifecycleService,
-    EventMaterializationService,
-    EventMemoryService,
 )
 from db.models import Event, EventParticipant, ParticipantStatus, ParticipantRole
-from config.settings import settings
 
 
 @pytest.fixture

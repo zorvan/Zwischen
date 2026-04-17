@@ -154,7 +154,7 @@ async def _offer_event_selection(
     await message.reply_text(
         f"Which event should I **{action_type}** for you?",
         reply_markup=InlineKeyboardMarkup(buttons),
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -198,7 +198,7 @@ async def _send_group_events_list(
             f"Duration: {event.duration_minutes or 120}m"
         )
         lines.append(f"  Description: {description}")
-    await reply_to_message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await reply_to_message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def record_group_history(
@@ -377,7 +377,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 f"🤖 {response}\n\n"
                 "_Want me to turn this into an event, or see what’s already planned?_",
                 reply_markup=keyboard,
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
         else:
             await message.reply_text(f"🤖 {response}")
@@ -623,7 +623,7 @@ async def handle_disambiguation_callbacks(
             "• Mention me with a clear ask.\n"
             "• When I list events, tap a row to pick one.\n"
             "• Use /organize_event to start a structured setup.",
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         return
 
@@ -701,7 +701,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             "🔧 How would you like to modify the event?\n\n"
             "Choose a method to specify the changes you want to make.",
             reply_markup=reply_markup,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
         return
@@ -758,7 +758,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 "- Increase minimum to 4 and capacity to 10\n"
                 "- Move location to gym\n\n"
                 "Type 'cancel' to abort.",
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
             # Store pending modification for processing
             context.user_data[f"pending_mod_text_{request_id}"] = {
@@ -923,7 +923,7 @@ async def _submit_modify_request_via_message(
         f"Event ID: {event_id}\n"
         f"Changes: {change_text}\n\n"
         f"Waiting for admin approval...",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
     from bot.common.event_notifications import send_event_modification_request_dm
@@ -963,7 +963,7 @@ async def _submit_modify_request_via_callback(
         f"Event ID: {event_id}\n"
         f"Changes: {change_text}\n\n"
         f"Waiting for admin approval...",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
     from bot.common.event_notifications import send_event_modification_request_dm
@@ -2121,7 +2121,7 @@ async def _handle_organize_event_direct(
                     chat_id=creator_id,
                     text=full_admin_summary,
                     reply_markup=admin_reply_markup,
-                    parse_mode="Markdown",
+                    parse_mode="HTML",
                 )
                 logger.info(
                     f"Full event details sent to admin {creator_id} via DM for event {event.event_id}"
@@ -2140,7 +2140,7 @@ async def _handle_organize_event_direct(
 
         await update.message.reply_text(
             group_announcement,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
 

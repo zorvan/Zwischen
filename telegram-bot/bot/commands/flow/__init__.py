@@ -220,9 +220,10 @@ async def start_event_flow(
 
     if mode == "private":
         await message.reply_text(
-            "📝 *Event Description*\n\n"
+            "<b>📝 Event Description</b>\n\n"
             "Send a short description for the event.\n\n"
             "Example: Friendly football match at the central field.",
+            parse_mode="HTML",
         )
     else:
         scheduling_mode = flow_data["data"].get("scheduling_mode", "fixed")
@@ -232,11 +233,12 @@ async def start_event_flow(
             else "Flexible (collect availability first)"
         )
         await message.reply_text(
-            "📝 *Event Description*\n\n"
+            "<b>📝 Event Description</b>\n\n"
             "Send a short description for the event.\n"
             f"Mode: {mode_text}\n\n"
             "Example: Friendly football match at the central field.\n"
             "Most next steps are one-tap inline options.",
+            parse_mode="HTML",
         )
 
 
@@ -855,7 +857,7 @@ async def _handle_callback_common(
         flow_data["target_participants"] = threshold
         context.user_data[flow_key] = event_flow
         await query.edit_message_text(
-            f"✅ *Minimum/Capacity: {threshold}*\n\nSelect event duration:",
+            f           "✅ <b>Minimum/Capacity: {threshold}</b>\n\nSelect event duration:",
             reply_markup=build_duration_markup(prefix=prefix),
         )
 

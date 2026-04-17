@@ -123,7 +123,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         await query.edit_message_text(
             f"🤖 *Requesting AI time suggestion for event {event_id}...*",
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         await _send_suggestion(query.message, event_id)
 
@@ -142,7 +142,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         event_id = int(data.replace("st_suggest_", ""))
         await query.edit_message_text(
             f"🤖 *Requesting AI time suggestion for event {event_id}...*",
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         await _send_suggestion(query.message, event_id)
 
@@ -208,7 +208,7 @@ async def _show_fixed_event_options(
         f"📅 *Event {event.event_id} has scheduled time: {event.scheduled_time.strftime('%Y-%m-%d %H:%M')}*\n\n"
         "What would you like to do?",
         reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -238,7 +238,7 @@ async def _show_flexible_event_options(
         f"📅 *Event {event.event_id} is flexible (no fixed time yet)*\n\n"
         "Set availability intervals for optimal AI scheduling:",
         reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -374,7 +374,7 @@ async def _handle_calendar_request(
     await query.edit_message_text(
         f"📅 *Select date for event {event_id}:*",
         reply_markup=build_calendar_markup(now.year, now.month, event_id, mode),
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -408,7 +408,7 @@ async def _handle_calendar_callback(
         await query.edit_message_text(
             f"📅 *Select date for event {event_id}:*",
             reply_markup=build_calendar_markup(year, month, event_id, mode),
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         return
 
@@ -427,7 +427,7 @@ async def _handle_calendar_callback(
             await query.edit_message_text(
                 f"📆 *Date selected: {selected_date}*\n\nChoose a time window:",
                 reply_markup=build_time_window_markup(event_id, mode),
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
         else:
             # For flexible events, go directly to intervals
@@ -436,7 +436,7 @@ async def _handle_calendar_callback(
                 f"Now set availability intervals with confidence scores:\n\n"
                 f"1. Select time windows\n2. Assign confidence (0.0-1.0)\n3. AI infers optimal time from weighted data",
                 reply_markup=build_time_window_markup(event_id, mode),
-                parse_mode="Markdown",
+                parse_mode="HTML",
             )
 
 
@@ -461,7 +461,7 @@ async def _handle_time_window_selection(
     await query.edit_message_text(
         f"*time_window_{window}*",
         reply_markup=build_time_options_markup(window, event_id, mode),
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -487,7 +487,7 @@ async def _handle_time_option_selection(
         f"✅ *Time selected: {time_value}*\n\n"
         f"Now set confidence score for this interval (0.0-1.0):\n"
         f"Example: `0.8` means 80% confidence you're available.",
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -561,7 +561,7 @@ async def _send_suggestion(message: MaybeInaccessibleMessage, event_id: int) -> 
         if auto_applied:
             text += "\n\n✅ Applied this suggested time to the event."
 
-        await msg.reply_text(text, reply_markup=reply_markup, parse_mode="Markdown")
+        await msg.reply_text(text, reply_markup=reply_markup, parse_mode="HTML")
 
 
 def create_session_factory(db_url: str):

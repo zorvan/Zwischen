@@ -171,6 +171,10 @@ load_env
 ensure_python
 ensure_required_env
 
+# clear build cache
+find . -type -name "*.pyc" -exec rm -rf {} + 2>/dev/null; echo "Cache cleared"
+find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; echo "Cache cleared"
+
 if is_local_db_url; then
   reset_local_db
 else

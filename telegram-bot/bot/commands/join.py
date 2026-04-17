@@ -54,9 +54,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # Deprecation notice
     await message.reply_text(
-        "ℹ️ `/join` is deprecated.\\n\\n"
-        "Use `/events` and tap an event to see the Join button.",
-        parse_mode="Markdown",
+        "ℹ️ <code>/join</code> is deprecated.\n\n"
+        "Use <code>/events</code> and tap an event to see the Join button.",
+        parse_mode="HTML",
     )
     return
 
@@ -248,15 +248,15 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            await message.reply_text(
-                f"✅ *Joined event {event_id}!*\n\n"
-                f"Type: {event.event_type}\n"
-                f"Time: {event.scheduled_time}\n"
-                f"State: {event.state}\n\n"
-                "Please commit attendance.",
-                reply_markup=reply_markup,
-                parse_mode="Markdown",
-            )
+await message.reply_text(
+        f"✅ <b>Joined event {event_id}!</b>\n\n"
+        f"Type: {event.event_type}\n"
+        f"Time: {event.scheduled_time}\n"
+        f"State: {event.state}\n\n"
+        "Please commit attendance.",
+        reply_markup=reply_markup,
+        parse_mode="HTML",
+    )
 
         except Exception as e:
             logger.exception(
@@ -297,8 +297,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await handle(update, context)
 
         # Update callback message
-        await query.edit_message_text(
-            f"✅ *Joined event {event_id}!*\n\n"
-            f"Use /status {event_id} to view event details.",
-            parse_mode="Markdown",
-        )
+await query.edit_message_text(
+        f"✅ <b>Joined event {event_id}!</b>\n\n"
+        f"Use /status {event_id} to view event details.",
+        parse_mode="HTML",
+    )

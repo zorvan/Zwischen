@@ -77,11 +77,11 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         # Use formatter to get text and keyboard
         text, keyboard = await format_events_list(events_data, user_id)
 
-        await update.message.reply_text(
-            text,
-            reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
-            parse_mode="Markdown",
-        )
+await update.message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
+        parse_mode="HTML",
+    )
 
         if is_group_chat:
             query = query.where(Group.telegram_group_id == chat.id)
@@ -173,10 +173,10 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
         lines.append("")
-        lines.append("💡 *Tap any event above to view details*")
+        lines.append("💡 <b>Tap any event above to view details</b>")
 
         await update.message.reply_text(
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )

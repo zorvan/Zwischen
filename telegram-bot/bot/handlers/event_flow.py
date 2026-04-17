@@ -405,21 +405,21 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
         confirmed_count = await participant_service.get_confirmed_count(event_id)
 
         await query.edit_message_text(
-            f"✅ *You joined the event!*\n\n"
-            f"📋 *Event #{event_id}*\n"
+            f"✅ <b>You joined the event!</b>\n\n"
+            f"📋 <b>Event #{event_id}</b>\n"
             f"Type: {event.event_type}\n"
             f"Time: {time_str}\n"
             f"Location: {location}\n"
             f"State: {event.state}\n\n"
-            f"👥 *Participants:*\n"
+            f"👥 <b>Participants:</b>\n"
             f"Interested: {interested_count}\n"
             f"Confirmed: {confirmed_count}\n"
             f"Minimum: {event.min_participants}\n"
             f"Capacity: {event.target_participants}\n\n"
-            f"_The event is now gathering momentum!_\n"
-            f"_Set your availability, add constraints, and engage with the group._",
+            f"<i>The event is now gathering momentum!</i>\n"
+            f"<i>Set your availability, add constraints, and engage with the group.</i>",
             reply_markup=reply_markup,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
 
@@ -616,21 +616,21 @@ async def handle_confirm(
         confirmed_count = await participant_service.get_confirmed_count(event_id)
 
         await query.edit_message_text(
-            f"✅ *You confirmed to the event!*\n\n"
-            f"📋 *Event #{event_id}*\n"
+            f"✅ <b>You confirmed to the event!</b>\n\n"
+            f"📋 <b>Event #{event_id}</b>\n"
             f"Type: {event.event_type}\n"
             f"Time: {time_str}\n"
             f"Location: {location}\n"
             f"State: {event.state}\n\n"
-            f"👥 *Participants:*\n"
+            f"👥 <b>Participants:</b>\n"
             f"Interested: {interested_count}\n"
             f"Confirmed: {confirmed_count}\n"
             f"Minimum: {event.min_participants}\n"
             f"Capacity: {event.target_participants}\n\n"
-            f"_Your confirmation helps the event reach critical mass!_\n"
-            f"_You can go back before the event is locked._",
+            f"<i>Your confirmation helps the event reach critical mass!</i>\n"
+            f"<i>You can go back before the event is locked.</i>",
             reply_markup=reply_markup,
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
 

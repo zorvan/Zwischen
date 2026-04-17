@@ -61,15 +61,9 @@ ALLOWED_EVENT_TYPES = {"social", "sports", "work"}
 WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
-def _escape_md(text: str) -> str:
-    """Escape text for safe Telegram Markdown parsing."""
-    return (
-        str(text)
-        .replace("_", "\\_")
-        .replace("*", "\\*")
-        .replace("[", "\\[")
-        .replace("]", "\\]")
-    )
+def _escape_html(text: str) -> str:
+    """Escape text for safe HTML in Telegram messages."""
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def compute_commit_by_time(scheduled_time: datetime | None) -> datetime | None:
@@ -673,35 +667,35 @@ async def finalize_event(
     group_summary = (
         f"✅ *Event Created!*\n\n"
         f"Event ID: `{event.event_id}`\n"
-        f"Description: {_escape_md(data.get('description', 'Not provided'))}\n\n"
+        f"Description: {_escape_html(data.get('description', 'Not provided'))}\n\n"
         "A private DM has been sent to group members with full event details and next steps."
     )
 
     await query.edit_message_text(group_summary)
 
     full_summary = (
-        f"✅ *Event Created Successfully!*\n\n"
-        f"Event ID: `{event.event_id}`\n"
+        f"✅ <b>Event Created Successfully!</b>\n\n"
+        f"Event ID: <code>{event.event_id}</code>\n"
         f"State: proposed (awaiting confirmations)\n\n"
-        f"Type: {_escape_md(data.get('event_type', 'Not specified'))}\n"
-        f"Description: {_escape_md(data.get('description', 'Not provided'))}\n"
-        f"Time: {_escape_md(scheduled_time)}\n"
-        f"Commit-By: {_escape_md(commit_by_text)}\n"
-        f"Date Preset: {_escape_md(date_preset_text)}\n"
-        f"Time Window: {_escape_md(time_window_text)}\n"
-        f"Duration: {_escape_md(format_duration(data.get('duration_minutes')))}\n"
-        f"Mode: {_escape_md(scheduling_mode)}\n"
-        f"Location Type: {_escape_md(location_text)}\n"
-        f"Budget: {_escape_md(budget_text)}\n"
-        f"Transport: {_escape_md(transport_text)}\n"
-        f"Minimum: {_escape_md(data.get('min_participants', 'Not set'))}\n"
-        f"Capacity: {_escape_md(data.get('target_participants', 'Not set'))}\n"
-        f"Invitees: {_escape_md(invitees_summary)}\n\n"
+        f"Type: {_escape_html(data.get('event_type', 'Not specified'))}\n"
+        f"Description: {_escape_html(data.get('description', 'Not provided'))}\n"
+        f"Time: {_escape_html(scheduled_time)}\n"
+        f"Commit-By: {_escape_html(commit_by_text)}\n"
+        f"Date Preset: {_escape_html(date_preset_text)}\n"
+        f"Time Window: {_escape_html(time_window_text)}\n"
+        f"Duration: {_escape_html(format_duration(data.get('duration_minutes')))}\n"
+        f"Mode: {_escape_html(scheduling_mode)}\n"
+        f"Location Type: {_escape_html(location_text)}\n"
+        f"Budget: {_escape_html(budget_text)}\n"
+        f"Transport: {_escape_html(transport_text)}\n"
+        f"Minimum: {_escape_html(data.get('min_participants', 'Not set'))}\n"
+        f"Capacity: {_escape_html(data.get('target_participants', 'Not set'))}\n"
+        f"Invitees: {_escape_html(invitees_summary)}\n\n"
         f"✅ Event ready for confirmation. Run /confirm {event.event_id} to lock it."
         + (
             "\n\nFlexible flow tip:\n"
             "Each attendee can add availability slots with:\n"
-            f"/constraints {event.event_id} availability <YYYY-MM-DD HH:MM, ...>"
+            f"/constraints {event.event_id} availability <code>YYYY-MM-DD HH:MM, ...</code>"
             if scheduling_mode == "flexible"
             else ""
         )
@@ -725,7 +719,7 @@ async def finalize_event(
         chat_id=creator_id,
         text=full_summary,
         reply_markup=dm_reply_markup,
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
     logger.info(
         "Full event details sent to admin %s via DM for event %s",
@@ -978,20 +972,20 @@ async def finalize_private_event(
     await query.edit_message_text(
         f"✅ *Event Created!*\n\n"
         f"Event ID: {event.event_id}\n"
-        f"Type: {_escape_md(data.get('event_type', 'Not specified'))}\n"
-        f"Description: {_escape_md(data.get('description', 'Not provided'))}\n"
-        f"Time: {_escape_md(scheduled_time)}\n"
-        f"Commit-By: {_escape_md(commit_by_text)}\n"
-        f"Date Preset: {_escape_md(date_preset_text)}\n"
-        f"Time Window: {_escape_md(time_window_text)}\n"
-        f"Duration: {_escape_md(format_duration(data.get('duration_minutes')))}\n"
-        f"Mode: {_escape_md(scheduling_mode)}\n"
-        f"Location Type: {_escape_md(location_text)}\n"
-        f"Budget: {_escape_md(budget_text)}\n"
-        f"Transport: {_escape_md(transport_text)}\n"
-        f"Minimum: {_escape_md(data.get('min_participants', 'Not set'))}\n"
-        f"Capacity: {_escape_md(data.get('target_participants', 'Not set'))}\n"
-        f"Invitees: {_escape_md(invitees_summary)}\n\n"
+        f"Type: {_escape_html(data.get('event_type', 'Not specified'))}\n"
+        f"Description: {_escape_html(data.get('description', 'Not provided'))}\n"
+        f"Time: {_escape_html(scheduled_time)}\n"
+        f"Commit-By: {_escape_html(commit_by_text)}\n"
+        f"Date Preset: {_escape_html(date_preset_text)}\n"
+        f"Time Window: {_escape_html(time_window_text)}\n"
+        f"Duration: {_escape_html(format_duration(data.get('duration_minutes')))}\n"
+        f"Mode: {_escape_html(scheduling_mode)}\n"
+        f"Location Type: {_escape_html(location_text)}\n"
+        f"Budget: {_escape_html(budget_text)}\n"
+        f"Transport: {_escape_html(transport_text)}\n"
+        f"Minimum: {_escape_html(data.get('min_participants', 'Not set'))}\n"
+        f"Capacity: {_escape_html(data.get('target_participants', 'Not set'))}\n"
+        f"Invitees: {_escape_html(invitees_summary)}\n\n"
         f"✅ Event has been automatically locked.\n"
         f"Status: Locked - No further changes allowed.\n\n"
         + (

@@ -178,14 +178,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         event_id = int(data.replace("event_edit_", ""))
         context.user_data["pending_event_edit"] = {"event_id": event_id}
         await query.edit_message_text(
-            "✏️ *Edit Event Details*\n\n"
+            "✏️ <b>Edit Event Details</b>\n\n"
             "Please type the changes you'd like to make. Examples:\n"
             "- Change description to beach party\n"
             "- Set duration to 90 minutes\n"
             "- Increase minimum to 5\n"
             "- Set location to outdoor\n\n"
             "Type 'cancel' to abort.",
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
     elif data and data.startswith("avail_add_"):
         event_id = int(data.replace("avail_add_", ""))
@@ -977,11 +977,33 @@ async def _save_availability(
             )
             return
 
-    await query.edit_message_text(
-        f"✅ Availability saved!\n\n"
-        f"Slot: {slot_str}\n\n"
-        f"Use /suggest_time {event_id} to see suggested times."
-    )
+
+await query.edit_message_text(
+    f"✅ <b>Event Created!</b>\n\n"
+    f"Event ID: {event.event_id}\n"
+    f"Type: {_escape_html(data.get('event_type', 'Not specified'))}\n"
+    f"Description: {_escape_html(data.get('description', 'Not provided'))}\n"
+    f"Time: {_escape_html(scheduled_time)}\n"
+    f"Commit-By: {_escape_html(commit_by_text)}\n"
+    f"Date Preset: {_escape_html(date_preset_text)}\n"
+    f"Time Window: {_escape_html(time_window_text)}\n"
+    f"Duration: {_escape_html(format_duration(data.get('duration_minutes')))}\n"
+    f"Mode: {_escape_html(scheduling_mode)}\n"
+    f"Location Type: {_escape_html(location_text)}\n"
+    f"Budget: {_escape_html(budget_text)}\n"
+    f"Transport: {_escape_html(transport_text)}\n"
+    f"Minimum: {_escape_html(data.get('min_participants', 'Not set'))}\n"
+    f"Capacity: {_escape_html(data.get('target_participants', 'Not set'))}\n"
+    f"Invitees: {_escape_html(invitees_summary)}\n\n"
+    f"✅ Event has been automatically locked.\n"
+    f"Status: Locked - No further changes allowed.\n\n"
+    + (
+        f"Event Admin: {organizer_username if organizer_username else creator_id}"
+        if organizer_username
+        else f"Event Admin: {creator_id}"
+    ),
+    reply_markup=reply_markup,
+)
 
 
 async def build_event_details_action_markup(
@@ -1115,14 +1137,14 @@ async def _prompt_change_time(
     reply_markup = InlineKeyboardMarkup(keyboard)
 
     await query.edit_message_text(
-        "📅 *Change Event Time*\n\n"
+        "📅 <b>Change Event Time</b>\n\n"
         "Please type the new time for the event. Examples:\n"
         "- March 8, 2026 at 18:00\n"
         "- Next Friday at 7pm\n"
         "- June 15, 2026 14:30\n\n"
         "Type 'cancel' to abort.",
         reply_markup=reply_markup,
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -1161,10 +1183,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         await update.message.reply_text(
             f"✅ Edit request received for event #{event_id}:\n\n"
-            f"`{user_input}`\n\n"
+            f"<code>{user_input}</code>\n\n"
             f"Note: AI-based event editing is not yet implemented. "
             f"Please use manual edit commands.",
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
 
 
