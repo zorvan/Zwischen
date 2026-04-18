@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -174,6 +174,11 @@ class EventMemoryService:
 
         # v3.2: count words at write time
         word_count = len(fragment_text.split())
+
+        # v3.2: truncate fragments to 500 words if needed
+        if word_count > 500:
+            fragment_text = " ".join(fragment_text.split()[:500])
+            word_count = 500
 
         fragment = {
             "text": fragment_text,

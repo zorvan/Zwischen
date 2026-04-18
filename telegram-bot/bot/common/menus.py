@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Persistent inline keyboard menus for bot DMs."""
 
+from typing import Optional
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
@@ -53,7 +54,7 @@ def build_events_list_menu(page: int = 0) -> InlineKeyboardMarkup:
 
 
 def build_event_detail_keyboard(
-    event_id: int, user_status: str = None, event_state: str = None
+    event_id: int, user_status: Optional[str] = None, event_state: Optional[str] = None
 ) -> InlineKeyboardMarkup:
     """Build keyboard for a specific event detail view.
 

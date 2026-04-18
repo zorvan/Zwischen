@@ -11,8 +11,8 @@ from config.settings import settings
 from bot.common.event_presenters import format_status_message
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /status command - DEPRECATED: Use /events instead."""
+async def handle_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /status command — Show event status with rich formatting."""
     if not update.message or not update.effective_user:
         return
 

@@ -283,6 +283,6 @@ def _next_clarifying_question(
     )
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_meaning_formation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /plan command — start memory-first event creation."""
     await start_meaning_formation(update, context, mode="public")

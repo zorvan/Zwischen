@@ -157,7 +157,7 @@ def _apply_inferred_event_patch(
     return changed_fields, reason_parts
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_modify(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /modify_event <event_id> <free text patch>."""
     if not update.message or not update.effective_user:
         return

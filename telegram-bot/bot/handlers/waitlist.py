@@ -67,7 +67,7 @@ async def handle_decline(update: Update, context: ContextTypes.DEFAULT_TYPE, eve
 
 
 async def handle_extend_deadline(update: Update, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
-    """Handle organizer extending collapse deadline."""
+    """Handle organizer extending event deadline."""
     query = update.callback_query
     if not query:
         return
@@ -89,18 +89,18 @@ async def handle_extend_deadline(update: Update, context: ContextTypes.DEFAULT_T
             await query.edit_message_text("❌ Only the organizer can extend the deadline.")
             return
 
-        # Extend collapse_at by 24 hours
+        # Extend deadline by 24 hours
         if event.collapse_at:
             event.collapse_at = event.collapse_at + timedelta(hours=24)
         else:
-            # If no collapse_at was set, set one 24h from now
-            event.collapse_at = datetime.utcnow() + timedelta(hours=24)
+            # If no deadline was set, set one 24h from now
+            event.collapse_at = datetime.now(timezone.utc) + timedelta(hours=24)
 
         await session.commit()
 
         await query.edit_message_text(
-            f"✅ Deadline extended for the {event.event_type}.\n"
-            f"New collapse time: {event.collapse_at.strftime('%a %d %b, %H:%M')}."
+            f"× Deadline extended for the {event.event_type}.\n"
+            f"New deadline: {event.collapse_at.strftime('%a %d %b, %H:%M')}."
         )
 
         # Notify group with neutral state update only
@@ -111,7 +111,7 @@ async def handle_extend_deadline(update: Update, context: ContextTypes.DEFAULT_T
         if group_chat_id:
             await context.bot.send_message(
                 chat_id=group_chat_id,
-                text=f"⏳ The {event.event_type} deadline has been extended. New collapse time: {event.collapse_at.strftime('%a %d %b, %H:%M')}."
+                text=f" The {event.event_type} deadline has been extended. New deadline: {event.collapse_at.strftime('%a %d %b, %H:%M')}."
             )
 
 

@@ -10,10 +10,9 @@ from db.connection import get_session
 from db.models import Event, Group
 from bot.common.rbac import check_group_membership
 from bot.common.event_presenters import format_events_list
-from bot.services.event_enrichment_service import EventEnrichmentService
 
 
-async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_events(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /events command - v3.4 unified event panel with progressive disclosure."""
     if not update.message or not update.effective_chat:
         return
@@ -41,9 +40,6 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         events_data = []
         if user_id:
             for event, group in rows:
-                group_name = (
-                    group.group_name if group and group.group_name else "Unknown"
-                )
                 # Check user's participation status
                 from db.models import EventParticipant, ParticipantStatus
 
@@ -76,18 +72,6 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
 
         # Use formatter to get text and keyboard
         text, keyboard = await format_events_list(events_data, user_id)
-
-await update.message.reply_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(keyboard) if keyboard else None,
-        parse_mode="HTML",
-    )
-
-        if is_group_chat:
-            query = query.where(Group.telegram_group_id == chat.id)
-
-        result = await session.execute(query)
-        rows = result.all()
 
         if not rows:
             await update.message.reply_text("ℹ️ No events found.")
@@ -128,13 +112,6 @@ await update.message.reply_text(
         keyboard = []
 
         for event, group in rows:
-            group_name = (
-                group.group_name[:20]
-                if group and group.group_name
-                else "Private"
-                if group
-                else "Unknown"
-            )
             time_str = (
                 event.scheduled_time.strftime("%m-%d %H:%M")
                 if event.scheduled_time
@@ -147,7 +124,6 @@ await update.message.reply_text(
 
             # Escape underscores for safe Markdown
             short_desc_escaped = short_desc.replace("_", "\\_")
-            group_name_escaped = group_name.replace("_", "\\_")
             state_escaped = event.state.replace("_", "\\_")
 
             # Add brief info to message text

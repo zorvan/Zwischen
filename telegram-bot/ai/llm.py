@@ -448,7 +448,7 @@ class LLMClient:
         - budget_level: If cost is discussed (free, cheap, expensive), set it. Otherwise omit.
         - transport_mode: If transport is discussed (walk, public_transit, drive), set it. Otherwise omit.
         - scheduled_time_iso: If a specific date+time is discussed, set it as YYYY-MM-DDTHH:MM. Otherwise null.
-        - collapse_at_iso: Auto-cancel deadline. If scheduling_mode is flexible or time is unknown, set to ~7 days from now. Otherwise null.
+        - deadline_at_iso: Auto-cancel deadline. If scheduling_mode is flexible or time is unknown, set to ~7 days from now. Otherwise null.
 
         CRITICAL: Extract location/context from the conversation.
         - If a location is mentioned (e.g., "Amin's house", "the park", "gym downtown"), weave it into the description naturally.
@@ -477,7 +477,7 @@ class LLMClient:
           "description": "short natural text with location if mentioned",
           "event_type": "social|sports|work",
           "scheduled_time_iso": "YYYY-MM-DDTHH:MM or null",
-          "collapse_at_iso": "YYYY-MM-DDTHH:MM or null",
+          "deadline_at_iso": "YYYY-MM-DDTHH:MM or null",
           "duration_minutes": 120,
           "min_participants": 3,
           "target_participants": 5,
@@ -502,7 +502,7 @@ class LLMClient:
         The constraints array should be empty if no constraints are inferred.
         The location_type, budget_level, and transport_mode should be null if not discussed.
         If scheduling mode is flexible or time is unknown, set scheduled_time_iso to null but still
-        set collapse_at_iso to a reasonable deadline (e.g. 7 days from now at end of day) so the
+        set deadline_at_iso to a reasonable deadline (e.g. 7 days from now at end of day) so the
         event can auto-cancel if interest stays low.
         """
         try:
@@ -544,13 +544,13 @@ class LLMClient:
             notes = parsed.get("planning_notes", [])
             if not isinstance(notes, list):
                 notes = []
-            collapse_raw = parsed.get("collapse_at_iso")
-            collapse_at = None
-            if isinstance(collapse_raw, str) and collapse_raw.strip():
+            deadline_raw = parsed.get("deadline_at_iso")
+            deadline_at = None
+            if isinstance(deadline_raw, str) and deadline_raw.strip():
                 try:
-                    collapse_at = datetime.fromisoformat(collapse_raw.strip())
+                    deadline_at = datetime.fromisoformat(deadline_raw.strip())
                 except ValueError:
-                    collapse_at = None
+                    deadline_at = None
 
             # Extract inferred constraints
             constraints_raw = parsed.get("constraints", [])
@@ -638,7 +638,7 @@ class LLMClient:
                 ).strip()[:500],
                 "event_type": event_type,
                 "scheduled_time": parsed.get("scheduled_time_iso"),
-                "collapse_at": collapse_at.isoformat() if collapse_at else None,
+                "deadline_at": deadline_at.isoformat() if deadline_at else None,
                 "duration_minutes": max(30, min(720, duration)),
                 "min_participants": max(1, min(200, min_participants)),
                 "target_participants": max(
@@ -663,7 +663,7 @@ class LLMClient:
                 "description": (message_text or "Group planned event").strip()[:500],
                 "event_type": "social",
                 "scheduled_time": None,
-                "collapse_at": None,
+                "deadline_at": None,
                 "duration_minutes": 120,
                 "min_participants": 3,
                 "target_participants": 5,

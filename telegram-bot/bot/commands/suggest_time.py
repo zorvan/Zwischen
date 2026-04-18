@@ -32,7 +32,7 @@ TIME_WINDOWS = {
 }
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_suggest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /suggest_time command - request AI time suggestions with calendar selector."""
     if not update.message or not update.effective_user:
         return

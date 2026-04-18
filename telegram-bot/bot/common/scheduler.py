@@ -1,18 +1,17 @@
 """
 Scheduler - Periodic background tasks.
-PRD v2 Priority 4: Production Hardening.
-
+Scheduled tasks for the coordination bot - v3.2.
 Handles:
 - Automatic memory collection DM (TODO-029)
 - Log pruning (90-day GDPR compliance) (TODO-015)
-- collapse_at auto-cancel (TODO-021)
+- deadline_at auto-cancel (TODO-021)
 - 24h before event reminder (TODO-027)
 - Weekly digest auto-send
 """
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from telegram import Bot
 from sqlalchemy import select, func, delete
 
@@ -29,7 +28,7 @@ class SchedulerService:
     Tasks:
     - Memory collection: 2 hours after event completion
     - Log pruning: Delete logs older than 90 days (weekly)
-    - Collapse check: Check underthreshold events every hour
+    - Deadline check: Check underthreshold events every hour
     - 24h reminder: Remind groups of upcoming events daily
     - Weekly digest: Send to active groups weekly
     """
@@ -115,19 +114,19 @@ class SchedulerService:
 
             return deleted_count
 
-    async def check_collapse_deadlines(self) -> int:
+    async def check_deadline_cancellations(self) -> int:
         """
-        Auto-cancel events that passed collapse_at without meeting threshold.
+        Auto-cancel events that passed their deadline without meeting threshold.
 
-        PRD v2 Section 2.1: Threshold-Based Fragility
-        - collapse_at: Auto-cancel deadline for underthreshold events
+        v3 Principle: Neutral deadline enforcement, not fragility framing.
+        - deadline_at: Auto-cancel deadline for underthreshold events
 
         Triggered: Every hour
         """
         async with get_session(self.db_url) as session:
             now = datetime.utcnow()
 
-            # Find events past collapse deadline
+            # Find events past deadline
             result = await session.execute(
                 select(Event)
                 .where(
@@ -165,7 +164,7 @@ class SchedulerService:
                             target_state="cancelled",
                             actor_telegram_user_id=None,  # System action
                             source="system",
-                            reason=f"Auto-cancel: threshold not met by collapse_at deadline ({event.collapse_at})",
+                            reason=f"Auto-cancel: threshold not met by deadline ({event.collapse_at})",
                             expected_version=event.version,
                         )
                         cancelled_count += 1
@@ -315,10 +314,10 @@ async def run_scheduled_tasks(bot: Bot, db_url: str) -> None:
             if pruned > 0:
                 logger.info("Pruned %d old logs", pruned)
 
-        # Collapse check (hourly)
-        collapsed = await scheduler.check_collapse_deadlines()
-        if collapsed > 0:
-            logger.info("Auto-cancelled %d underthreshold events", collapsed)
+        # Deadline check (hourly)
+        cancelled = await scheduler.check_deadline_cancellations()
+        if cancelled > 0:
+            logger.info("Auto-cancelled %d underthreshold events", cancelled)
 
         # 24h reminders (daily at 9 AM)
         now = datetime.utcnow()

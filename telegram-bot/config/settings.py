@@ -3,6 +3,7 @@ Application configuration management.
 Loads environment variables and provides centralized access to settings.
 PRD v2: Updated for production hardening.
 """
+
 import os
 from dotenv import load_dotenv
 
@@ -12,6 +13,16 @@ load_dotenv()
 
 class Settings:
     """Application settings loaded from environment variables."""
+
+    # Class-level attributes for backward compatibility
+    WEBHOOK_ENABLED: bool = os.environ.get("WEBHOOK_ENABLED", "false").lower() == "true"
+    WEBHOOK_URL: str | None = os.environ.get("WEBHOOK_URL")
+    TELEGRAM_BOT_TOKEN: str | None = os.environ.get("TELEGRAM_TOKEN")
+    TELEGRAM_TOKEN: str | None = os.environ.get("TELEGRAM_TOKEN")
+    WEBHOOK_SECRET_TOKEN: str | None = os.environ.get("WEBHOOK_SECRET")
+    WEBHOOK_ALLOWED_UPDATES: list[str] = os.environ.get(
+        "WEBHOOK_ALLOWED_UPDATES", "message,callback_query"
+    ).split(",")
 
     def __init__(self):
         # Telegram
@@ -34,12 +45,20 @@ class Settings:
         self.json_logs: bool = os.environ.get("JSON_LOGS", "false").lower() == "true"
 
         # PRD v2: Feature flags
-        self.enable_materialization: bool = os.environ.get("ENABLE_MATERIALIZATION", "true").lower() == "true"
-        self.enable_memory_layer: bool = os.environ.get("ENABLE_MEMORY_LAYER", "true").lower() == "true"
+        self.enable_materialization: bool = (
+            os.environ.get("ENABLE_MATERIALIZATION", "true").lower() == "true"
+        )
+        self.enable_memory_layer: bool = (
+            os.environ.get("ENABLE_MEMORY_LAYER", "true").lower() == "true"
+        )
 
         # PRD v2: Production settings
-        self.environment: str = os.environ.get("ENVIRONMENT", "development")  # development, staging, production
-        self.enable_idempotency: bool = os.environ.get("ENABLE_IDEMPOTENCY", "false").lower() == "true"
+        self.environment: str = os.environ.get(
+            "ENVIRONMENT", "development"
+        )  # development, staging, production
+        self.enable_idempotency: bool = (
+            os.environ.get("ENABLE_IDEMPOTENCY", "false").lower() == "true"
+        )
         self.webhook_url: str | None = os.environ.get("WEBHOOK_URL")
         self.webhook_port: int = int(os.environ.get("WEBHOOK_PORT", "8443"))
         self.webhook_secret: str | None = os.environ.get("WEBHOOK_SECRET")

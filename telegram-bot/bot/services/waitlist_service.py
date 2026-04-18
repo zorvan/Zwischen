@@ -14,7 +14,7 @@ Design principles:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
@@ -43,7 +43,13 @@ def _compute_offer_duration(event_scheduled_time: Optional[datetime]) -> int:
     if event_scheduled_time is None:
         return 120  # default 2 hours when no time set
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
+    
+    # Handle timezone-aware vs timezone-naive datetimes
+    if event_scheduled_time.tzinfo is None:
+        # Assume timezone-naive datetimes are UTC
+        event_scheduled_time = event_scheduled_time.replace(tzinfo=timezone.utc)
+    
     delta = event_scheduled_time - now
     total_seconds = delta.total_seconds()
 
@@ -142,7 +148,7 @@ class WaitlistService:
         entry = EventWaitlist(
             event_id=event_id,
             telegram_user_id=telegram_user_id,
-            added_at=datetime.utcnow(),
+            added_at=datetime.now(timezone.utc),
             status="waiting",
         )
         self.session.add(entry)
@@ -234,7 +240,7 @@ class WaitlistService:
             duration = _compute_offer_duration(scheduled_time)
 
         entry.status = "offered"
-        entry.expires_at = datetime.utcnow() + timedelta(minutes=duration)
+        entry.expires_at = datetime.now(timezone.utc) + timedelta(minutes=duration)
 
         await self._send_offer_dm(event_id, telegram_user_id, duration)
 
@@ -266,9 +272,18 @@ class WaitlistService:
             return False
 
         # Check expiration
-        if entry.expires_at and datetime.utcnow() > entry.expires_at:
-            await self.expire_offer(event_id, telegram_user_id)
-            return False
+        if entry.expires_at:
+            now = datetime.now(timezone.utc)
+            # Handle timezone-aware vs timezone-naive datetimes
+            if entry.expires_at.tzinfo is None:
+                # Assume timezone-naive datetimes are UTC
+                expires_at = entry.expires_at.replace(tzinfo=timezone.utc)
+            else:
+                expires_at = entry.expires_at
+            
+            if now > expires_at:
+                await self.expire_offer(event_id, telegram_user_id)
+                return False
 
         # Promote to participant
         participant_service = ParticipantService(self.session)
@@ -423,7 +438,7 @@ class WaitlistService:
 
         Returns the number of entries that were swept.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         query = (
             select(EventWaitlist)
             .where(

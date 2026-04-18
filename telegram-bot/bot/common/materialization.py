@@ -8,7 +8,7 @@ This module provides the integration between service layer and group announcemen
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, TYPE_CHECKING
 from telegram import Bot
 
@@ -33,7 +33,7 @@ def get_time_framing_tier(event: 'Event') -> str:
     """
     if not event.scheduled_time:
         return "light"
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     scheduled = event.scheduled_time
     if isinstance(scheduled, str):
         # Handle case where scheduled_time might be a string
@@ -43,6 +43,12 @@ def get_time_framing_tier(event: 'Event') -> str:
             return "light"
     if not isinstance(scheduled, datetime):
         return "light"
+    
+    # Handle timezone-aware vs timezone-naive datetimes
+    if scheduled.tzinfo is None:
+        # Assume timezone-naive datetimes are UTC
+        scheduled = scheduled.replace(tzinfo=timezone.utc)
+    
     hours = (scheduled - now).total_seconds() / 3600
     if hours > 72:
         return "light"

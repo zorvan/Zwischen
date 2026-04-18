@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 import logging
 import re
@@ -80,19 +80,19 @@ EVENT_ID_PATTERNS = (
 )
 
 
-def _derive_collapse_at(
+def _derive_deadline_at(
     scheduled_time: datetime | None,
-    draft_collapse_iso: str | None,
+    draft_deadline_iso: str | None,
 ) -> datetime | None:
-    """Deadline for threshold auto-cancel (PRD collapse_at)."""
-    if isinstance(draft_collapse_iso, str) and draft_collapse_iso.strip():
+    """Deadline for threshold auto-cancel (PRD deadline_at)."""
+    if isinstance(draft_deadline_iso, str) and draft_deadline_iso.strip():
         try:
-            dt = datetime.fromisoformat(draft_collapse_iso.strip())
-            if dt > datetime.utcnow():
+            dt = datetime.fromisoformat(draft_deadline_iso.strip())
+            if dt > datetime.now(timezone.utc):
                 return dt
         except ValueError:
             pass
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if scheduled_time:
         candidate = scheduled_time - timedelta(hours=2)
         return candidate if candidate > now else now + timedelta(hours=1)
@@ -223,7 +223,7 @@ async def record_group_history(
             "username": user.username if user else None,
             "display_name": user.full_name if user else None,
             "text": text,
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
     )
     if len(chat_history) > HISTORY_LIMIT:
@@ -250,7 +250,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     event_flow = user_data.get("event_flow")
     if isinstance(event_flow, dict):
         stage = str(event_flow.get("stage", "")).strip().lower()
-        if stage in {"description", "time", "invitees", "final"}:
+        if stage in {"description", "time_manual", "invitees", "final", "min_participants", "target_participants", "threshold"}:
             return
 
     bot_username = (context.bot.username or "").lower()
@@ -273,7 +273,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     "username": bot_username or None,
                     "display_name": "coord-bot",
                     "text": f"[replied_bot_prompt] {parent_text}",
-                    "timestamp": datetime.utcnow().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             ]
     direct_action = _infer_direct_action(text=text, parent_text=parent_text)
@@ -295,44 +295,98 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         finally:
             await llm.close()
 
-    action_type = str(action.get("action", "opinion")).strip().lower()
-    logger.debug(
-        f"Mention inference: action_type={action_type}, params={action.get('params')}, text={text[:100]}"
+    action_type = (
+        str(action.get("action", action.get("action_type", "opinion"))).strip().lower()
     )
-
-    # Phase 4: Handle create_event action (uses registry)
-    if action_type == "create_event":
-        params = action.get("params", {})
-        draft = {
-            "description": params.get("description", "Group planned event"),
-            "event_type": params.get("event_type", "social"),
-            "scheduled_time": params.get("scheduled_time"),
-            "duration_minutes": params.get("duration_minutes", 120),
-            "min_participants": params.get("min_participants", 3),
-            "target_participants": params.get("target_participants", 6),
-            "invite_all_members": params.get("invite_all_members", True),
-            "invitees": params.get("invitees", []),
-        }
-        scheduling_mode = "flexible" if not draft.get("scheduled_time") else "fixed"
-
-        await _handle_organize_event_direct(
-            update=update,
-            context=context,
-            mode="flexible" if scheduling_mode == "flexible" else "public",
-            draft=draft,
-            chat=chat,
-            user=user,
+    
+    # Comprehensive LLM inference logging
+    logger.info(
+        f"LLM INFERENCE START - "
+        f"action_type={action_type}, "
+        f"params={action.get('params')}, "
+        f"text={text[:100]}, "
+        f"user={user.full_name}(@{user.username}), "
+        f"chat={chat.title}"
+    )
+    
+    # Log detailed action inference results
+    if action_type != "opinion":
+        logger.info(
+            f"LLM ACTION INFERRED - "
+            f"action={action_type}, "
+            f"event_id={action.get('event_id')}, "
+            f"params={action.get('params')}, "
+            f"assistant_response={action.get('assistant_response', '')[:100]}"
         )
+    else:
+        logger.info(
+            f"LLM OPINION INFERRED - "
+            f"response={action.get('assistant_response', '')[:100]}"
+        )
+
+    # Phase 4: Handle create_event action - create event directly from LLM inference
+    if action_type == "create_event":
+        logger.info(f"ACTION ROUTING - create_event -> Direct event creation with prefill")
+        params = action.get("params", {})
+        
+        # Extract event details from LLM inference
+        description = params.get("description", "Event from conversation")
+        event_type = params.get("event_type", "social")
+        min_participants = params.get("min_participants", 2)
+        target_participants = params.get("target_participants", 5)
+        duration_minutes = params.get("duration_minutes", 120)
+        
+        logger.info(
+            f"CREATE_EVENT PARAMS - "
+            f"description={description[:50]}, "
+            f"event_type={event_type}, "
+            f"min_participants={min_participants}, "
+            f"target_participants={target_participants}, "
+            f"duration_minutes={duration_minutes}"
+        )
+        
+        # Start event creation flow with pre-filled data and auto-confirm
+        from bot.commands.flow import start_event_flow_from_prefill
+        prefill_data = {
+            "description": description,
+            "event_type": event_type,
+            "min_participants": min_participants,
+            "target_participants": target_participants,
+            "duration_minutes": duration_minutes,
+            "invite_all_members": True,
+            "invitees": ["@all"],
+        }
+        
+        # Start flow and immediately proceed to create event
+        await start_event_flow_from_prefill(
+            update, context, mode="public", prefill=prefill_data
+        )
+        
+        # Auto-confirm the event creation
+        if context.user_data:
+            flow_key = "event_flow"
+            event_flow = context.user_data.get(flow_key)
+            if event_flow and isinstance(event_flow, dict):
+                # Simulate confirmation callback
+                from bot.commands.finalize import handle_event_confirmation
+                callback_query = type('MockCallback', (), {
+                    'data': 'event_confirm',
+                    'edit_message_text': lambda *args, **kwargs: None,
+                    'message': update.message
+                })()
+                await handle_event_confirmation(callback_query, context)
         return
 
     # Handle opinion (chat/conversation)
     if action_type == "opinion":
+        logger.info(f"ACTION ROUTING - opinion -> Chat response with optional event creation prompt")
         response = str(action.get("assistant_response", "")).strip()
         if not response:
             response = (
                 "I reviewed the context and suggest clarifying goals, constraints, "
                 "and expected attendees before deciding."
             )
+        logger.info(f"OPINION RESPONSE - {response[:100]}")
         lowered = text.lower()
         wants_event = any(
             kw in lowered
@@ -385,14 +439,31 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     # Phase 4: For actions that need an event_id, check if we have one
     # If not, ask user to clarify which event
-    if action_type in {
+    event_id_required_actions = {
         "join_event",
-        "confirm_event",
+        "confirm_event", 
         "relinquish_event",
         "unconfirm_event",
         "lock_event",
         "request_confirmations",
-    } and not action.get("params", {}).get("event_id"):
+        "modify_event",
+        "suggest_time",
+        "status",
+        "event_details",
+    }
+    
+    # organize_event and create_event don't need event_id validation
+    if action_type in {"organize_event", "create_event"}:
+        logger.info(f"ACTION ROUTING - {action_type} -> No event_id required, proceeding to execution")
+    
+    if action_type in event_id_required_actions:
+        event_id = action.get("params", {}).get("event_id")
+        if not event_id:
+            logger.info(f"ACTION ROUTING - {action_type} -> Missing event_id, offering event selection")
+        else:
+            logger.info(f"ACTION ROUTING - {action_type} -> Has event_id {event_id}, proceeding to execution")
+    
+    if action_type in event_id_required_actions and not action.get("params", {}).get("event_id"):
         # Check if the message might be about organizing a new event
         lowered_text = text.lower()
         if any(
@@ -458,7 +529,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "action": action,
             "required_user_ids": participant_user_ids,
             "approved_user_ids": [],
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
         }
         keyboard = InlineKeyboardMarkup(
             [
@@ -483,6 +554,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         )
         return
 
+    logger.info(f"ACTION EXECUTION START - Routing to _execute_inferred_action")
     await _execute_inferred_action(
         context=context,
         action=action,
@@ -915,7 +987,7 @@ async def _submit_modify_request_via_message(
         "requester_username": requester_username,
         "change_text": change_text,
         "admin_id": admin_id,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
 
     await update.message.reply_text(
@@ -1026,15 +1098,119 @@ async def _execute_inferred_action(
         event_id = int(event_id_raw) if event_id_raw is not None else None
     except (TypeError, ValueError):
         event_id = None
+    
+    logger.info(
+        f"ACTION EXECUTION - "
+        f"action_type={action_type}, "
+        f"event_id={event_id}, "
+        f"requester={requester_display_name}(@{requester_username}), "
+        f"params={action.get('params')}"
+    )
+
+    if action_type == "organize_event":
+        logger.info(f"ACTION EXECUTION - organize_event -> Direct event creation with LLM inference")
+        # Handle organize_event action - create event directly from LLM inference
+        params = action.get("params", {})
+        
+        # Extract event details from LLM inference
+        description = params.get("description", "Event from conversation")
+        event_type = params.get("event_type", "social")
+        min_participants = params.get("min_participants", 2)
+        target_participants = params.get("target_participants", 5)
+        duration_minutes = params.get("duration_minutes", 120)
+        
+        logger.info(
+            f"ORGANIZE_EVENT PARAMS - "
+            f"description={description[:50]}, "
+            f"event_type={event_type}, "
+            f"min_participants={min_participants}, "
+            f"target_participants={target_participants}, "
+            f"duration_minutes={duration_minutes}"
+        )
+        
+        # Start event creation flow with pre-filled data and auto-confirm
+        from bot.commands.flow import start_event_flow_from_prefill
+        prefill_data = {
+            "description": description,
+            "event_type": event_type,
+            "min_participants": min_participants,
+            "target_participants": target_participants,
+            "duration_minutes": duration_minutes,
+            "invite_all_members": True,
+            "invitees": ["@all"],
+        }
+        
+        # Create a mock Update object for the flow
+        mock_update = type('MockUpdate', (), {
+            'effective_message': reply_message,
+            'effective_user': reply_message.from_user,
+            'effective_chat': reply_message.chat,
+        })()
+        mock_update.message = reply_message
+        
+        # Start flow and immediately proceed to create event
+        await start_event_flow_from_prefill(
+            mock_update, context, mode="public", prefill=prefill_data
+        )
+        
+        # Auto-confirm the event creation
+        if context.user_data:
+            flow_key = "event_flow"
+            event_flow = context.user_data.get(flow_key)
+            if event_flow and isinstance(event_flow, dict):
+                # Simulate confirmation callback
+                from bot.commands.finalize import finalize_event
+                callback_query = type('MockCallback', (), {
+                    'data': 'event_final_yes',
+                    'edit_message_text': lambda *args, **kwargs: None,
+                    'message': reply_message
+                })()
+                await finalize_event(callback_query, context)
+        
+        logger.info(f"ACTION EXECUTION COMPLETE - organize_event executed successfully")
+        return
 
     if action_type == "suggest_time" and event_id is not None:
-        await suggest_time._send_suggestion(reply_message, event_id)
+        logger.info(f"ACTION EXECUTION - suggest_time -> /suggest_time {event_id}")
+        # Use unified suggest_time command with proper Update object
+        from bot.commands import suggest_time
+        mock_update = type('MockUpdate', (), {
+            'effective_message': reply_message,
+            'effective_user': reply_message.from_user,
+            'effective_chat': reply_message.chat,
+        })()
+        mock_update.message = reply_message
+        mock_update.message.text = f"/suggest_time {event_id}"
+        await suggest_time.handle(mock_update, context)
+        logger.info(f"ACTION EXECUTION COMPLETE - suggest_time executed successfully")
         return
     if action_type == "status" and event_id is not None:
-        await _send_status(reply_message, event_id, context)
+        logger.info(f"ACTION EXECUTION - status -> /status {event_id}")
+        # Use unified status command with proper Update object
+        from bot.commands import status
+        mock_update = type('MockUpdate', (), {
+            'effective_message': reply_message,
+            'effective_user': reply_message.from_user,
+            'effective_chat': reply_message.chat,
+        })()
+        mock_update.message = reply_message
+        mock_update.message.text = f"/status {event_id}"
+        await status.handle(mock_update, context)
+        logger.info(f"ACTION EXECUTION COMPLETE - status executed successfully")
         return
     if action_type == "event_details" and event_id is not None:
-        await _send_event_details(reply_message, event_id, context)
+        logger.info(f"ACTION EXECUTION - event_details -> /event details_{event_id}")
+        # Use unified event command with proper Update object
+        from bot.commands import event
+        mock_update = type('MockUpdate', (), {
+            'effective_message': reply_message,
+            'effective_user': reply_message.from_user,
+            'effective_chat': reply_message.chat,
+        })()
+        mock_update.message = reply_message
+        mock_update.message.text = f"/event details_{event_id}"
+        await event.handle(mock_update, context)
+        logger.info(f"ACTION EXECUTION COMPLETE - event_details executed successfully")
         return
     if action_type == "constraint_add" and event_id is not None:
         target_username = str(action.get("target_username", "")).strip()
@@ -1053,34 +1229,67 @@ async def _execute_inferred_action(
         )
         return
     if action_type in {"join", "confirm", "cancel"} and event_id is not None:
-        await _apply_participation_action(
-            reply_message=reply_message,
-            requester_telegram_user_id=requester_id,
-            requester_display_name=requester_display_name,
-            requester_username=requester_username,
-            event_id=event_id,
-            action_type=action_type,
-            context=context,
-        )
+        logger.info(f"ACTION EXECUTION - {action_type} -> /{action_type} {event_id}")
+        # Use unified participation commands with proper Update objects
+        from bot.commands import join, confirm, cancel
+        mock_update = type('MockUpdate', (), {
+            'effective_message': reply_message,
+            'effective_user': reply_message.from_user,
+            'effective_chat': reply_message.chat,
+        })()
+        mock_update.message = reply_message
+        
+        if action_type == "join":
+            mock_update.message.text = f"/join {event_id}"
+            await join.handle(mock_update, context)
+        elif action_type == "confirm":
+            mock_update.message.text = f"/confirm {event_id}"
+            await confirm.handle(mock_update, context)
+        elif action_type == "cancel":
+            mock_update.message.text = f"/cancel {event_id}"
+            await cancel.handle(mock_update, context)
+        logger.info(f"ACTION EXECUTION COMPLETE - {action_type} executed successfully")
         return
     if action_type == "lock" and event_id is not None:
-        await _apply_lock_action(
-            reply_message=reply_message,
-            event_id=event_id,
-        )
+        logger.info(f"ACTION EXECUTION - lock -> /lock {event_id}")
+        # Use unified lock command with proper Update object
+        from bot.commands import lock
+        mock_update = type('MockUpdate', (), {
+            'effective_message': reply_message,
+            'effective_user': reply_message.from_user,
+            'effective_chat': reply_message.chat,
+        })()
+        mock_update.message = reply_message
+        mock_update.message.text = f"/lock {event_id}"
+        await lock.handle(mock_update, context)
+        logger.info(f"ACTION EXECUTION COMPLETE - lock executed successfully")
         return
     if action_type == "request_confirmations" and event_id is not None:
-        await request_confirmations.send_confirmation_request_message(
-            reply_message=reply_message,
-            context=context,
-            event_id=event_id,
-        )
+        logger.info(f"ACTION EXECUTION - request_confirmations -> /request_confirmations {event_id}")
+        # Use unified request_confirmations command with proper Update object
+        from bot.commands import request_confirmations
+        mock_update = type('MockUpdate', (), {
+            'effective_message': reply_message,
+            'effective_user': reply_message.from_user,
+            'effective_chat': reply_message.chat,
+        })()
+        mock_update.message = reply_message
+        mock_update.message.text = f"/request_confirmations {event_id}"
+        await request_confirmations.handle(mock_update, context)
+        logger.info(f"ACTION EXECUTION COMPLETE - request_confirmations executed successfully")
         return
 
+    # Log unsupported actions
+    logger.warning(
+        f"ACTION EXECUTION FAILED - "
+        f"Unsupported action: {action_type}, "
+        f"event_id={event_id}, "
+        f"requester={requester_display_name}(@{requester_username})"
+    )
     response = str(action.get("assistant_response", "")).strip()
     if not response:
         response = "I inferred an unsupported action. Try a direct command."
-    await reply_message.reply_text(f"🤖 {response}")
+    await reply_message.reply_text(f"Unsupported action: {action_type}")
 
 
 async def _send_status(
@@ -1471,7 +1680,7 @@ async def _apply_participation_action(
                 event_id=event_id,
                 user_id=user_id,
                 action=action_type,
-                metadata_dict={"timestamp": datetime.utcnow().isoformat()},
+                metadata_dict={"timestamp": datetime.now(timezone.utc).isoformat()},
             )
         )
         await session.commit()
@@ -1513,11 +1722,11 @@ async def _apply_lock_action(reply_message, event_id: int) -> None:
         await participant_service.finalize_commitments(event_id)
 
         event.state = "locked"
-        event.locked_at = datetime.utcnow()
+        event.locked_at = datetime.now(timezone.utc)
         await session.commit()
 
     await reply_message.reply_text(
-        f"🔒 Event {event_id} locked successfully at {datetime.utcnow().isoformat()}."
+        f"🔒 Event {event_id} locked successfully at {datetime.now(timezone.utc).isoformat()}."
     )
 
 
@@ -1811,7 +2020,7 @@ async def _handle_organize_event_direct(
             if collapse_raw is not None and str(collapse_raw).strip()
             else None
         )
-        collapse_at_dt = _derive_collapse_at(scheduled_time, collapse_iso)
+        collapse_at_dt = _derive_deadline_at(scheduled_time, collapse_iso)
 
         conflict = await find_user_event_conflict(
             session=session,

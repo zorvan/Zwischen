@@ -25,7 +25,7 @@ from bot.services.event_state_transition_service import ThresholdNotMetError
 logger = logging.getLogger(__name__)
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_lock(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle /lock command - finalize a confirmed event.
 

@@ -64,7 +64,7 @@ class OrganizerRotationService:
         Returns:
             List of organized events with details
         """
-        cutoff = datetime.utcnow() - timedelta(days=self.HISTORY_WINDOW_MONTHS * 30)
+        cutoff = datetime.now(timezone.utc) - timedelta(days=self.HISTORY_WINDOW_MONTHS * 30)
 
         query = (
             select(Event)

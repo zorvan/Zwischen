@@ -21,8 +21,8 @@ from bot.common.event_presenters import (
 )
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /event_details command - show detailed event information."""
+async def handle_event_details(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /event_details command — Show event details with interactive actions."""
     if not update.message:
         return
     if not settings.db_url:
@@ -976,34 +976,6 @@ async def _save_availability(
                 "❌ Failed to save availability. It may already exist."
             )
             return
-
-
-await query.edit_message_text(
-    f"✅ <b>Event Created!</b>\n\n"
-    f"Event ID: {event.event_id}\n"
-    f"Type: {_escape_html(data.get('event_type', 'Not specified'))}\n"
-    f"Description: {_escape_html(data.get('description', 'Not provided'))}\n"
-    f"Time: {_escape_html(scheduled_time)}\n"
-    f"Commit-By: {_escape_html(commit_by_text)}\n"
-    f"Date Preset: {_escape_html(date_preset_text)}\n"
-    f"Time Window: {_escape_html(time_window_text)}\n"
-    f"Duration: {_escape_html(format_duration(data.get('duration_minutes')))}\n"
-    f"Mode: {_escape_html(scheduling_mode)}\n"
-    f"Location Type: {_escape_html(location_text)}\n"
-    f"Budget: {_escape_html(budget_text)}\n"
-    f"Transport: {_escape_html(transport_text)}\n"
-    f"Minimum: {_escape_html(data.get('min_participants', 'Not set'))}\n"
-    f"Capacity: {_escape_html(data.get('target_participants', 'Not set'))}\n"
-    f"Invitees: {_escape_html(invitees_summary)}\n\n"
-    f"✅ Event has been automatically locked.\n"
-    f"Status: Locked - No further changes allowed.\n\n"
-    + (
-        f"Event Admin: {organizer_username if organizer_username else creator_id}"
-        if organizer_username
-        else f"Event Admin: {creator_id}"
-    ),
-    reply_markup=reply_markup,
-)
 
 
 async def build_event_details_action_markup(

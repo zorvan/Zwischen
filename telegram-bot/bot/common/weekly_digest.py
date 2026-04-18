@@ -46,7 +46,7 @@ class WeeklyDigestService:
 
         Returns dict with: memories, upcoming_events, stats
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         past_cutoff = now - timedelta(days=days_back)
         future_cutoff = now + timedelta(days=days_forward)
 
@@ -342,7 +342,7 @@ async def send_digest_to_all_groups(
             select(func.count(Event.event_id))
             .where(
                 Event.group_id == group.group_id,
-                Event.created_at >= datetime.utcnow() - timedelta(days=30),
+                Event.created_at >= datetime.now(timezone.utc) - timedelta(days=30),
             )
         )
         recent_events = event_result.scalar() or 0

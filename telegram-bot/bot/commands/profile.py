@@ -9,7 +9,7 @@ from db.connection import get_session
 from db.models import User
 
 
-async def handle(
+async def handle_profile(
     update: Update, _context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle /profile command."""

@@ -52,7 +52,7 @@ class RateLimiter:
         # Storage: {key: [timestamps]}
         self._requests: Dict[str, list[datetime]] = defaultdict(list)
         self._cleanup_interval = 300  # Cleanup every 5 minutes
-        self._last_cleanup = datetime.utcnow()
+        self._last_cleanup = datetime.now(timezone.utc)
 
     def _get_key(self, user_id: Optional[int], group_id: Optional[int], action_type: str) -> str:
         """Generate rate limit key."""
@@ -65,7 +65,7 @@ class RateLimiter:
 
     def _cleanup(self) -> None:
         """Remove expired entries."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if now - self._last_cleanup < timedelta(seconds=self._cleanup_interval):
             return
 
@@ -107,7 +107,7 @@ class RateLimiter:
         window = config["window"]
 
         key = self._get_key(user_id, group_id, action_type)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         window_start = now - timedelta(seconds=window)
 
         # Count requests in current window
@@ -131,7 +131,7 @@ class RateLimiter:
     ) -> None:
         """Record a request for rate limiting."""
         key = self._get_key(user_id, group_id, action_type)
-        self._requests[key].append(datetime.utcnow())
+        self._requests[key].append(datetime.now(timezone.utc))
 
     def get_usage(
         self,
@@ -152,7 +152,7 @@ class RateLimiter:
         window = config["window"]
 
         key = self._get_key(user_id, group_id, action_type)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         window_start = now - timedelta(seconds=window)
 
         self._requests[key] = [ts for ts in self._requests[key] if ts > window_start]

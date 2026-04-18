@@ -33,7 +33,7 @@ from bot.services import (
 logger = logging.getLogger("coord_bot.commands.join")
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_join(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     DEPRECATED: Handle /join command - mark attendance intent.
 
@@ -233,30 +233,30 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
                 await session.commit()
 
-            # Build response with action keyboard
-            keyboard = [
-                [
-                    InlineKeyboardButton(
-                        "✅ Commit", callback_data=f"event_confirm_{event_id}"
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        "❌ Cancel", callback_data=f"event_cancel_{event_id}"
-                    )
-                ],
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+                # Build response with action keyboard
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            "✅ Commit", callback_data=f"event_confirm_{event_id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "❌ Cancel", callback_data=f"event_cancel_{event_id}"
+                        )
+                    ],
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
 
-await message.reply_text(
-        f"✅ <b>Joined event {event_id}!</b>\n\n"
-        f"Type: {event.event_type}\n"
-        f"Time: {event.scheduled_time}\n"
-        f"State: {event.state}\n\n"
-        "Please commit attendance.",
-        reply_markup=reply_markup,
-        parse_mode="HTML",
-    )
+                await message.reply_text(
+                    f"✅ <b>Joined event {event_id}!</b>\n\n"
+                    f"Type: {event.event_type}\n"
+                    f"Time: {event.scheduled_time}\n"
+                    f"State: {event.state}\n\n"
+                    "Please commit attendance.",
+                    reply_markup=reply_markup,
+                    parse_mode="HTML",
+                )
 
         except Exception as e:
             logger.exception(
@@ -297,8 +297,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await handle(update, context)
 
         # Update callback message
-await query.edit_message_text(
-        f"✅ <b>Joined event {event_id}!</b>\n\n"
-        f"Use /status {event_id} to view event details.",
-        parse_mode="HTML",
-    )
+        await query.edit_message_text(
+            f"✅ <b>Joined event {event_id}!</b>\n\n"
+            f"Use /status {event_id} to view event details.",
+            parse_mode="HTML",
+        )

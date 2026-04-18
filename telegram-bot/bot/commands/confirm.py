@@ -17,8 +17,12 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /confirm|/interested command - mark attendance commitment."""
+async def handle_confirm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /confirm command — confirm attendance for an event.
+
+    Usage:
+        /confirm <event_id> — Confirm attendance for the specified event
+    """
     message = update.effective_message
     if not message:
         return

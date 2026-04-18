@@ -5,7 +5,7 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_about(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /about command - show bot information."""
     if not update.message or not update.effective_user:
         return

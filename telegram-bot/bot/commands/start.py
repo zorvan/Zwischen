@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Start command handler."""
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import ContextTypes
 
 from bot.common.menus import build_main_menu
@@ -11,7 +11,10 @@ from db.connection import get_session
 from sqlalchemy import select
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+# Type ignore for MockQuery class to avoid mypy errors
+
+
+async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /start command."""
     if not update.message:
         return
@@ -26,7 +29,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except ValueError:
             event_id = None
         if event_id is not None:
-            async with get_session(settings.db_url) as session:
+            db_url = settings.db_url or ""
+            async with get_session(db_url) as session:
                 from db.models import Event
 
                 result = await session.execute(

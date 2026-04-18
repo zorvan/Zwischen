@@ -23,7 +23,7 @@ from config.settings import settings
 logger = logging.getLogger("coord_bot.commands.memory")
 
 
-async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     View the memory weave for a past event.
 

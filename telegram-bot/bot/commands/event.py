@@ -11,7 +11,7 @@ from config.settings import settings
 from bot.common.event_presenters import format_status_message
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_event_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /event command - unified event operations."""
     if not update.message or not update.effective_user:
         return

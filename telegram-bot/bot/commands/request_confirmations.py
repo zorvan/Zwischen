@@ -129,8 +129,13 @@ async def send_confirmation_request_message(
     )
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /request_confirmations command."""
+async def handle_request_confirmations(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    Handle /request_confirmations command - Request participants to confirm attendance.
+
+    Usage:
+        /request_confirmations <event_id> - Send confirmation requests to all joined participants
+    """
     if not update.message:
         return
 

@@ -53,7 +53,7 @@ class CallbackProtectionService:
 
         Format: {type}:{event_id}:{user_id}:{timestamp}:{signature}
         """
-        ts = timestamp or datetime.utcnow()
+        ts = timestamp or datetime.now(timezone.utc)
         ts_str = ts.strftime("%Y%m%d%H%M%S")
 
         # Create signature for verification
@@ -119,7 +119,7 @@ class CallbackProtectionService:
         expiry_minutes = self.get_expiry_time(parsed["type"])
         expiry_time = parsed["timestamp"] + timedelta(minutes=expiry_minutes)
 
-        return datetime.utcnow() > expiry_time
+        return datetime.now(timezone.utc) > expiry_time
 
     async def check_ownership(
         self,
@@ -178,7 +178,7 @@ class CallbackProtectionService:
         Should be called when callback is first processed.
         """
         self._callback_cache[callback_id] = {
-            "processed_at": datetime.utcnow(),
+            "processed_at": datetime.now(timezone.utc),
             "metadata": metadata,
         }
 
@@ -190,7 +190,7 @@ class CallbackProtectionService:
         # Check if processing was recent (within expiry window)
         processed_at = self._callback_cache[callback_id]["processed_at"]
         expiry_minutes = 60  # Keep in cache for 1 hour
-        if datetime.utcnow() - processed_at > timedelta(minutes=expiry_minutes):
+        if datetime.now(timezone.utc) - processed_at > timedelta(minutes=expiry_minutes):
             del self._callback_cache[callback_id]
             return False
 
@@ -202,7 +202,7 @@ class CallbackProtectionService:
 
         Returns count of removed entries.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         expired_keys = []
 
         for key, value in self._callback_cache.items():

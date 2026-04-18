@@ -11,7 +11,7 @@ Manages:
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
@@ -47,7 +47,7 @@ class EventLiveCardService:
 
     async def create_live_card(
         self,
-        event: Event,
+        event: Optional[Event],
         hashtags: Optional[list[str]] = None,
         lineage_fragment: Optional[str] = None,
     ) -> Optional[EventLiveCard]:
@@ -56,6 +56,10 @@ class EventLiveCardService:
 
         Posts initial card to group chat, stores reference.
         """
+        if not event:
+            logger.warning("No event provided, cannot create live card")
+            return None
+
         group_id = event.group_id
         if not group_id:
             logger.warning("Event has no group_id, cannot create live card")
@@ -70,9 +74,13 @@ class EventLiveCardService:
             event, hashtags=hashtags or [], lineage_fragment=lineage_fragment
         )
 
-        message = await self.bot.send_message(
-            chat_id=event.group_id, text=card_text, parse_mode="Markdown"
-        )
+        try:
+            message = await self.bot.send_message(
+                chat_id=event.group_id, text=card_text, parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Failed to send live card to chat {event.group_id}: {e}")
+            return None
 
         card = EventLiveCard(
             event_id=event.event_id,

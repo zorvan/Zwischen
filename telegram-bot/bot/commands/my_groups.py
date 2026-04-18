@@ -9,7 +9,7 @@ from db.connection import get_session
 from db.models import Group
 
 
-async def handle(
+async def handle_my_groups(
     update: Update, _context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Handle /my_groups command."""

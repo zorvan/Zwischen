@@ -7,7 +7,7 @@ All join/confirm/cancel operations must route through this service.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Tuple, Dict, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func
@@ -65,9 +65,9 @@ class ParticipantService:
         if participant:
             # Already joined - update status if cancelled
             if participant.status == ParticipantStatus.cancelled:
-                participant.status = ParticipantStatus.joined
-                participant.joined_at = datetime.utcnow()
-                participant.cancelled_at = None
+                participant.status = ParticipantStatus.joined  # type: ignore[assignment]
+                participant.joined_at = datetime.utcnow()  # type: ignore[assignment]
+                participant.cancelled_at = None  # type: ignore[assignment]
                 logger.info(
                     "Participant rejoined event",
                     extra={"event_id": event_id, "user": telegram_user_id}
@@ -79,8 +79,8 @@ class ParticipantService:
 
             # Upgrade from no_show
             if participant.status == ParticipantStatus.no_show:
-                participant.status = ParticipantStatus.joined
-                participant.joined_at = datetime.utcnow()
+                participant.status = ParticipantStatus.joined  # type: ignore[assignment]
+                participant.joined_at = datetime.utcnow()  # type: ignore[assignment]
                 return participant, True
 
             return participant, False
@@ -139,8 +139,8 @@ class ParticipantService:
                 f"User {telegram_user_id} cannot confirm after cancelling"
             )
 
-        participant.status = ParticipantStatus.confirmed
-        participant.confirmed_at = datetime.utcnow()
+        participant.status = ParticipantStatus.confirmed  # type: ignore[assignment]
+        participant.confirmed_at = datetime.utcnow()  # type: ignore[assignment]
 
         logger.info(
             "Participant confirmed",
@@ -181,8 +181,8 @@ class ParticipantService:
         if participant.status == ParticipantStatus.cancelled:
             return participant, False
 
-        participant.status = ParticipantStatus.cancelled
-        participant.cancelled_at = datetime.utcnow()
+        participant.status = ParticipantStatus.cancelled  # type: ignore[assignment]
+        participant.cancelled_at = datetime.utcnow()  # type: ignore[assignment]
 
         logger.info(
             "Participant cancelled",
@@ -210,7 +210,7 @@ class ParticipantService:
         participant = result.scalar_one_or_none()
 
         if participant and participant.status == ParticipantStatus.confirmed:
-            participant.status = ParticipantStatus.no_show
+            participant.status = ParticipantStatus.no_show  # type: ignore[assignment]
             logger.warning(
                 "Participant marked as no-show",
                 extra={"event_id": event_id, "user": telegram_user_id}
@@ -315,7 +315,7 @@ class ParticipantService:
             )
         )
 
-        finalized_count = result.rowcount
+        finalized_count = result.rowcount  # type: ignore[attr-defined]
         if finalized_count > 0:
             logger.info(
                 "Finalized commitments for event",

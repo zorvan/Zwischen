@@ -857,7 +857,7 @@ async def _handle_callback_common(
         flow_data["target_participants"] = threshold
         context.user_data[flow_key] = event_flow
         await query.edit_message_text(
-            f           "✅ <b>Minimum/Capacity: {threshold}</b>\n\nSelect event duration:",
+            f"✅ <b>Minimum/Capacity: {threshold}</b>\n\nSelect event duration:",
             reply_markup=build_duration_markup(prefix=prefix),
         )
 

@@ -24,7 +24,7 @@ def _nudge_message(event_id: int, event_type: str) -> str:
     return f"Event {event_id} ({event_type}) is upcoming. Your response helps everyone plan."
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /cancel command - cancel attendance with nudges."""
     message = update.effective_message
     if not message:

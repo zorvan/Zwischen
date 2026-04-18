@@ -7,7 +7,7 @@ from bot.common.deadline_check import check_and_lock_expired_events
 from config.settings import settings
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_check_deadlines(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /check_deadlines command - check expired events and auto-lock."""
     if not update.message:
         return

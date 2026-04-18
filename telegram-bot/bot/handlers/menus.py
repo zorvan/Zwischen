@@ -7,7 +7,6 @@ from sqlalchemy import select
 
 from bot.common.menus import (
     build_main_menu,
-    build_events_list_menu,
     build_event_detail_keyboard,
     build_back_to_menu_keyboard,
     build_help_keyboard,
@@ -15,7 +14,7 @@ from bot.common.menus import (
 from bot.common.rbac import check_group_membership, check_event_visibility_and_get_event
 from config.settings import settings
 from db.connection import get_session
-from db.models import Event, Group, EventParticipant, ParticipantStatus
+from db.models import Event, Group, EventParticipant
 
 logger = logging.getLogger("coord_bot.menus")
 
@@ -31,7 +30,6 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     await query.answer()
 
     data = query.data
-    user_id = query.from_user.id
 
     # Route to appropriate handler
     if data == "menu_main":
@@ -59,6 +57,8 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await _redirect_to_groups(query, context)
     elif data == "menu_help":
         await _show_help(query, context)
+    elif data == "menu_about":
+        await _redirect_to_about(query, context)
     elif data.startswith("help_"):
         await _show_help_topic(query, context, data.split("_", 1)[1])
     elif data == "noop":
@@ -133,10 +133,10 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
                 user_events.append((event, group))
             else:
                 other_events.append((event, group))
-        
+
         # Combine and paginate
         sorted_events = user_events + other_events
-        
+
         if not sorted_events:
             await query.edit_message_text(
                 "ℹ️ *No Events Found*\n\n"
@@ -146,12 +146,12 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
                 parse_mode="Markdown",
             )
             return
-        
+
         # Paginate
         start_idx = page * EVENTS_PER_PAGE
         end_idx = start_idx + EVENTS_PER_PAGE
         page_events = sorted_events[start_idx:end_idx]
-        
+
         if not page_events:
             # Page is empty, go back to last page
             max_page = (len(sorted_events) - 1) // EVENTS_PER_PAGE
@@ -165,10 +165,10 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
                     parse_mode="Markdown",
                 )
                 return
-        
+
         # Build message with event list
         lines = ["📋 *Your Events*", ""]
-        
+
         # Add each event as a numbered item
         for idx, (event, group) in enumerate(page_events, start=start_idx + 1):
             group_name = (
@@ -184,7 +184,7 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
             # Three-word description + ID as requested
             words = (event.description or "Event").split()[:3]
             short_desc = " ".join(words)
-            
+
             # Escape any underscores in descriptions and group names
             short_desc_escaped = short_desc.replace("_", "\\_")
             group_name_escaped = group_name.replace("_", "\\_")
@@ -194,11 +194,11 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
             lines.append(f"{idx}. ID `{event.event_id}` - {short_desc_escaped}")
             lines.append(f"   {time_str_escaped} | {state_escaped} | {group_name_escaped}")
             lines.append("")
-        
+
         # Add instruction
         lines.append("💡 *Tap a button below to view event details*")
         lines.append(f"📄 Page {page + 1} of {(len(sorted_events) - 1) // EVENTS_PER_PAGE + 1}")
-        
+
         # Build keyboard with event selection buttons
         keyboard = []
         for idx, (event, group) in enumerate(page_events, start=start_idx + 1):
@@ -210,21 +210,21 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
                     callback_data=f"menu_event_select_{event.event_id}"
                 )
             ])
-        
+
         # Navigation
         nav_row = []
         if page > 0:
             nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"menu_events_prev_{page}"))
         if end_idx < len(sorted_events):
             nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"menu_events_next_{page}"))
-        
+
         if nav_row:
             keyboard.append(nav_row)
-        
+
         keyboard.append([
             InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main"),
         ])
-        
+
         await query.edit_message_text(
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup(keyboard),
@@ -268,9 +268,9 @@ async def _show_event_detail(query, context: ContextTypes.DEFAULT_TYPE, event_id
         )
         participant = result.scalar_one_or_none()
         user_status = participant.status.value if participant else None
-        
+
         # Format event details using existing presenter
-        participant_service = ParticipantService(session)
+        _participant_service = ParticipantService(session)  # noqa: F841
         status_message = await format_status_message(
             event_id=event_id,
             event=event,
@@ -350,7 +350,7 @@ async def _show_help_topic(query, context: ContextTypes.DEFAULT_TYPE, topic: str
     }
 
     text = topics.get(topic, "❓ Help topic not found.")
-    
+
     await query.edit_message_text(
         text,
         reply_markup=build_help_keyboard(),
@@ -402,5 +402,14 @@ async def _redirect_to_groups(query, context: ContextTypes.DEFAULT_TYPE) -> None
     await query.edit_message_text(
         "Your Groups\n\n"
         "Please use /my_groups command to view your groups.",
+        reply_markup=build_back_to_menu_keyboard(),
+    )
+
+
+async def _redirect_to_about(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Redirect to about command."""
+    await query.edit_message_text(
+        "🤖 About\n\n"
+        "Please use /about command to learn more about the bot.",
         reply_markup=build_back_to_menu_keyboard(),
     )

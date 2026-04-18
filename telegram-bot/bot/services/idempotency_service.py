@@ -80,7 +80,7 @@ class IdempotencyService:
             return False, None, None
 
         # Check expiry
-        if record.expires_at < datetime.utcnow():
+        if record.expires_at < datetime.now(timezone.utc):
             # Expired - treat as new request
             logger.debug("Idempotency key expired: %s", idempotency_key)
             return False, None, None
@@ -100,7 +100,7 @@ class IdempotencyService:
 
         Should be called BEFORE executing the command.
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         record = IdempotencyKey(
             idempotency_key=idempotency_key,
             command_type=command_type,
@@ -147,7 +147,7 @@ class IdempotencyService:
             return False
 
         record.status = "completed"
-        record.completed_at = datetime.utcnow()
+        record.completed_at = datetime.now(timezone.utc)
         if response_hash:
             record.response_hash = response_hash
 
@@ -171,7 +171,7 @@ class IdempotencyService:
             return False
 
         record.status = "failed"
-        record.completed_at = datetime.utcnow()
+        record.completed_at = datetime.now(timezone.utc)
         return True
 
     async def cleanup_expired(self) -> int:
@@ -183,7 +183,7 @@ class IdempotencyService:
         """
         from sqlalchemy import delete
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         result = await self.session.execute(
             delete(IdempotencyKey).where(IdempotencyKey.expires_at < now)
         )

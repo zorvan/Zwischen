@@ -21,8 +21,8 @@ CONSTRAINT_TYPE_ALIASES = {
 }
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle /constraints command - manage constraints."""
+async def handle_constraints(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /constraints command — View or add availability constraints."""
     if not update.message or not update.effective_chat:
         return
     if not settings.db_url:

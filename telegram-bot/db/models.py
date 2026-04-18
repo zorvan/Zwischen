@@ -3,7 +3,7 @@ Database models for the coordination bot - v2.
 Aligned with Coordination Engine PRD: From Coordination Tool to Shared Experience Engine.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from sqlalchemy import (
     Column,
@@ -35,7 +35,6 @@ class User(Base):
     telegram_user_id = Column(BigInteger, unique=True, nullable=False)
     username = Column(String(255), unique=True)
     display_name = Column(String(255))
-    expertise_per_activity = Column(JSON, default=dict)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     constraints = relationship(
@@ -167,7 +166,6 @@ class Constraint(Base):
         BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
     type = Column(String(50), nullable=False)
-    confidence = Column(Float, default=1.0)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     user = relationship("User", back_populates="constraints", foreign_keys=[user_id])
@@ -311,7 +309,7 @@ class GroupEventTypeStats(Base):
     attempt_count = Column(Integer, default=0, nullable=False)
     completed_count = Column(Integer, default=0, nullable=False)
     last_dropout_point = Column(Integer)  # participant count at last cancellation
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         UniqueConstraint("group_id", "event_type", name="uq_group_event_type_stats"),
@@ -421,7 +419,7 @@ class EventLiveCard(Base):
     reaction_counts = Column(JSON, default=dict)
     hashtags = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
     event = relationship("Event", back_populates="live_card")
 
@@ -444,7 +442,7 @@ class GroupSettings(Base):
     lineage_selection_method = Column(String(20), default="llm")
     max_hashtags = Column(Integer, default=5)
     created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow)
 
     group = relationship("Group", back_populates="settings")
 
@@ -534,6 +532,6 @@ Event.live_card = relationship("EventLiveCard", back_populates="event", uselist=
 
 Group.settings = relationship("GroupSettings", back_populates="group", uselist=False)
 
-# Update EventMemory model with lineage fields
-EventMemory.is_lineage_door = Column(Integer, default=0)  # Boolean as Integer
-EventMemory.selected_at = Column(DateTime)
+# TODO: Add lineage fields via database migration
+# EventMemory.is_lineage_door = Column(Integer, default=0)  # Boolean as Integer
+# EventMemory.selected_at = Column(DateTime)

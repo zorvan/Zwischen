@@ -92,7 +92,7 @@ async def create_or_update_user_preferences(
             current_privacy.update(privacy_settings)
             preferences.privacy_settings = current_privacy
 
-    preferences.last_updated = datetime.utcnow()
+    preferences.last_updated = datetime.now(timezone.utc)
     await session.flush()
     return preferences
 
@@ -155,7 +155,7 @@ def should_refresh_preference(preferences: UserPreference, preference_type: str)
     if not last_updated:
         return True
 
-    days_since_update = (datetime.utcnow() - last_updated).days
+    days_since_update = (datetime.now(timezone.utc) - last_updated).days
     return days_since_update > PREFERENCE_REFRESH_THRESHOLD_DAYS
 
 
@@ -166,7 +166,7 @@ def apply_preference_decay(preferences: UserPreference) -> Dict[str, str]:
     if not last_updated:
         return decayed
 
-    days_since_update = (datetime.utcnow() - last_updated).days
+    days_since_update = (datetime.now(timezone.utc) - last_updated).days
 
     if days_since_update > PREFERENCE_DECAY_DAYS:
         for pref_type in ["time", "activity", "budget", "location_type", "transport"]:
@@ -245,7 +245,7 @@ async def refresh_expired_preferences(session: AsyncSession, telegram_user_id: i
         old_values[pref_type] = old_value or ""
         setattr(preferences, f"{pref_type}_preference", new_value)
 
-    preferences.last_updated = datetime.utcnow()
+    preferences.last_updated = datetime.now(timezone.utc)
     await session.flush()
 
     return old_values

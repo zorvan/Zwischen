@@ -30,7 +30,7 @@ from config.logging import set_correlation_context, clear_correlation_context
 logger = logging.getLogger("coord_bot.commands.my_history")
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_my_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """
     Handle /my_history command - show personal event timeline.
 

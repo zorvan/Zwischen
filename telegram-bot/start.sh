@@ -12,6 +12,12 @@ POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-coord_pass}"
 POSTGRES_DB="${POSTGRES_DB:-coord_db}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
 
+# clear build cache
+#echo "Build Cache Cleanups.."
+#find . -type -name "*.pyc" -exec rm -rf {} + 2>/dev/null; echo "Cache cleared"
+#find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; echo "Cache cleared"
+
+
 load_env() {
   if [ -f .env ]; then
     local -A preserved_values=()
@@ -171,9 +177,6 @@ load_env
 ensure_python
 ensure_required_env
 
-# clear build cache
-find . -type -name "*.pyc" -exec rm -rf {} + 2>/dev/null; echo "Cache cleared"
-find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; echo "Cache cleared"
 
 if is_local_db_url; then
   reset_local_db

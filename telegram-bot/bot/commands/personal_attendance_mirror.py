@@ -15,7 +15,7 @@ from db.connection import get_session
 from db.models import User, EventParticipant
 
 
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_personal_attendance_mirror(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /how_am_i_doing command — private DM showing attendance counts only."""
     if not update.message or not update.effective_user:
         return
