@@ -5,7 +5,7 @@ Aligned with Coordination Engine PRD: From Coordination Tool to Shared Experienc
 from datetime import datetime
 from typing import Any
 from sqlalchemy import (
-    Column, Integer, BigInteger, String, Float, DateTime, JSON, Text,
+    Column, Integer, BigInteger, String, Float, DateTime, JSON, Text, Boolean,
     ForeignKey, CheckConstraint, UniqueConstraint, Enum as SQLEnum
 )
 from sqlalchemy.ext.declarative import declarative_base
@@ -23,7 +23,7 @@ class User(Base):
     telegram_user_id = Column(BigInteger, unique=True, nullable=False)
     username = Column(String(255), unique=True)
     display_name = Column(String(255))
-    expertise_per_activity = Column(JSON, default=dict)
+    # NOTE: expertise_per_activity removed in v3.5 (behavioral scoring deprecated per spec)
     created_at = Column(DateTime, default=datetime.utcnow)
 
     constraints = relationship(
@@ -67,7 +67,8 @@ class Event(Base):
     event_type = Column(String(100), nullable=False)
     description = Column(Text)
     organizer_telegram_user_id = Column(BigInteger)
-    admin_telegram_user_id = Column(BigInteger)
+    # NOTE: Renamed from admin_telegram_user_id in v3.5 for clarity
+    emergency_admin_telegram_user_id = Column(BigInteger)
     scheduled_time = Column(DateTime)
     commit_by = Column(DateTime)
     duration_minutes = Column(Integer, default=120)
@@ -388,4 +389,125 @@ Event.waitlist = relationship(
     back_populates="event",
     cascade="all, delete-orphan",
     order_by="EventWaitlist.added_at"
+)
+
+
+# ============================================================================
+# PRD v3.5: New Tables for Event Enrichments, Lineage, Live Cards, Group Settings
+# ============================================================================
+
+class EventEnrichment(Base):
+    """
+    EventEnrichment table - Member contributions during event formation.
+    PRD v3.5 Section 2.3: Stores ideas, hashtags, and memories.
+
+    All member-contributed content goes here. Organizer-level draft storage
+    stays in planning_prefs. This boundary prevents the JSON blob from growing.
+    """
+    __tablename__ = "event_enrichments"
+
+    enrichment_id = Column(BigInteger, primary_key=True)
+    event_id = Column(
+        BigInteger,
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        nullable=False
+    )
+    telegram_user_id = Column(BigInteger, nullable=False)
+    enrichment_type = Column(String(30), nullable=False)  # 'idea' | 'hashtag' | 'memory'
+    content = Column(Text, nullable=False)
+    is_public = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    event = relationship("Event", back_populates="enrichments")
+
+
+class EventLineage(Base):
+    """
+    EventLineage table - Parent-child relationships between events.
+    PRD v3.5 Section 2.4: Tracks lineage for memory-first coordination.
+
+    When a new event is created of the same type as a prior completed event
+    in the same group, a lineage row is written linking them.
+    """
+    __tablename__ = "event_lineage"
+
+    parent_event_id = Column(
+        BigInteger,
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        primary_key=True
+    )
+    child_event_id = Column(
+        BigInteger,
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        primary_key=True
+    )
+    relation_type = Column(String(30), default="same_type")
+    linked_at = Column(DateTime, default=datetime.utcnow)
+
+
+class EventLiveCard(Base):
+    """
+    EventLiveCard table - Tracks live card messages posted to group chats.
+    PRD v3.5 Section 4.2: Makes events visible and alive during formation.
+
+    The live card is the primary surface for gravity signals.
+    """
+    __tablename__ = "event_live_cards"
+
+    id = Column(BigInteger, primary_key=True)
+    event_id = Column(
+        BigInteger,
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False
+    )
+    message_id = Column(BigInteger, nullable=False)
+    chat_id = Column(BigInteger, nullable=False)
+    participant_count = Column(Integer, default=0)
+    confirmed_count = Column(Integer, default=0)
+    reaction_counts = Column(JSON, default=dict)
+    last_updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class GroupSettings(Base):
+    """
+    GroupSettings table - Per-group configuration.
+    PRD v3.5 Section 2.6: Store timezone, live card settings, etc.
+
+    Solves the timezone UX gap and enables group-level customization.
+    """
+    __tablename__ = "group_settings"
+
+    group_id = Column(
+        Integer,
+        ForeignKey("groups.group_id", ondelete="CASCADE"),
+        primary_key=True
+    )
+    enable_live_cards = Column(Boolean, default=True)
+    group_timezone = Column(String(50), default="UTC")
+    max_hashtags_per_event = Column(Integer, default=5)
+    lineage_selection_method = Column(String(10), default="fixed")
+    # 'fixed' = most recent fragment | 'llm' = context-aware
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+# Add back-populates to Event model for enrichments
+Event.enrichments = relationship(
+    "EventEnrichment",
+    back_populates="event",
+    cascade="all, delete-orphan",
+    order_by="EventEnrichment.created_at"
+)
+
+# Add back-populates to Event model for lineage
+Event.lineage_as_parent = relationship(
+    "EventLineage",
+    foreign_keys="EventLineage.parent_event_id",
+    cascade="all, delete-orphan"
+)
+Event.lineage_as_child = relationship(
+    "EventLineage",
+    foreign_keys="EventLineage.child_event_id",
+    cascade="all, delete-orphan"
 )

@@ -84,7 +84,7 @@ async def handle_extend_deadline(update: Update, context: ContextTypes.DEFAULT_T
         # Verify organizer/admin
         if telegram_user_id not in {
             event.organizer_telegram_user_id,
-            event.admin_telegram_user_id,
+            event.emergency_admin_telegram_user_id,
         }:
             await query.edit_message_text("❌ Only the organizer can extend the deadline.")
             return
@@ -133,7 +133,7 @@ async def handle_view_waitlist(update: Update, context: ContextTypes.DEFAULT_TYP
         # Verify organizer/admin
         if telegram_user_id not in {
             event.organizer_telegram_user_id,
-            event.admin_telegram_user_id,
+            event.emergency_admin_telegram_user_id,
         }:
             await query.edit_message_text("❌ Only the organizer can view the waitlist.")
             return

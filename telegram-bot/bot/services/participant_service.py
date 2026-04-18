@@ -3,12 +3,14 @@ ParticipantService - Manages normalized participant records.
 
 This service provides the single write path for participant management.
 All join/confirm/cancel operations must route through this service.
+
+PRD v3.5 Section 2.2: Application-layer validation replaces SQL CHECK constraints.
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional, Tuple, Dict, List
+from typing import Optional, Tuple, Dict, List, Set
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func
 
@@ -16,6 +18,91 @@ from db.models import Event, EventParticipant, ParticipantStatus, ParticipantRol
 
 logger = logging.getLogger("coord_bot.services.participant")
 
+
+# =============================================================================
+# Application-Layer Validation Constants (replaces SQL CHECK constraints)
+# PRD v3.5 Section 2.2
+# =============================================================================
+
+VALID_CONSTRAINT_TYPES: Set[str] = {"if_joins", "if_attends", "unless_joins"}
+"""Valid constraint types for conditional participation."""
+
+VALID_LOG_ACTIONS: Set[str] = {
+    # Legacy actions
+    "organize_event", "join", "confirm", "cancel",
+    "suggest_time", "nudge", "constraint_update",
+    # v3.5 new actions
+    "relinquish",
+    "enrich_idea", "enrich_hashtag", "enrich_memory",
+    "lock", "complete", "collapse",
+}
+"""Valid audit log actions."""
+
+
+# =============================================================================
+# Validation Functions
+# =============================================================================
+
+def validate_constraint_type(value: str) -> str:
+    """
+    Validate and normalize constraint type.
+    
+    Replaces SQL CHECK constraint on constraints.type.
+    When the LLM outputs a slightly different string, this normalizes it
+    or raises a ValueError with a clear error — not a silent crash.
+    
+    Args:
+        value: The constraint type string to validate
+        
+    Returns:
+        Normalized (lowercase, stripped) constraint type
+        
+    Raises:
+        ValueError: If the constraint type is not recognized
+    """
+    if not value or not isinstance(value, str):
+        raise ValueError(f"Constraint type must be a non-empty string, got: {value!r}")
+    
+    normalized = value.strip().lower()
+    if normalized not in VALID_CONSTRAINT_TYPES:
+        raise ValueError(
+            f"Unknown constraint type: {value!r}. "
+            f"Valid types: {', '.join(sorted(VALID_CONSTRAINT_TYPES))}"
+        )
+    return normalized
+
+
+def validate_log_action(value: str) -> str:
+    """
+    Validate and normalize log action.
+    
+    Replaces SQL CHECK constraint on logs.action.
+    Raises ValueError with a clear error for invalid actions.
+    
+    Args:
+        value: The log action string to validate
+        
+    Returns:
+        Normalized (lowercase, stripped) action name
+        
+    Raises:
+        ValueError: If the action is not recognized
+    """
+    if not value or not isinstance(value, str):
+        raise ValueError(f"Log action must be a non-empty string, got: {value!r}")
+    
+    normalized = value.strip().lower()
+    if normalized not in VALID_LOG_ACTIONS:
+        raise ValueError(
+            f"Unknown log action: {value!r}. "
+            f"Valid actions: {', '.join(sorted(VALID_LOG_ACTIONS))}"
+        )
+    return normalized
+
+
+# =============================================================================
+# Service Exceptions
+# =============================================================================
 
 class ParticipantError(Exception):
     """Base exception for participant operations."""
@@ -35,7 +122,15 @@ class ParticipantService:
     - Join/leave operations
     - Confirm/cancel operations
     - Status queries and counts
+    
+    PRD v3.5: Application-layer validation constants replace SQL CHECK constraints.
     """
+    
+    # Expose module-level constants for convenient access
+    # These are also available as:
+    #   from bot.services.participant_service import VALID_CONSTRAINT_TYPES
+    VALID_CONSTRAINT_TYPES = VALID_CONSTRAINT_TYPES
+    VALID_LOG_ACTIONS = VALID_LOG_ACTIONS
 
     def __init__(self, session: AsyncSession):
         self.session = session

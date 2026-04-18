@@ -1795,7 +1795,7 @@ async def _handle_organize_event_direct(
             event_type=event_type,
             description=description,
             organizer_telegram_user_id=creator_id,
-            admin_telegram_user_id=creator_id,
+            emergency_admin_telegram_user_id=creator_id,
             scheduled_time=scheduled_time,
             commit_by=commit_by,
             collapse_at=collapse_at_dt,

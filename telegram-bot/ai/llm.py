@@ -110,79 +110,19 @@ class LLMClient:
         }}
         """
 
-        def fallback():
-            lowered = text.lower()
-            inferred_type = "if_joins"
-            if "unless" in lowered:
-                inferred_type = "unless_joins"
-            elif "attend" in lowered:
-                inferred_type = "if_attends"
-
-            username = None
-            for token in text.split():
-                if token.startswith("@") and len(token) > 1:
-                    username = token.lstrip("@").strip(".,!?")
-                    break
-            return {
-                "constraint_type": inferred_type,
-                "target_username": username,
-                "confidence": 0.45,
-                "sanitized_summary": text.strip()[:240],
-            }
-
+        # v3.5: Regex fallbacks removed per spec Section 2.4
+        # LLM either succeeds or returns empty dict - no pattern matching fallbacks
         try:
             response = await self._call_llm(prompt)
             return validate_llm_output(
-                ConstraintInference, response, fallback_factory=fallback, logger=logger
+                ConstraintInference, response, fallback_factory=lambda: {}, logger=logger
             )
         except Exception:
-            return fallback()
+            logger.warning("Constraint inference failed, no fallback available")
+            return {}
 
-    async def infer_feedback_from_text(
-        self, event_type: str, text: str
-    ) -> Dict[str, Any]:
-        """Infer weighted structured feedback from free-form text."""
-        from ai.schemas import FeedbackInference, validate_llm_output
-
-        prompt = f"""
-        Convert user feedback into structured JSON.
-        Remove toxicity and abusive wording while preserving meaning.
-        Infer:
-        - score 1-5
-        - weight 0.0-1.0 (confidence/quality of feedback)
-        - sanitized_comment
-        - expertise_adjustments map for activity tags
-
-        Event type: {event_type}
-        User feedback:
-        {text}
-
-        Output JSON only:
-        {{
-          "score": 1.0,
-          "weight": 0.7,
-          "sanitized_comment": "clean text",
-          "expertise_adjustments": {{"tag": 0.1}}
-        }}
-        """
-
-        def fallback():
-            cleaned = _sanitize_toxic_text(text)
-            sentiment = _simple_sentiment_score(cleaned)
-            return {
-                "score": sentiment,
-                "weight": 0.6,
-                "sanitized_comment": cleaned,
-                "expertise_adjustments": {event_type: 0.1},
-            }
-
-        try:
-            response = await self._call_llm(prompt)
-            return validate_llm_output(
-                FeedbackInference, response, fallback_factory=fallback, logger=logger
-            )
-        except Exception:
-            return fallback()
+    # v3.5: infer_feedback_from_text REMOVED per spec Section 3
+    # Behavioral scoring violates project philosophy
 
     async def infer_event_draft_patch(
         self,
@@ -923,28 +863,5 @@ class LLMClient:
         await self.client.aclose()
 
 
-def _sanitize_toxic_text(text: str) -> str:
-    """Basic toxicity scrub fallback."""
-    banned = {"idiot", "stupid", "dumb", "hate", "trash", "moron"}
-    tokens = text.split()
-    cleaned = []
-    for token in tokens:
-        normalized = token.lower().strip(".,!?")
-        if normalized in banned:
-            cleaned.append("[redacted]")
-        else:
-            cleaned.append(token)
-    return " ".join(cleaned).strip()[:500]
-
-
-def _simple_sentiment_score(text: str) -> float:
-    """Simple fallback sentiment to score mapping 1..5."""
-    lowered = text.lower()
-    positives = sum(
-        lowered.count(word) for word in ["good", "great", "nice", "excellent", "love"]
-    )
-    negatives = sum(
-        lowered.count(word) for word in ["bad", "poor", "late", "problem", "boring"]
-    )
-    raw = 3.0 + min(2.0, positives * 0.4) - min(2.0, negatives * 0.4)
-    return max(1.0, min(5.0, raw))
+# v3.5: _sanitize_toxic_text and _simple_sentiment_score REMOVED
+# These were only used by infer_feedback_from_text which violated project philosophy

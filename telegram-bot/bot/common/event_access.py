@@ -11,7 +11,7 @@ def get_event_organizer_telegram_id(event) -> int | None:
 
 def get_event_admin_telegram_id(event) -> int | None:
     """Resolve admin ID from explicit field or fallback to organizer."""
-    admin = getattr(event, "admin_telegram_user_id", None)
+    admin = getattr(event, "emergency_admin_telegram_user_id", None)
     if admin:
         return int(admin)
     return get_event_organizer_telegram_id(event)

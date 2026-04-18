@@ -268,7 +268,7 @@ async def format_event_details_message(
         next_step = "Event is in a terminal/locked stage."
 
     # Get admin mention
-    admin_id = getattr(event, "admin_telegram_user_id", None)
+    admin_id = getattr(event, "emergency_admin_telegram_user_id", None)
     admin_text = "N/A"
     if admin_id and settings.db_url:
         async with get_session(settings.db_url) as session:
@@ -382,7 +382,7 @@ async def format_status_message(
                 )
 
     # Get admin mention
-    admin_id = getattr(event, "admin_telegram_user_id", None)
+    admin_id = getattr(event, "emergency_admin_telegram_user_id", None)
     admin_text = "N/A"
     if admin_id and settings.db_url:
         async with get_session(settings.db_url) as session:

@@ -17,6 +17,19 @@ from bot.services.event_materialization_service import EventMaterializationServi
 from bot.services.event_memory_service import EventMemoryService
 from bot.services.event_lifecycle_service import EventLifecycleService
 from bot.services.waitlist_service import WaitlistService
+from bot.services.event_enrichment_service import (
+    EventEnrichmentService,
+    EnrichmentError,
+    ContentValidationError,
+    HashtagLimitError,
+)
+from bot.services.live_card_service import LiveCardService
+from bot.services.mosaic_assembly_service import (
+    MosaicAssembler,
+    MosaicFragment,
+    MosaicResult,
+    assemble_mosaic_for_event,
+)
 
 __all__ = [
     "EventStateTransitionService",
@@ -32,4 +45,13 @@ __all__ = [
     "EventMemoryService",
     "EventLifecycleService",
     "WaitlistService",
+    "EventEnrichmentService",
+    "EnrichmentError",
+    "ContentValidationError",
+    "HashtagLimitError",
+    "LiveCardService",
+    "MosaicAssembler",
+    "MosaicFragment",
+    "MosaicResult",
+    "assemble_mosaic_for_event",
 ]

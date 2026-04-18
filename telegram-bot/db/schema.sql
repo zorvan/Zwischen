@@ -19,12 +19,12 @@
 -- a migration system - see git history for previous migration setup.
 
 -- 1. Users: Global identity across groups
+-- NOTE: expertise_per_activity removed in v3.5 (behavioral scoring deprecated)
 CREATE TABLE IF NOT EXISTS users (
     user_id SERIAL PRIMARY KEY,
     telegram_user_id BIGINT UNIQUE NOT NULL,
     username VARCHAR(255) UNIQUE,
     display_name VARCHAR(255),
-    expertise_per_activity JSONB DEFAULT '{}',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -33,19 +33,20 @@ CREATE TABLE IF NOT EXISTS groups (
     group_id SERIAL PRIMARY KEY,
     telegram_group_id BIGINT UNIQUE NOT NULL,
     group_name VARCHAR(255),
-    group_type VARCHAR(50) DEFAULT 'casual' CHECK (group_type IN ('casual', 'gathering', 'tournament')),
+    group_type VARCHAR(50) DEFAULT 'casual',
     member_list JSONB DEFAULT '[]',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 3. Events: Gathering lifecycle
+-- NOTE: admin_telegram_user_id renamed to emergency_admin_telegram_user_id in v3.5
 CREATE TABLE IF NOT EXISTS events (
     event_id SERIAL PRIMARY KEY,
     group_id INTEGER REFERENCES groups(group_id) ON DELETE CASCADE,
     event_type VARCHAR(100) NOT NULL,
     description TEXT,
     organizer_telegram_user_id BIGINT,
-    admin_telegram_user_id BIGINT,
+    emergency_admin_telegram_user_id BIGINT,
     scheduled_time TIMESTAMP,
     commit_by TIMESTAMP,
     duration_minutes INTEGER DEFAULT 120,
@@ -69,10 +70,7 @@ CREATE TABLE IF NOT EXISTS constraints (
     user_id INTEGER REFERENCES users(user_id) ON DELETE CASCADE,
     target_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     event_id INTEGER REFERENCES events(event_id) ON DELETE CASCADE,
-    type VARCHAR(50) NOT NULL CHECK (
-        type IN ('if_joins', 'if_attends', 'unless_joins')
-        OR type LIKE 'available:%'
-    ),
+    type VARCHAR(50) NOT NULL,
     confidence FLOAT DEFAULT 1.0 CHECK (confidence >= 0 AND confidence <= 1),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -82,7 +80,7 @@ CREATE TABLE IF NOT EXISTS logs (
     log_id SERIAL PRIMARY KEY,
     event_id INTEGER REFERENCES events(event_id) ON DELETE SET NULL,
     user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
-    action VARCHAR(100) NOT NULL CHECK (action IN ('organize_event', 'join', 'confirm', 'cancel', 'suggest_time', 'nudge', 'constraint_update')),
+    action VARCHAR(100) NOT NULL,
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     metadata JSONB DEFAULT '{}'
 );
@@ -215,3 +213,59 @@ CREATE INDEX IF NOT EXISTS idx_idempotency_keys_expires ON idempotency_keys(expi
 CREATE INDEX IF NOT EXISTS idx_event_waitlist_event_id ON event_waitlist(event_id);
 CREATE INDEX IF NOT EXISTS idx_event_waitlist_user_id ON event_waitlist(telegram_user_id);
 CREATE INDEX IF NOT EXISTS idx_event_waitlist_status ON event_waitlist(status);
+
+-- ============================================================================
+-- PRD v3.5: New Tables for Event Enrichments, Lineage, Live Cards, Group Settings
+-- ============================================================================
+
+-- 12. EventEnrichment: Member contributions (ideas, hashtags, memories)
+CREATE TABLE IF NOT EXISTS event_enrichments (
+    enrichment_id BIGSERIAL PRIMARY KEY,
+    event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
+    telegram_user_id BIGINT NOT NULL,
+    enrichment_type VARCHAR(30) NOT NULL,
+    -- Values: 'idea', 'hashtag', 'memory'
+    content TEXT NOT NULL,
+    is_public BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 13. EventLineage: Parent-child relationships between events
+CREATE TABLE IF NOT EXISTS event_lineage (
+    parent_event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
+    child_event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
+    relation_type VARCHAR(30) DEFAULT 'same_type',
+    linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (parent_event_id, child_event_id)
+);
+
+-- 14. EventLiveCard: Track live cards posted to group chats
+CREATE TABLE IF NOT EXISTS event_live_cards (
+    id BIGSERIAL PRIMARY KEY,
+    event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE UNIQUE,
+    message_id BIGINT NOT NULL,
+    chat_id BIGINT NOT NULL,
+    participant_count INTEGER DEFAULT 0,
+    confirmed_count INTEGER DEFAULT 0,
+    reaction_counts JSONB DEFAULT '{}',
+    last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 15. GroupSettings: Per-group configuration
+CREATE TABLE IF NOT EXISTS group_settings (
+    group_id INTEGER REFERENCES groups(group_id) ON DELETE CASCADE PRIMARY KEY,
+    enable_live_cards BOOLEAN DEFAULT TRUE,
+    group_timezone VARCHAR(50) DEFAULT 'UTC',
+    max_hashtags_per_event INTEGER DEFAULT 5,
+    lineage_selection_method VARCHAR(10) DEFAULT 'fixed',
+    -- 'fixed' = most recent fragment | 'llm' = context-aware
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- PRD v3.5: Indexes for new tables
+CREATE INDEX IF NOT EXISTS idx_enrichments_event ON event_enrichments(event_id);
+CREATE INDEX IF NOT EXISTS idx_enrichments_type ON event_enrichments(enrichment_type);
+CREATE INDEX IF NOT EXISTS idx_enrichments_public ON event_enrichments(is_public);
+CREATE INDEX IF NOT EXISTS idx_lineage_parent ON event_lineage(parent_event_id);
+CREATE INDEX IF NOT EXISTS idx_lineage_child ON event_lineage(child_event_id);

@@ -1672,7 +1672,7 @@ async def finalize_event(
             event_type=data.get("event_type", "general"),
             description=data.get("description"),
             organizer_telegram_user_id=creator_id,
-            admin_telegram_user_id=creator_id,
+            emergency_admin_telegram_user_id=creator_id,
             scheduled_time=candidate_time,
             commit_by=commit_by,
             duration_minutes=duration_minutes,

@@ -184,19 +184,19 @@ async def check_event_visibility_and_get_event(
 
     _info("Event", f"{event.event_type} (state={event.state}, id={event.event_id})")
     _info("Organizer", str(event.organizer_telegram_user_id))
-    _info("Admin", str(event.admin_telegram_user_id))
+    _info("Admin", str(event.emergency_admin_telegram_user_id))
 
     # ── Check 1: Organizer / Admin ───────────────────────────
     _info("Check 1", "Organizer / Admin check")
     _info("  event.organizer_telegram_user_id", str(event.organizer_telegram_user_id))
-    _info("  event.admin_telegram_user_id", str(event.admin_telegram_user_id))
+    _info("  event.emergency_admin_telegram_user_id", str(event.emergency_admin_telegram_user_id))
     _info("  requesting user_id", str(uid))
 
     if event.organizer_telegram_user_id == uid:
         _pass("Check 1 PASS", "User is event organizer")
         return True, event, group, None
 
-    if event.admin_telegram_user_id == uid:
+    if event.emergency_admin_telegram_user_id == uid:
         _pass("Check 1 PASS", "User is event admin")
         return True, event, group, None
 
@@ -353,7 +353,7 @@ async def check_event_admin(
     if event.organizer_telegram_user_id == telegram_user_id:
         return True, None
 
-    if event.admin_telegram_user_id == telegram_user_id:
+    if event.emergency_admin_telegram_user_id == telegram_user_id:
         return True, None
 
     return False, "Only event organizer or admin can perform this action"
@@ -412,7 +412,7 @@ async def check_can_modify_event(
     if event.organizer_telegram_user_id == telegram_user_id:
         return True, None
 
-    if event.admin_telegram_user_id == telegram_user_id:
+    if event.emergency_admin_telegram_user_id == telegram_user_id:
         return True, None
 
     # Confirmed participants can modify in emergencies
@@ -510,7 +510,7 @@ async def get_user_event_role(
     if event.organizer_telegram_user_id == telegram_user_id:
         return 'organizer'
 
-    if event.admin_telegram_user_id == telegram_user_id:
+    if event.emergency_admin_telegram_user_id == telegram_user_id:
         return 'admin'
 
     participant_result = await session.execute(
