@@ -2,7 +2,7 @@
 Database models for the coordination bot - v2.
 Aligned with Coordination Engine PRD: From Coordination Tool to Shared Experience Engine.
 """
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from sqlalchemy import (
     Column, Integer, BigInteger, String, Float, DateTime, JSON, Text, Boolean,
@@ -24,7 +24,7 @@ class User(Base):
     username = Column(String(255), unique=True)
     display_name = Column(String(255))
     # NOTE: expertise_per_activity removed in v3.5 (behavioral scoring deprecated per spec)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     constraints = relationship(
         "Constraint",
@@ -49,7 +49,7 @@ class Group(Base):
     group_name = Column(String(255))
     group_type = Column(String(50), default="casual")
     member_list = Column(JSON, default=list)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     events = relationship("Event", back_populates="group")
 
@@ -69,20 +69,20 @@ class Event(Base):
     organizer_telegram_user_id = Column(BigInteger)
     # NOTE: Renamed from admin_telegram_user_id in v3.5 for clarity
     emergency_admin_telegram_user_id = Column(BigInteger)
-    scheduled_time = Column(DateTime)
-    commit_by = Column(DateTime)
+    scheduled_time = Column(DateTime(timezone=True))
+    commit_by = Column(DateTime(timezone=True))
     duration_minutes = Column(Integer, default=120)
     # PRD v2: Explicit threshold fields (Section 2.1)
     min_participants = Column(Integer, default=2)  # Absolute floor for viability
     target_participants = Column(Integer, default=6)  # Desired count for optimal experience
-    collapse_at = Column(DateTime)  # Auto-cancel deadline for underthreshold events
-    lock_deadline = Column(DateTime)  # Cutoff for attendance changes
+    collapse_at = Column(DateTime(timezone=True))  # Auto-cancel deadline for underthreshold events
+    lock_deadline = Column(DateTime(timezone=True))  # Cutoff for attendance changes
 
     planning_prefs = Column(JSON, default=dict)
     state = Column(String(20), default="proposed")
-    created_at = Column(DateTime, default=datetime.utcnow)
-    locked_at = Column(DateTime)
-    completed_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    locked_at = Column(DateTime(timezone=True))
+    completed_at = Column(DateTime(timezone=True))
 
     # PRD v2: Optimistic concurrency control (Priority 1)
     version = Column(Integer, default=0, nullable=False)
@@ -126,8 +126,8 @@ class UserPreference(Base):
     location_type_preference = Column(String(100), default="any")
     transport_preference = Column(String(50), default="any")
     privacy_settings = Column(JSON, default=dict)
-    last_updated = Column(DateTime, default=datetime.utcnow)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    last_updated = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship("User", back_populates="preferences")
 
@@ -153,7 +153,7 @@ class Constraint(Base):
     )
     type = Column(String(50), nullable=False)
     confidence = Column(Float, default=1.0)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     user = relationship(
         "User",
@@ -182,7 +182,7 @@ class Log(Base):
         ForeignKey("users.user_id", ondelete="SET NULL")
     )
     action = Column(String(100), nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     metadata_dict = Column("metadata", JSON, default=dict)
 
     event = relationship("Event", back_populates="logs")
@@ -236,9 +236,9 @@ class EventParticipant(Base):
         default=ParticipantRole.participant,
         nullable=False
     )
-    joined_at = Column(DateTime, default=datetime.utcnow)
-    confirmed_at = Column(DateTime)
-    cancelled_at = Column(DateTime)
+    joined_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    confirmed_at = Column(DateTime(timezone=True))
+    cancelled_at = Column(DateTime(timezone=True))
     source = Column(String(50))  # slash, callback, mention, dm
 
     event = relationship("Event", back_populates="participants")
@@ -257,9 +257,9 @@ class IdempotencyKey(Base):
     event_id = Column(Integer, ForeignKey("events.event_id"))
     status = Column(String(50), default="pending")  # pending, completed, failed
     response_hash = Column(String(255))
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    completed_at = Column(DateTime)
-    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    completed_at = Column(DateTime(timezone=True))
+    expires_at = Column(DateTime(timezone=True), nullable=False)
 
     user = relationship("User")
     event = relationship("Event")
@@ -281,7 +281,7 @@ class EventStateTransition(Base):
     from_state = Column(String(20), nullable=False)
     to_state = Column(String(20), nullable=False)
     actor_telegram_user_id = Column(BigInteger)
-    timestamp = Column(DateTime, default=datetime.utcnow, nullable=False)
+    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     reason = Column(Text)
     source = Column(String(50), nullable=False)  # slash, callback, AI mention
 
@@ -306,7 +306,7 @@ class GroupEventTypeStats(Base):
     attempt_count = Column(Integer, default=0, nullable=False)
     completed_count = Column(Integer, default=0, nullable=False)
     last_dropout_point = Column(Integer)  # participant count at last cancellation
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     __table_args__ = (
         UniqueConstraint("group_id", "event_type", name="uq_group_event_type_stats"),
@@ -339,7 +339,7 @@ class EventMemory(Base):
     outcome_markers = Column(JSON, default=list)  # follow-on events, collaborations
     weave_text = Column(Text)  # Bot-generated weave posted to group
     lineage_event_ids = Column(JSON, default=list)  # References to prior similar events
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
 
     event = relationship("Event", back_populates="memories")
 
@@ -367,8 +367,8 @@ class EventWaitlist(Base):
     telegram_user_id = Column(BigInteger, nullable=False)
     # Legacy compatibility field. Active v3.2 ordering is by added_at only.
     position = Column(Integer, nullable=True)
-    added_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    expires_at = Column(DateTime)  # When waitlist offer expires
+    added_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    expires_at = Column(DateTime(timezone=True))  # When waitlist offer expires
     status = Column(
         String(20),
         default="waiting",  # waiting, offered, promoted, expired, cancelled
@@ -416,7 +416,7 @@ class EventEnrichment(Base):
     enrichment_type = Column(String(30), nullable=False)  # 'idea' | 'hashtag' | 'memory'
     content = Column(Text, nullable=False)
     is_public = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     event = relationship("Event", back_populates="enrichments")
 
@@ -442,7 +442,7 @@ class EventLineage(Base):
         primary_key=True
     )
     relation_type = Column(String(30), default="same_type")
-    linked_at = Column(DateTime, default=datetime.utcnow)
+    linked_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 class EventLiveCard(Base):
@@ -466,7 +466,7 @@ class EventLiveCard(Base):
     participant_count = Column(Integer, default=0)
     confirmed_count = Column(Integer, default=0)
     reaction_counts = Column(JSON, default=dict)
-    last_updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    last_updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 class GroupSettings(Base):
@@ -488,8 +488,8 @@ class GroupSettings(Base):
     max_hashtags_per_event = Column(Integer, default=5)
     lineage_selection_method = Column(String(10), default="fixed")
     # 'fixed' = most recent fragment | 'llm' = context-aware
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
 
 # Add back-populates to Event model for enrichments

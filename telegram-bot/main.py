@@ -11,6 +11,7 @@ from telegram.ext import (
     CommandHandler,
     ContextTypes,
     MessageHandler,
+    PicklePersistence,
     filters,
 )
 
@@ -114,9 +115,13 @@ def main():
         logger.info("Database initialization complete")
 
     # Build application with job queue for scheduled tasks
+    # v3.5: Add persistence so user_data persists between updates (creation flow)
+    persistence = PicklePersistence(filepath="bot_data.pkl")
+    
     application = (
         ApplicationBuilder()
         .token(settings.telegram_token)
+        .persistence(persistence)
         .build()
     )
 
@@ -193,6 +198,9 @@ def main():
     callback_handlers = [
         # Menu handlers (must come before general patterns)
         (r"^menu_", menus.handle_menu_callback),
+        # v3.5: Events list and creation flow handlers
+        (r"^events_", menus.handle_menu_callback),
+        (r"^create_", menus.handle_menu_callback),
 
         # Waitlist handlers (must come before general event_ patterns)
         (r"^waitlist_(join|accept|decline)_", waitlist_handlers.handle_menu_callback),
@@ -204,6 +212,10 @@ def main():
         (r"^event_unconfirm_", event_flow.handle_event_flow),  # Uncommit (separate from back)
         (r"^event_(details|status|logs|constraints|close)_", event_details.handle_callback),
         (r"^event_modify_", mentions.handle_callback),
+        
+        # v3.5: Creation flow scheduling and type handlers (must come before general event_)
+        (r"^event_scheduling_", menus.handle_scheduling_callback),
+        (r"^event_type_", menus.handle_event_type_callback),
 
         # Event creation handlers (general, comes after specific ones)
         (r"^event_", organize_event.handle_callback),
@@ -223,6 +235,12 @@ def main():
 
     for pattern, handler in callback_handlers:
         application.add_handler(CallbackQueryHandler(handler, pattern=pattern))
+
+    # v3.5: Register creation flow message handler (runs first, checks for creation_step)
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, menus.handle_creation_message, block=False),
+        group=-9,  # Runs BEFORE group history handlers at -2
+    )
 
     # Register text message handler for event creation flow
     application.add_handler(

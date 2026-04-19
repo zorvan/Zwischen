@@ -16,6 +16,21 @@ from db.models import Event
 
 logger = logging.getLogger(__name__)
 
+# =============================================================================
+# LLM Quality Standards (v3.5 Feature 6)
+# =============================================================================
+
+# Temperature: Lower = more deterministic, good for structured outputs
+LLM_TEMPERATURE = 0.3
+
+# Max tokens: Standard sizes for different use cases
+LLM_MAX_TOKENS_STANDARD = 800   # For most inference tasks
+LLM_MAX_TOKENS_LARGE = 1200     # For complex tasks with context
+LLM_MAX_TOKENS_SMALL = 400      # For simple classification
+
+# Timeout for LLM calls (seconds)
+LLM_TIMEOUT = 60.0
+
 MEDIATOR_SYSTEM = """You are a group coordination mediator embedded in a Telegram group.
 Your role is to help the group bring events into existence, not just parse commands.
 When people express vague intent (let's meet, we should do this, how about Saturday),
@@ -777,10 +792,15 @@ class LLMClient:
     async def _call_llm(
         self,
         prompt: str,
-        max_tokens: int = 800,
+        max_tokens: int = LLM_MAX_TOKENS_STANDARD,
         system: str | None = None,
+        temperature: float = LLM_TEMPERATURE,
     ) -> str:
-        """Make LLM API call."""
+        """Make LLM API call with standardized quality settings.
+        
+        v3.5: All LLM calls use consistent temperature and appropriate max_tokens
+        based on task complexity (standard/large/small).
+        """
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -790,7 +810,7 @@ class LLMClient:
             json={
                 "model": self.model,
                 "messages": messages,
-                "temperature": 0.3,
+                "temperature": temperature,
                 "max_tokens": max_tokens,
             },
         )
@@ -799,7 +819,11 @@ class LLMClient:
 
     async def _call_llm_large(self, prompt: str, system: str | None = None) -> str:
         """Context-heavy prompts (long history) need more output tokens for valid JSON."""
-        return await self._call_llm(prompt, max_tokens=1200, system=system)
+        return await self._call_llm(prompt, max_tokens=LLM_MAX_TOKENS_LARGE, system=system)
+
+    async def _call_llm_small(self, prompt: str, system: str | None = None) -> str:
+        """Simple classification tasks need fewer tokens."""
+        return await self._call_llm(prompt, max_tokens=LLM_MAX_TOKENS_SMALL, system=system)
 
     async def check_availability(self) -> Tuple[bool, str]:
         """Check if the configured LLM endpoint is reachable."""

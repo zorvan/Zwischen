@@ -193,6 +193,59 @@ class MosaicAssembler:
         return list(result.scalars().all())
 
     # -------------------------------------------------------------------------
+    # Lineage Fragment Display (v3.5 Feature 4)
+    # -------------------------------------------------------------------------
+
+    async def get_lineage_fragments(self, event_id: int) -> List[Dict[str, Any]]:
+        """
+        Get memory fragments from parent events via lineage.
+        
+        v3.5: Displays memories from previous events that are related
+        to this event through the lineage chain. Creates a memory
+        trail that shows context and history.
+        
+        Args:
+            event_id: Event to get lineage for
+            
+        Returns:
+            List of fragment dictionaries with content and metadata
+        """
+        # Find parent event through lineage
+        lineage_stmt = select(EventLineage).where(
+            EventLineage.child_event_id == event_id
+        )
+        lineage_result = await self.session.execute(lineage_stmt)
+        lineage = lineage_result.scalar_one_or_none()
+        
+        if not lineage:
+            return []  # No parent event
+        
+        parent_event_id = lineage.parent_event_id
+        
+        # Fetch public memories from parent event
+        memories_stmt = select(EventEnrichment).where(
+            EventEnrichment.event_id == parent_event_id,
+            EventEnrichment.enrichment_type == "memory",
+            EventEnrichment.is_public == True,  # Only public memories
+        ).order_by(EventEnrichment.created_at.desc()).limit(5)  # Show last 5
+        
+        memories_result = await self.session.execute(memories_stmt)
+        memories = memories_result.scalars().all()
+        
+        # Convert to display format
+        fragments = []
+        for memory in memories:
+            fragments.append({
+                "id": memory.id,
+                "content": memory.content[:200] + "..." if len(memory.content) > 200 else memory.content,
+                "author_id": memory.telegram_user_id,
+                "created_at": memory.created_at.isoformat() if memory.created_at else None,
+                "parent_event_id": parent_event_id,
+            })
+        
+        return fragments
+
+    # -------------------------------------------------------------------------
     # Fragment Operations
     # -------------------------------------------------------------------------
 
