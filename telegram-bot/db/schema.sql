@@ -20,12 +20,13 @@
 
 -- 1. Users: Global identity across groups
 -- NOTE: expertise_per_activity removed in v3.5 (behavioral scoring deprecated)
+-- v3.5: All timestamps use WITH TIME ZONE for proper UTC handling
 CREATE TABLE IF NOT EXISTS users (
     user_id SERIAL PRIMARY KEY,
     telegram_user_id BIGINT UNIQUE NOT NULL,
     username VARCHAR(255) UNIQUE,
     display_name VARCHAR(255),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 2. Groups: Telegram group context
@@ -35,7 +36,7 @@ CREATE TABLE IF NOT EXISTS groups (
     group_name VARCHAR(255),
     group_type VARCHAR(50) DEFAULT 'casual',
     member_list JSONB DEFAULT '[]',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 3. Events: Gathering lifecycle
@@ -47,19 +48,19 @@ CREATE TABLE IF NOT EXISTS events (
     description TEXT,
     organizer_telegram_user_id BIGINT,
     emergency_admin_telegram_user_id BIGINT,
-    scheduled_time TIMESTAMP,
-    commit_by TIMESTAMP,
+    scheduled_time TIMESTAMP WITH TIME ZONE,
+    commit_by TIMESTAMP WITH TIME ZONE,
     duration_minutes INTEGER DEFAULT 120,
     planning_prefs JSONB DEFAULT '{}',
     state VARCHAR(20) DEFAULT 'proposed' CHECK (state IN ('proposed', 'interested', 'confirmed', 'locked', 'completed', 'cancelled')),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    locked_at TIMESTAMP,
-    completed_at TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    locked_at TIMESTAMP WITH TIME ZONE,
+    completed_at TIMESTAMP WITH TIME ZONE,
     -- PRD v2: Threshold enforcement fields
     min_participants INTEGER DEFAULT 2,
     target_participants INTEGER DEFAULT 6,
-    collapse_at TIMESTAMP,
-    lock_deadline TIMESTAMP,
+    collapse_at TIMESTAMP WITH TIME ZONE,
+    lock_deadline TIMESTAMP WITH TIME ZONE,
     -- PRD v2: Optimistic concurrency control
     version INTEGER DEFAULT 0 NOT NULL
 );
@@ -72,7 +73,7 @@ CREATE TABLE IF NOT EXISTS constraints (
     event_id INTEGER REFERENCES events(event_id) ON DELETE CASCADE,
     type VARCHAR(50) NOT NULL,
     confidence FLOAT DEFAULT 1.0 CHECK (confidence >= 0 AND confidence <= 1),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 5. Logs: Audit trail
@@ -81,7 +82,7 @@ CREATE TABLE IF NOT EXISTS logs (
     event_id INTEGER REFERENCES events(event_id) ON DELETE SET NULL,
     user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     action VARCHAR(100) NOT NULL,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    timestamp TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     metadata JSONB DEFAULT '{}'
 );
 
@@ -95,8 +96,8 @@ CREATE TABLE IF NOT EXISTS user_preferences (
     location_type_preference VARCHAR(100) DEFAULT 'any',
     transport_preference VARCHAR(50) DEFAULT 'any',
     privacy_settings JSONB DEFAULT '{}',
-    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_updated TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id)
 );
 
@@ -128,9 +129,9 @@ CREATE TABLE IF NOT EXISTS event_participants (
     telegram_user_id BIGINT NOT NULL,
     status participant_status NOT NULL DEFAULT 'joined',
     role participant_role NOT NULL DEFAULT 'participant',
-    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    confirmed_at TIMESTAMP,
-    cancelled_at TIMESTAMP,
+    joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    confirmed_at TIMESTAMP WITH TIME ZONE,
+    cancelled_at TIMESTAMP WITH TIME ZONE,
     source VARCHAR(50),
     PRIMARY KEY (event_id, telegram_user_id)
 );
@@ -143,9 +144,9 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     event_id INTEGER REFERENCES events(event_id),
     status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed')),
     response_hash VARCHAR(255),
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    completed_at TIMESTAMP,
-    expires_at TIMESTAMP NOT NULL
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 
 -- 9. EventStateTransition: Audit trail for state changes
@@ -155,7 +156,7 @@ CREATE TABLE IF NOT EXISTS event_state_transitions (
     from_state VARCHAR(20) NOT NULL,
     to_state VARCHAR(20) NOT NULL,
     actor_telegram_user_id BIGINT,
-    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    timestamp TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     reason TEXT,
     source VARCHAR(50) NOT NULL
 );
@@ -173,7 +174,7 @@ CREATE TABLE IF NOT EXISTS event_memories (
     outcome_markers JSONB DEFAULT '[]',
     weave_text TEXT,
     lineage_event_ids JSONB DEFAULT '[]',
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 11. EventWaitlist: Waitlist for oversubscribed events
@@ -182,8 +183,8 @@ CREATE TABLE IF NOT EXISTS event_waitlist (
     event_id INTEGER NOT NULL REFERENCES events(event_id) ON DELETE CASCADE,
     telegram_user_id BIGINT NOT NULL,
     position INTEGER,
-    added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP,
+    added_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP WITH TIME ZONE,
     status VARCHAR(20) NOT NULL DEFAULT 'waiting' CHECK (
         status IN ('waiting', 'offered', 'promoted', 'expired', 'cancelled')
     ),
@@ -227,7 +228,7 @@ CREATE TABLE IF NOT EXISTS event_enrichments (
     -- Values: 'idea', 'hashtag', 'memory'
     content TEXT NOT NULL,
     is_public BOOLEAN DEFAULT FALSE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 13. EventLineage: Parent-child relationships between events
@@ -235,7 +236,7 @@ CREATE TABLE IF NOT EXISTS event_lineage (
     parent_event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
     child_event_id BIGINT REFERENCES events(event_id) ON DELETE CASCADE,
     relation_type VARCHAR(30) DEFAULT 'same_type',
-    linked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    linked_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (parent_event_id, child_event_id)
 );
 
@@ -248,7 +249,7 @@ CREATE TABLE IF NOT EXISTS event_live_cards (
     participant_count INTEGER DEFAULT 0,
     confirmed_count INTEGER DEFAULT 0,
     reaction_counts JSONB DEFAULT '{}',
-    last_updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    last_updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 15. GroupSettings: Per-group configuration
@@ -259,8 +260,8 @@ CREATE TABLE IF NOT EXISTS group_settings (
     max_hashtags_per_event INTEGER DEFAULT 5,
     lineage_selection_method VARCHAR(10) DEFAULT 'fixed',
     -- 'fixed' = most recent fragment | 'llm' = context-aware
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- PRD v3.5: Indexes for new tables

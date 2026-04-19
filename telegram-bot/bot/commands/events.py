@@ -35,7 +35,17 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         rows = result.all()
 
         if not rows:
-            await update.message.reply_text("ℹ️ No events found.")
+            # v3.5: Show Create button even when no events exist
+            keyboard = [
+                [InlineKeyboardButton("➕ Create New Event", callback_data="events_create_new")],
+                [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_main")],
+            ]
+            await update.message.reply_text(
+                "ℹ️ No events found yet.\n\n"
+                "💡 *Create your first event to get started!*",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown",
+            )
             return
 
         # Filter events by group membership for group chats
@@ -101,16 +111,52 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
                 )
             ])
         
+        # Add Create New Event button (v3.5: always visible)
+        keyboard.append([
+            InlineKeyboardButton("➕ Create New Event", callback_data="events_create_new"),
+        ])
+        
         # Add back to menu button
         keyboard.append([
             InlineKeyboardButton("🏠 Main Menu", callback_data="menu_main"),
         ])
         
         lines.append("")
-        lines.append("💡 *Tap any event above to view details*")
+        lines.append("💡 *Tap any event above to view details, or create a new one*")
 
         await update.message.reply_text(
             "\n".join(lines),
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown",
         )
+
+
+async def handle_create_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the 'Create New Event' button callback.
+    
+    v3.5: Memory-first creation flow - starts with collecting intent
+    before asking for explicit event details.
+    """
+    query = update.callback_query
+    if not query:
+        return
+    
+    await query.answer()
+    
+    # Memory-first: Ask user what they want to do
+    # This starts the creation flow by collecting intent
+    keyboard = [
+        [InlineKeyboardButton("🎯 Plan something specific", callback_data="create_specific")],
+        [InlineKeyboardButton("💭 Just exploring ideas", callback_data="create_flexible")],
+        [InlineKeyboardButton("🔙 Back to Events", callback_data="events_back")],
+    ]
+    
+    await query.edit_message_text(
+        "🌟 *Let's create something together*\n\n"
+        "What brings you here?\n\n"
+        "• *Plan something specific* — You have an idea in mind\n"
+        "• *Just exploring ideas* — Open to suggestions\n\n"
+        "💡 *Your intent shapes what we build*",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown",
+    )

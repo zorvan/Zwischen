@@ -8,10 +8,11 @@ formation by displaying gravity signals (participant counts, hashtags, reactions
 PRD v3.5 Section 4.2: Live Cards and Engagement.
 """
 from typing import Optional, Dict, Any, List
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
-from telegram import Bot, InlineKeyboardMarkup
+from telegram import Bot, InlineKeyboardMarkup, Update
+from telegram.ext import ContextTypes
 
 from db.models import Event, EventLiveCard, GroupSettings
 from bot.services.event_enrichment_service import EventEnrichmentService
@@ -89,7 +90,7 @@ class LiveCardService:
                     reply_markup=reply_markup,
                     parse_mode=parse_mode,
                 )
-                existing.last_updated_at = datetime.utcnow()
+                existing.last_updated_at = datetime.now(timezone.utc)
                 await self.session.flush()
                 return existing
             except Exception as e:
@@ -112,7 +113,7 @@ class LiveCardService:
                 participant_count=0,
                 confirmed_count=0,
                 reaction_counts={},
-                last_updated_at=datetime.utcnow(),
+                last_updated_at=datetime.now(timezone.utc),
             )
             
             self.session.add(card)
@@ -184,7 +185,7 @@ class LiveCardService:
                 reply_markup=reply_markup,
                 parse_mode=parse_mode,
             )
-            card.last_updated_at = datetime.utcnow()
+            card.last_updated_at = datetime.now(timezone.utc)
             await self.session.flush()
             return True
             
@@ -448,10 +449,112 @@ class LiveCardService:
         return "\n".join(lines)
 
 
+    @staticmethod
+    def build_reaction_keyboard(event_id: int, current_reactions: Optional[Dict[str, int]] = None) -> InlineKeyboardMarkup:
+        """
+        Build keyboard with reaction buttons for live card.
+        
+        v3.5: Quick-reaction buttons that users can tap to express interest
+        without joining yet. These are lightweight engagement signals.
+        
+        Args:
+            event_id: Event ID for callback data
+            current_reactions: Current reaction counts to display
+            
+        Returns:
+            InlineKeyboardMarkup with reaction buttons
+        """
+        from telegram import InlineKeyboardButton
+        
+        # Default reactions - commonly used emojis for event reactions
+        reaction_emojis = ["👍", "🔥", "🎉", "❤️", "🤔"]
+        
+        buttons = []
+        for emoji in reaction_emojis:
+            # Show count if reactions exist
+            count = current_reactions.get(emoji, 0) if current_reactions else 0
+            label = f"{emoji} {count}" if count > 0 else emoji
+            
+            # Compact callback: ev:{id}:react:{emoji}
+            callback_data = f"ev:{event_id}:react:{emoji}"
+            
+            # Ensure callback data stays under 64 bytes (Telegram limit)
+            if len(callback_data) > 64:
+                callback_data = callback_data[:64]
+            
+            buttons.append(InlineKeyboardButton(label, callback_data=callback_data))
+        
+        # Arrange in rows of 5
+        keyboard = [buttons[i:i+5] for i in range(0, len(buttons), 5)]
+        
+        # Add view event button
+        keyboard.append([
+            InlineKeyboardButton("📋 View Event", callback_data=f"ev:{event_id}:view")
+        ])
+        
+        return InlineKeyboardMarkup(keyboard)
+
+
+# =============================================================================
+# Reaction Handler
+# =============================================================================
+
+async def handle_reaction_callback(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    session: AsyncSession,
+) -> None:
+    """
+    Handle reaction button callbacks on live cards.
+    
+    v3.5: Processes emoji reactions and updates live card display.
+    
+    Args:
+        update: Telegram update with callback query
+        context: Telegram context
+        session: Database session
+    """
+    query = update.callback_query
+    if not query:
+        return
+    
+    # Parse callback data: ev:{event_id}:react:{emoji}
+    data = query.data
+    if not data or not data.startswith("ev:"):
+        return
+    
+    parts = data.split(":")
+    if len(parts) != 4 or parts[2] != "react":
+        return
+    
+    try:
+        event_id = int(parts[1])
+        emoji = parts[3]
+    except (ValueError, IndexError):
+        await query.answer("Invalid reaction", show_alert=True)
+        return
+    
+    await query.answer(f"Reacted with {emoji}!")
+    
+    # Record the reaction
+    service = LiveCardService(session, context.bot)
+    await service.record_reaction(event_id, emoji, delta=1)
+    
+    # Get updated card status
+    card_status = await service.get_card_status(event_id)
+    if not card_status:
+        return
+    
+    # Update the live card display with new reaction counts
+    # Note: In production, you'd refresh the entire card with updated reaction buttons
+    # For now, we just acknowledge the reaction
+
+
 # =============================================================================
 # Module Exports
 # =============================================================================
 
 __all__ = [
     "LiveCardService",
+    "handle_reaction_callback",
 ]

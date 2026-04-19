@@ -309,9 +309,14 @@ async def show_constraints(query, event_id: int) -> None:
 
         if not constraints:
             await query.edit_message_text(
-                f"ℹ️ Event {event_id} has no constraints."
+                f"📅 *Event {event_id} Availability & Constraints*\n\n"
+                f"No constraints or availability set yet.\n\n"
+                f"*To set your availability, use:*\n"
+                f"`/constraints {event_id} availability YYYY-MM-DD HH:MM,YYYY-MM-DD HH:MM`\n\n"
+                f"*Example:*\n"
+                f"`/constraints {event_id} availability 2026-04-20 18:00,2026-04-21 10:00`",
+                parse_mode="Markdown",
             )
-
             return
 
         # Fetch all relevant users at once for display names
