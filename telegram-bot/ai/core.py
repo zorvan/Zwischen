@@ -3,6 +3,7 @@ Core AI coordination engine with hybrid approach:
 - Rules-based core
 - LLM fallback for conflicts/low confidence
 """
+
 from typing import Any, Callable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,19 +18,16 @@ class AICoordinationEngine:
         self.fallback_enabled = fallback_enabled
         from ai.rules import RuleBasedEngine
         from ai.llm import LLMClient
+
         self.rules_engine = RuleBasedEngine()
         self.llm = LLMClient()
 
-    async def suggest_event_time(
-        self, session: AsyncSession, event_id: int
-    ) -> dict[str, Any]:
+    async def suggest_event_time(self, session: AsyncSession, event_id: int) -> dict[str, Any]:
         """3-layer decision logic for time suggestions."""
         event = await session.get(Event, event_id)
         if not event:
             return {"error": "Event not found"}
-        result = await session.execute(
-            select(Constraint).where(Constraint.event_id == event_id)
-        )
+        result = await session.execute(select(Constraint).where(Constraint.event_id == event_id))
         constraints = result.scalars().all()
 
         try:
@@ -51,9 +49,7 @@ class AICoordinationEngine:
                 constraints,
             )
 
-        return await self.llm.resolve_conflicts(
-            event, availability
-        )
+        return await self.llm.resolve_conflicts(event, availability)
 
     def _calculate_confidence(self, availability: dict) -> float:
         """Calculate confidence from declared availability only."""
@@ -68,9 +64,7 @@ class AICoordinationEngine:
         if not event:
             return {"error": "Event not found"}
 
-        result = await session.execute(
-            select(Constraint).where(Constraint.event_id == event_id)
-        )
+        result = await session.execute(select(Constraint).where(Constraint.event_id == event_id))
         constraints = result.scalars().all()
 
         if len(constraints) < 5:
@@ -78,7 +72,4 @@ class AICoordinationEngine:
         else:
             conflicts = await self.llm.analyze_constraints(constraints)
 
-        return {
-            "conflicts": conflicts,
-            "suggestions": self.rules_engine.generate_compromises(conflicts)
-        }
+        return {"conflicts": conflicts, "suggestions": self.rules_engine.generate_compromises(conflicts)}

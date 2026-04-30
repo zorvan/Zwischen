@@ -5,6 +5,7 @@ PRD v2 Section 2.1: Centralized state machine governance.
 This service is the ONLY allowed path for mutating event state.
 All command handlers must route through this service.
 """
+
 from __future__ import annotations
 
 import logging
@@ -30,16 +31,19 @@ class EventStateTransitionError(Exception):
 
 class EventNotFoundError(Exception):
     """Raised when event is not found."""
+
     pass
 
 
 class ConcurrencyConflictError(Exception):
     """Raised when optimistic concurrency check fails."""
+
     pass
 
 
 class ThresholdNotMetError(EventStateTransitionError):
     """Raised when trying to lock event below minimum participants."""
+
     pass
 
 
@@ -88,9 +92,7 @@ class EventStateTransitionService:
             ThresholdNotMetError: If locking below min_participants
         """
         # Fetch event
-        result = await self.session.execute(
-            select(Event).where(Event.event_id == event_id)
-        )
+        result = await self.session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
 
         if not event:
@@ -100,7 +102,7 @@ class EventStateTransitionService:
         if expected_version is not None and event.version != expected_version:
             raise ConcurrencyConflictError(
                 f"Event {event_id} was modified (version {event.version}, expected {expected_version})",
-                error_code="CONCURRENCY_CONFLICT"
+                error_code="CONCURRENCY_CONFLICT",
             )
 
         current_state = event.state
@@ -108,8 +110,7 @@ class EventStateTransitionService:
         # Validate transition
         if not can_transition(current_state, target_state):
             raise EventStateTransitionError(
-                f"Invalid transition from {current_state} to {target_state}",
-                error_code="INVALID_TRANSITION"
+                f"Invalid transition from {current_state} to {target_state}", error_code="INVALID_TRANSITION"
             )
 
         # Check preconditions
@@ -149,7 +150,7 @@ class EventStateTransitionService:
                 "actor": actor_telegram_user_id,
                 "source": source,
                 "transition_id": transition_log.transition_id,
-            }
+            },
         )
 
         return event, True
@@ -164,19 +165,22 @@ class EventStateTransitionService:
 
             if confirmed_count < min_required:
                 raise ThresholdNotMetError(
-                    f"Cannot lock: {confirmed_count} confirmed, need {min_required}",
-                    error_code="THRESHOLD_NOT_MET"
+                    f"Cannot lock: {confirmed_count} confirmed, need {min_required}", error_code="THRESHOLD_NOT_MET"
                 )
 
     async def _get_confirmed_count(self, event: Event) -> int:
         """Get count of confirmed participants."""
         result = await self.session.execute(
-            select(func.count()).select_from(EventParticipant).where(
+            select(func.count())
+            .select_from(EventParticipant)
+            .where(
                 EventParticipant.event_id == event.event_id,
-                EventParticipant.status.in_([
-                    ParticipantStatus.confirmed,
-                    ParticipantStatus.joined,
-                ]),
+                EventParticipant.status.in_(
+                    [
+                        ParticipantStatus.confirmed,
+                        ParticipantStatus.joined,
+                    ]
+                ),
             )
         )
         return int(result.scalar_one() or 0)
@@ -192,9 +196,7 @@ class EventStateTransitionService:
 
     async def get_current_state(self, event_id: int) -> Optional[str]:
         """Get current state without locking."""
-        result = await self.session.execute(
-            select(Event.state).where(Event.event_id == event_id)
-        )
+        result = await self.session.execute(select(Event.state).where(Event.event_id == event_id))
         return result.scalar_one_or_none()
 
     async def validate_transition(self, event_id: int, target_state: str) -> Dict[str, Any]:
@@ -206,23 +208,17 @@ class EventStateTransitionService:
         - reason: str (if invalid)
         - preconditions: dict of precondition status
         """
-        result = await self.session.execute(
-            select(Event).where(Event.event_id == event_id)
-        )
+        result = await self.session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
 
         if not event:
-            return {
-                "valid": False,
-                "reason": "Event not found",
-                "preconditions": {}
-            }
+            return {"valid": False, "reason": "Event not found", "preconditions": {}}
 
         if not can_transition(event.state, target_state):
             return {
                 "valid": False,
                 "reason": f"Invalid transition from {event.state} to {target_state}",
-                "preconditions": {}
+                "preconditions": {},
             }
 
         preconditions = {}
@@ -234,8 +230,4 @@ class EventStateTransitionService:
             preconditions["confirmed_count"] = confirmed_count
             preconditions["min_required"] = min_required
 
-        return {
-            "valid": True,
-            "reason": None,
-            "preconditions": preconditions
-        }
+        return {"valid": True, "reason": None, "preconditions": preconditions}

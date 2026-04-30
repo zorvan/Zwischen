@@ -7,4 +7,3 @@ def build_start_link(bot_username: str | None, payload: str) -> str | None:
     if not username:
         return None
     return f"https://t.me/{username}?start={payload}"
-

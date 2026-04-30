@@ -2,8 +2,10 @@
 RBAC (Role-Based Access Control) helpers for event operations.
 PRD v2: Organizer control, permission checks, and group membership enforcement.
 """
+
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Optional, Tuple, TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,9 +57,7 @@ async def check_group_membership(
     logger.info("🔍 check_group_membership")
     logger.info("   group_id=%d  user_id=%d  chat_id=%r", group_id, user_id, telegram_chat_id)
 
-    result = await session.execute(
-        select(Group).where(Group.group_id == group_id)
-    )
+    result = await session.execute(select(Group).where(Group.group_id == group_id))
     group = result.scalar_one_or_none()
 
     if not group:
@@ -123,9 +123,12 @@ async def check_group_membership(
     if bot is not None:
         try:
             _info("  calling get_chat_member", f"chat_id={group.telegram_group_id} user_id={uid}")
-            member = await bot.get_chat_member(
-                chat_id=group.telegram_group_id,
-                user_id=uid,
+            member = await asyncio.wait_for(
+                bot.get_chat_member(
+                    chat_id=group.telegram_group_id,
+                    user_id=uid,
+                ),
+                timeout=10.0,
             )
             _info("  API returned", f"status={member.status}")
             if member.status in {"member", "administrator", "creator"}:
@@ -134,6 +137,8 @@ async def check_group_membership(
                 _pass("Step 4 PASS", f"Telegram API confirms: status={member.status}")
                 return True, None
             _fail("Step 4 FAIL", f"Telegram API says: status={member.status}")
+        except asyncio.TimeoutError:
+            _fail("Step 4 FAIL", "Telegram API call timed out after 10s")
         except Exception as e:
             _fail("Step 4 FAIL", f"API error: {type(e).__name__}: {e}")
     else:
@@ -161,6 +166,7 @@ async def check_event_visibility_and_get_event(
     4. Participant in ANY event in group → proven member
     5. member_list cache
     6. Telegram API get_chat_member (final fallback)
+    7. DM invitation (callback with matching group_id) → allowed
     """
     logger.info("")
     logger.info("%s", _sep())
@@ -284,9 +290,12 @@ async def check_event_visibility_and_get_event(
     if bot is not None:
         try:
             _info("  calling get_chat_member", f"chat_id={group.telegram_group_id} user_id={uid}")
-            member = await bot.get_chat_member(
-                chat_id=group.telegram_group_id,
-                user_id=uid,
+            member = await asyncio.wait_for(
+                bot.get_chat_member(
+                    chat_id=group.telegram_group_id,
+                    user_id=uid,
+                ),
+                timeout=10.0,
             )
             _info("  API returned", f"status={member.status}")
             if member.status in {"member", "administrator", "creator"}:
@@ -295,10 +304,26 @@ async def check_event_visibility_and_get_event(
                 _pass("Check 6 PASS", f"Telegram API confirms: status={member.status}")
                 return True, event, group, None
             _fail("Check 6 FAIL", f"Telegram API says: status={member.status}")
+        except asyncio.TimeoutError:
+            _fail("Check 6 FAIL", "Telegram API call timed out after 10s")
         except Exception as e:
             _fail("Check 6 FAIL", f"API error: {type(e).__name__}: {e}")
     else:
         _fail("Check 6 FAIL", "Bot not provided — cannot query Telegram API")
+
+    # ── Check 7: DM/group invitation (callback from bot) ─────
+    _info("Check 7", "Invitation callback context")
+    _info("  telegram_chat_id", str(telegram_chat_id))
+    _info("  group.telegram_group_id", str(group.telegram_group_id))
+
+    # If the user clicked a callback from the bot (DM or group),
+    # they received an invitation and should be allowed access.
+    if telegram_chat_id is not None:
+        if uid not in [int(m) for m in member_list]:
+            group.member_list = [*member_list, uid]
+            await session.flush()
+        _pass("Check 7 PASS", "Invitation callback — user has access")
+        return True, event, group, None
 
     _info("Result", "DENIED — no access to this event")
     logger.info("%s", _sep())
@@ -316,9 +341,7 @@ async def check_event_organizer(
     Returns:
         (is_authorized, error_message)
     """
-    result = await session.execute(
-        select(Event).where(Event.event_id == event_id)
-    )
+    result = await session.execute(select(Event).where(Event.event_id == event_id))
     event = result.scalar_one_or_none()
 
     if not event:
@@ -341,9 +364,7 @@ async def check_event_admin(
     Returns:
         (is_authorized, error_message)
     """
-    result = await session.execute(
-        select(Event).where(Event.event_id == event_id)
-    )
+    result = await session.execute(select(Event).where(Event.event_id == event_id))
     event = result.scalar_one_or_none()
 
     if not event:
@@ -400,9 +421,7 @@ async def check_can_modify_event(
     Returns:
         (is_authorized, error_message)
     """
-    result = await session.execute(
-        select(Event).where(Event.event_id == event_id)
-    )
+    result = await session.execute(select(Event).where(Event.event_id == event_id))
     event = result.scalar_one_or_none()
 
     if not event:
@@ -420,7 +439,7 @@ async def check_can_modify_event(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
             EventParticipant.telegram_user_id == telegram_user_id,
-            EventParticipant.status == 'confirmed',
+            EventParticipant.status == "confirmed",
         )
     )
     participant = participant_result.scalar_one_or_none()
@@ -446,9 +465,7 @@ async def check_can_submit_private_note(
     Returns:
         (is_authorized, error_message)
     """
-    event_result = await session.execute(
-        select(Event).where(Event.event_id == event_id)
-    )
+    event_result = await session.execute(select(Event).where(Event.event_id == event_id))
     event = event_result.scalar_one_or_none()
 
     if not event:
@@ -459,7 +476,7 @@ async def check_can_submit_private_note(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
             EventParticipant.telegram_user_id == telegram_user_id,
-            EventParticipant.status.in_(['joined', 'confirmed']),
+            EventParticipant.status.in_(["joined", "confirmed"]),
         )
     )
     participant = participant_result.scalar_one_or_none()
@@ -499,19 +516,17 @@ async def get_user_event_role(
     Returns:
         'organizer', 'admin', 'participant', or None
     """
-    result = await session.execute(
-        select(Event).where(Event.event_id == event_id)
-    )
+    result = await session.execute(select(Event).where(Event.event_id == event_id))
     event = result.scalar_one_or_none()
 
     if not event:
         return None
 
     if event.organizer_telegram_user_id == telegram_user_id:
-        return 'organizer'
+        return "organizer"
 
     if event.emergency_admin_telegram_user_id == telegram_user_id:
-        return 'admin'
+        return "admin"
 
     participant_result = await session.execute(
         select(EventParticipant).where(
@@ -522,6 +537,6 @@ async def get_user_event_role(
     participant = participant_result.scalar_one_or_none()
 
     if participant:
-        return 'participant'
+        return "participant"
 
     return None

@@ -9,6 +9,7 @@ Handles:
 - 24h before event reminder (TODO-027)
 - Weekly digest auto-send
 """
+
 from __future__ import annotations
 
 import logging
@@ -65,23 +66,21 @@ class SchedulerService:
             for event in events:
                 # Check if memory collection already started
                 from db.models import EventMemory
-                memory_result = await session.execute(
-                    select(EventMemory).where(EventMemory.event_id == event.event_id)
-                )
+
+                memory_result = await session.execute(select(EventMemory).where(EventMemory.event_id == event.event_id))
                 if memory_result.scalar_one_or_none():
                     # Already collected
                     continue
 
                 # Start collection
                 from bot.services.event_memory_service import EventMemoryService
+
                 memory_service = EventMemoryService(self.bot, session)
                 await memory_service.start_memory_collection(event)
                 started_count += 1
 
                 logger.info(
-                    "Started memory collection for event %s",
-                    event.event_id,
-                    extra={"event_id": event.event_id}
+                    "Started memory collection for event %s", event.event_id, extra={"event_id": event.event_id}
                 )
 
             return started_count
@@ -100,10 +99,7 @@ class SchedulerService:
             ninety_days_ago = datetime.utcnow() - timedelta(days=90)
 
             # Delete old logs (not state transitions - those are audit trail)
-            result = await session.execute(
-                delete(Log)
-                .where(Log.timestamp < ninety_days_ago)
-            )
+            result = await session.execute(delete(Log).where(Log.timestamp < ninety_days_ago))
             deleted_count = result.rowcount
 
             await session.commit()
@@ -129,8 +125,7 @@ class SchedulerService:
 
             # Find events past collapse deadline
             result = await session.execute(
-                select(Event)
-                .where(
+                select(Event).where(
                     Event.state.in_(["proposed", "interested", "confirmed"]),
                     Event.collapse_at.is_not(None),
                     Event.collapse_at <= now,
@@ -142,13 +137,14 @@ class SchedulerService:
             for event in events:
                 # Check if threshold is met
                 participant_result = await session.execute(
-                    select(func.count(EventParticipant.telegram_user_id))
-                    .where(
+                    select(func.count(EventParticipant.telegram_user_id)).where(
                         EventParticipant.event_id == event.event_id,
-                        EventParticipant.status.in_([
-                            ParticipantStatus.confirmed,
-                            ParticipantStatus.joined,
-                        ])
+                        EventParticipant.status.in_(
+                            [
+                                ParticipantStatus.confirmed,
+                                ParticipantStatus.joined,
+                            ]
+                        ),
                     )
                 )
                 confirmed_count = participant_result.scalar() or 0
@@ -157,6 +153,7 @@ class SchedulerService:
                 if confirmed_count < min_required:
                     # Auto-cancel
                     from bot.services.event_lifecycle_service import EventLifecycleService
+
                     lifecycle = EventLifecycleService(self.bot, session)
 
                     try:
@@ -173,7 +170,7 @@ class SchedulerService:
                         logger.info(
                             "Auto-cancelled event %s (threshold not met)",
                             event.event_id,
-                            extra={"event_id": event.event_id}
+                            extra={"event_id": event.event_id},
                         )
                     except Exception as e:
                         logger.error(
@@ -200,8 +197,7 @@ class SchedulerService:
 
             # Find events scheduled for tomorrow
             result = await session.execute(
-                select(Event)
-                .where(
+                select(Event).where(
                     Event.state.in_(["locked", "confirmed"]),
                     Event.scheduled_time >= tomorrow_start,
                     Event.scheduled_time <= tomorrow_end,
@@ -212,9 +208,7 @@ class SchedulerService:
             sent_count = 0
             for event in events:
                 # Get group chat ID
-                group_result = await session.execute(
-                    select(Group).where(Group.group_id == event.group_id)
-                )
+                group_result = await session.execute(select(Group).where(Group.group_id == event.group_id))
                 group = group_result.scalar_one_or_none()
 
                 if not group or not group.telegram_group_id:
@@ -226,10 +220,12 @@ class SchedulerService:
                     .join(User, EventParticipant.telegram_user_id == User.telegram_user_id)
                     .where(
                         EventParticipant.event_id == event.event_id,
-                        EventParticipant.status.in_([
-                            ParticipantStatus.confirmed,
-                            ParticipantStatus.joined,
-                        ])
+                        EventParticipant.status.in_(
+                            [
+                                ParticipantStatus.confirmed,
+                                ParticipantStatus.joined,
+                            ]
+                        ),
                     )
                 )
                 participants = participant_result.all()
@@ -239,7 +235,9 @@ class SchedulerService:
                 names = []
                 for participant, user in participants:
                     if user:
-                        name = user.display_name or (f"@{user.username}" if user.username else f"User #{user.telegram_user_id}")
+                        name = user.display_name or (
+                            f"@{user.username}" if user.username else f"User #{user.telegram_user_id}"
+                        )
                         names.append(name)
 
                 names_str = ", ".join(names) if names else "TBD"
@@ -259,11 +257,7 @@ class SchedulerService:
                     )
                     sent_count += 1
 
-                    logger.info(
-                        "Sent 24h reminder for event %s",
-                        event.event_id,
-                        extra={"event_id": event.event_id}
-                    )
+                    logger.info("Sent 24h reminder for event %s", event.event_id, extra={"event_id": event.event_id})
                 except Exception as e:
                     logger.error(
                         "Failed to send 24h reminder for event %s: %s",
@@ -327,5 +321,34 @@ async def run_scheduled_tasks(bot: Bot, db_url: str) -> None:
             if reminders > 0:
                 logger.info("Sent %d event reminders", reminders)
 
+        # Idempotency key cleanup (daily)
+        cleaned = await cleanup_expired_idempotency_keys(db_url)
+        if cleaned > 0:
+            logger.info("Cleaned up %d expired idempotency keys", cleaned)
+
     except Exception as e:
         logger.exception("Scheduled task execution failed: %s", e)
+
+
+async def cleanup_expired_idempotency_keys(db_url: str) -> int:
+    """
+    v3.5: Clean up expired idempotency keys.
+
+    Deletes idempotency_keys where expires_at < NOW() - 7 days.
+    Prevents unbounded table growth.
+    """
+    from db.models import IdempotencyKey
+    from datetime import timedelta
+
+    cutoff = datetime.utcnow() - timedelta(days=7)
+    deleted = 0
+
+    async with get_session(db_url) as session:
+        result = await session.execute(delete(IdempotencyKey).where(IdempotencyKey.expires_at < cutoff))
+        deleted = result.rowcount
+        await session.commit()
+
+    if deleted > 0:
+        logger.info("Cleaned up %d expired idempotency keys", deleted)
+
+    return deleted

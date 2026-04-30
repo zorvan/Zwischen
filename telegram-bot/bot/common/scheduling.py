@@ -1,4 +1,5 @@
 """Shared scheduling helpers for conflict checks."""
+
 from datetime import timedelta
 
 from sqlalchemy import select
@@ -17,10 +18,12 @@ async def _user_in_event(session: AsyncSession, event_id: int, telegram_user_id:
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
             EventParticipant.telegram_user_id == telegram_user_id,
-            EventParticipant.status.in_([
-                ParticipantStatus.joined,
-                ParticipantStatus.confirmed,
-            ])
+            EventParticipant.status.in_(
+                [
+                    ParticipantStatus.joined,
+                    ParticipantStatus.confirmed,
+                ]
+            ),
         )
     )
     return result.scalar_one_or_none() is not None
@@ -53,9 +56,7 @@ async def find_user_event_conflict(
     if start_time is None:
         return None
 
-    result = await session.execute(
-        select(Event).where(Event.state.in_(ACTIVE_STATES))
-    )
+    result = await session.execute(select(Event).where(Event.state.in_(ACTIVE_STATES)))
     events = result.scalars().all()
     for event in events:
         if ignore_event_id is not None and event.event_id == ignore_event_id:
@@ -71,4 +72,3 @@ async def find_user_event_conflict(
         ):
             return event
     return None
-

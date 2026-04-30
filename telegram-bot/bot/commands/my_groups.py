@@ -9,9 +9,7 @@ from db.connection import get_session
 from db.models import Group
 
 
-async def handle(
-    update: Update, _context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /my_groups command."""
     if not update.message or not update.effective_user:
         return
@@ -30,9 +28,7 @@ async def handle(
 
     if not user_groups:
         await update.message.reply_text(
-            "📋 *Your Groups*\n\n"
-            "• No groups yet.\n\n"
-            "Run /organize_event in a group once to register it."
+            "📋 *Your Groups*\n\n" "• No groups yet.\n\n" "Run /organize_event in a group once to register it."
         )
         return
 

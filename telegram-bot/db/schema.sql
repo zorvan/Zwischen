@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS events (
     commit_by TIMESTAMP WITH TIME ZONE,
     duration_minutes INTEGER DEFAULT 120,
     planning_prefs JSONB DEFAULT '{}',
-    state VARCHAR(20) DEFAULT 'proposed' CHECK (state IN ('proposed', 'interested', 'confirmed', 'locked', 'completed', 'cancelled')),
+    state VARCHAR(20) DEFAULT 'proposed',
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     locked_at TIMESTAMP WITH TIME ZONE,
     completed_at TIMESTAMP WITH TIME ZONE,
@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS constraints (
     target_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     event_id INTEGER REFERENCES events(event_id) ON DELETE CASCADE,
     type VARCHAR(50) NOT NULL,
-    confidence FLOAT DEFAULT 1.0 CHECK (confidence >= 0 AND confidence <= 1),
+    confidence FLOAT DEFAULT 1.0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -142,7 +142,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     command_type VARCHAR(100) NOT NULL,
     user_id INTEGER REFERENCES users(user_id),
     event_id INTEGER REFERENCES events(event_id),
-    status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'failed')),
+    status VARCHAR(50) DEFAULT 'pending',
     response_hash VARCHAR(255),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMP WITH TIME ZONE,
@@ -185,9 +185,7 @@ CREATE TABLE IF NOT EXISTS event_waitlist (
     position INTEGER,
     added_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     expires_at TIMESTAMP WITH TIME ZONE,
-    status VARCHAR(20) NOT NULL DEFAULT 'waiting' CHECK (
-        status IN ('waiting', 'offered', 'promoted', 'expired', 'cancelled')
-    ),
+    status VARCHAR(20) NOT NULL DEFAULT 'waiting',
     UNIQUE(event_id, telegram_user_id)
 );
 
@@ -195,7 +193,7 @@ CREATE TABLE IF NOT EXISTS event_waitlist (
 CREATE INDEX IF NOT EXISTS idx_events_group ON events(group_id);
 CREATE INDEX IF NOT EXISTS idx_events_state ON events(state);
 CREATE INDEX IF NOT EXISTS idx_events_organizer_tg ON events(organizer_telegram_user_id);
-CREATE INDEX IF NOT EXISTS idx_events_admin_tg ON events(admin_telegram_user_id);
+CREATE INDEX IF NOT EXISTS idx_events_emergency_admin_tg ON events(emergency_admin_telegram_user_id);
 CREATE INDEX IF NOT EXISTS idx_constraints_event ON constraints(event_id);
 CREATE INDEX IF NOT EXISTS idx_logs_event ON logs(event_id);
 CREATE INDEX IF NOT EXISTS idx_user_preferences_user ON user_preferences(user_id);

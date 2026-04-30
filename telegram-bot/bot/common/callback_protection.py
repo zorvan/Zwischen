@@ -7,6 +7,7 @@ Ensures callbacks:
 2. Belong to the clicking user (ownership check)
 3. Haven't been processed before (idempotency)
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -138,8 +139,7 @@ class CallbackProtectionService:
 
         if parsed["user_id"] != clicking_user_id:
             return False, (
-                f"This action was intended for User {parsed['user_id']}. "
-                f"Please use your own invitation link."
+                f"This action was intended for User {parsed['user_id']}. " f"Please use your own invitation link."
             )
 
         return True, None
@@ -235,9 +235,7 @@ async def validate_event_callback(
     protection = CallbackProtectionService(session)
 
     # Validate callback format and expiry
-    is_valid, error, parsed = await protection.validate_callback(
-        callback_data, clicking_user_id
-    )
+    is_valid, error, parsed = await protection.validate_callback(callback_data, clicking_user_id)
 
     if not is_valid:
         return False, error

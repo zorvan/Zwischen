@@ -44,36 +44,6 @@ class ConstraintInference(BaseModel):
 
 
 # ============================================================================
-# Feedback Inference Schema
-# ============================================================================
-
-
-class FeedbackInference(BaseModel):
-    """Schema for feedback inference from natural language."""
-
-    score: float = Field(ge=1.0, le=5.0, default=3.0)
-    weight: float = Field(ge=0.0, le=1.0, default=0.7)
-    sanitized_comment: str = Field(max_length=1000, default="")
-    expertise_adjustments: Dict[str, float] = Field(default_factory=dict)
-
-    @validator("expertise_adjustments")
-    def validate_expertise_values(cls, v: Dict[str, float]) -> Dict[str, float]:
-        """Ensure expertise adjustments are in valid range."""
-        validated = {}
-        for key, value in v.items():
-            if isinstance(value, (int, float)):
-                validated[str(key)] = max(-1.0, min(1.0, float(value)))
-        return validated
-
-    @validator("sanitized_comment")
-    def ensure_comment_not_empty(cls, v: str) -> str:
-        """Ensure comment has content."""
-        if not v or len(v.strip()) == 0:
-            return "Feedback provided (content not parsed)"
-        return v.strip()
-
-
-# ============================================================================
 # Event Draft Patch Schema
 # ============================================================================
 

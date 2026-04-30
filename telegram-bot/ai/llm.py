@@ -21,12 +21,13 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 # Temperature: Lower = more deterministic, good for structured outputs
-LLM_TEMPERATURE = 0.3
+# v3.5: 0.1 for structured outputs (action routing, draft extraction)
+LLM_TEMPERATURE = 0.1
 
 # Max tokens: Standard sizes for different use cases
-LLM_MAX_TOKENS_STANDARD = 800   # For most inference tasks
-LLM_MAX_TOKENS_LARGE = 1200     # For complex tasks with context
-LLM_MAX_TOKENS_SMALL = 400      # For simple classification
+LLM_MAX_TOKENS_STANDARD = 800  # For most inference tasks
+LLM_MAX_TOKENS_LARGE = 1200  # For complex tasks with context
+LLM_MAX_TOKENS_SMALL = 400  # For simple classification
 
 # Timeout for LLM calls (seconds)
 LLM_TIMEOUT = 60.0
@@ -64,9 +65,7 @@ class LLMClient:
         """Generate conflict resolution suggestions using LLM."""
         from ai.schemas import ConflictResolution, validate_llm_output
 
-        prompt = self._build_conflict_prompt(
-            event, availability, notes or []
-        )
+        prompt = self._build_conflict_prompt(event, availability, notes or [])
 
         def fallback():
             return {
@@ -78,9 +77,7 @@ class LLMClient:
 
         try:
             response = await self._call_llm(prompt)
-            return validate_llm_output(
-                ConflictResolution, response, fallback_factory=fallback, logger=logger
-            )
+            return validate_llm_output(ConflictResolution, response, fallback_factory=fallback, logger=logger)
         except Exception as e:
             logger.exception("Conflict resolution failed: %s", e)
             return fallback()
@@ -96,9 +93,7 @@ class LLMClient:
 
         try:
             response = await self._call_llm(prompt)
-            validated = validate_llm_output(
-                ConstraintAnalysis, response, fallback_factory=fallback, logger=logger
-            )
+            validated = validate_llm_output(ConstraintAnalysis, response, fallback_factory=fallback, logger=logger)
             return [c.dict() for c in validated.get("conflicts", [])]
         except Exception:
             return []
@@ -129,9 +124,7 @@ class LLMClient:
         # LLM either succeeds or returns empty dict - no pattern matching fallbacks
         try:
             response = await self._call_llm(prompt)
-            return validate_llm_output(
-                ConstraintInference, response, fallback_factory=lambda: {}, logger=logger
-            )
+            return validate_llm_output(ConstraintInference, response, fallback_factory=lambda: {}, logger=logger)
         except Exception:
             logger.warning("Constraint inference failed, no fallback available")
             return {}
@@ -242,9 +235,7 @@ class LLMClient:
             if duration_match:
                 value = int(duration_match.group(1))
                 unit = duration_match.group(2)
-                patch["duration_minutes"] = (
-                    value * 60 if "hour" in unit or "hr" in unit else value
-                )
+                patch["duration_minutes"] = value * 60 if "hour" in unit or "hr" in unit else value
 
             datetime_match = re.search(
                 r"\b(\d{4}-\d{2}-\d{2})[ t](\d{1,2}:\d{2})\b",
@@ -438,7 +429,9 @@ class LLMClient:
         event can auto-cancel if interest stays low.
         """
         try:
-            response = await self._call_llm_large(prompt)
+            response = await self._call_llm(
+                prompt, max_tokens=LLM_MAX_TOKENS_LARGE, temperature=0.1, system=MEDIATOR_SYSTEM
+            )
             parsed = json.loads(response)
             event_type = str(parsed.get("event_type", "social")).strip().lower()
             if event_type not in {"social", "sports", "work"}:
@@ -457,7 +450,7 @@ class LLMClient:
                 if not s.startswith("@"):
                     s = f"@{s}"
                 normalized_invitees.append(s.lower())
-            
+
             # Normalize key_attendees (emphasized people, separate from privacy)
             key_attendees_raw = parsed.get("key_attendees", [])
             if not isinstance(key_attendees_raw, list):
@@ -470,7 +463,7 @@ class LLMClient:
                 if not s.startswith("@"):
                     s = f"@{s}"
                 normalized_key_attendees.append(s.lower())
-            
+
             notes = parsed.get("planning_notes", [])
             if not isinstance(notes, list):
                 notes = []
@@ -500,11 +493,13 @@ class LLMClient:
                         target = None
                 note = str(c.get("note", "")).strip()[:200]
                 if ctype and target:
-                    inferred_constraints.append({
-                        "constraint_type": ctype,
-                        "target_username": target,
-                        "note": note,
-                    })
+                    inferred_constraints.append(
+                        {
+                            "constraint_type": ctype,
+                            "target_username": target,
+                            "note": note,
+                        }
+                    )
 
             # Extract optional location/budget/transport — only set if explicitly provided
             location_type = parsed.get("location_type")
@@ -555,9 +550,7 @@ class LLMClient:
                 time_window = None
 
             return {
-                "description": str(
-                    parsed.get("description", message_text or "Group planned event")
-                ).strip()[:500],
+                "description": str(parsed.get("description", message_text or "Group planned event")).strip()[:500],
                 "event_type": event_type,
                 "scheduled_time": parsed.get("scheduled_time_iso"),
                 "collapse_at": collapse_at.isoformat() if collapse_at else None,
@@ -570,9 +563,7 @@ class LLMClient:
                 "invite_all_members": bool(parsed.get("invite_all_members", True)),
                 "invitees": normalized_invitees,
                 "key_attendees": normalized_key_attendees,
-                "planning_notes": [
-                    str(n).strip()[:300] for n in notes if str(n).strip()
-                ],
+                "planning_notes": [str(n).strip()[:300] for n in notes if str(n).strip()],
                 "date_preset": date_preset,
                 "time_window": time_window,
                 "location_type": location_type,
@@ -590,7 +581,7 @@ class LLMClient:
                 "min_participants": 3,
                 "target_participants": 5,
                 "invite_all_members": True,
-                "invitees": ["@all"],
+                "invitees": [],
                 "key_attendees": [],
                 "planning_notes": ["Draft auto-generated from limited context."],
                 "date_preset": None,
@@ -601,193 +592,152 @@ class LLMClient:
                 "inferred_constraints": [],
             }
 
+    async def infer_action(
+        self,
+        text: str,
+        history: list[dict] | None = None,
+        context: dict | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Single entry point for all mention-based action inference.
+        Uses the canonical action registry (ai/actions.py).
+        Returns validated ActionResult or opinion fallback.
+        """
+        from ai.actions import ACTIONS
+        from ai.validator import validate_action_result
+
+        context = context or {}
+        history = history or []
+        trimmed_history = self._trim_to_token_budget(history, budget=800)
+
+        schema_lines = []
+        for name, meta in ACTIONS.items():
+            req = ", ".join(meta["required_params"]) or "none"
+            schema_lines.append(f'  "{name}": {meta["description"]} | required: [{req}]')
+        schema_str = "\n".join(schema_lines)
+
+        prompt = f"""You are a Telegram group coordination assistant.
+
+Available actions:
+{schema_str}
+
+Group context:
+- Active events: {context.get('active_events', [])}
+- User's joined events: {context.get('user_events', [])}
+- Recent chat (last 5 messages): {trimmed_history[-5:]}
+
+User message: {text}
+
+Select the best matching action. Return ONLY this JSON object:
+{{
+  "action": "<action_name from registry above>",
+  "params": {{ <required and optional params, omit if not applicable> }},
+  "confidence": <0.0 to 1.0>,
+  "assistant_response": "<brief helpful message to show the user>"
+}}
+
+If the intent is unclear or no action matches, use "opinion".
+If a required param like event_id is missing, set it to null — do not guess.
+"""
+        try:
+            response = await self._call_llm(
+                prompt,
+                max_tokens=250,
+                temperature=0.1,
+                system=MEDIATOR_SYSTEM,
+            )
+            result = json.loads(response)
+            validation = validate_action_result(result, ACTIONS)
+
+            if not validation.valid:
+                if validation.recoverable:
+                    return {
+                        "action": "opinion",
+                        "params": {},
+                        "confidence": 0.0,
+                        "assistant_response": validation.recovery_prompt,
+                    }
+                else:
+                    raise ValueError(validation.reason)
+
+            return result
+
+        except Exception as e:
+            logger.error("LLM action inference failed: %s", e)
+            return {
+                "action": "opinion",
+                "params": {},
+                "confidence": 0.0,
+                "assistant_response": "I had trouble understanding that. Use /events to see what's happening.",
+            }
+
+    def _trim_to_token_budget(self, history: list[dict], budget: int = 800) -> list[dict]:
+        """Trim history to approximate token budget, keeping most recent messages."""
+        result = []
+        total_tokens = 0
+        for msg in reversed(history):
+            msg_tokens = int(len(str(msg)) / 4)
+            if total_tokens + msg_tokens > budget:
+                break
+            result.insert(0, msg)
+            total_tokens += msg_tokens
+        return result
+
     async def infer_group_mention_action(
         self,
         text: str,
         history: list[dict[str, Any]] | None = None,
         system: str | None = None,
     ) -> Dict[str, Any]:
-        """Infer mention intent into a concrete action payload."""
-        compact_history = (history or [])[-20:]
-        prompt = f"""
-        You are a Telegram group coordination assistant.
-        Infer the best action from a message that mentioned the bot.
+        """Infer mention intent into a concrete action payload.
 
-        Allowed action_type values:
-        - opinion
-        - organize_event
-        - organize_event_flexible
-        - status
-        - event_details
-        - suggest_time
-        - constraint_add
-        - join
-        - confirm
-        - cancel
-        - lock
-        - request_confirmations
-
-        If action is unclear, use opinion.
-        If event_id is unknown, set event_id to null.
-
-        CONSTRAINT INFERENCE:
-        When action_type is constraint_add, you MUST infer:
-        - target_username: the person the constraint is about (without @)
-        - constraint_type: "if_joins" (I'll come if X comes), "if_attends" (I'll come if X attends), or "unless_joins" (I won't go if X goes)
-        Look for conditional language: "if", "unless", "only if", "as long as"
-        Examples:
-          "I'll come if @alice comes" → constraint_add, target_username="alice", constraint_type="if_joins"
-          "I won't go unless @bob is there" → constraint_add, target_username="bob", constraint_type="unless_joins"
-          "Count me in if @carol joins" → constraint_add, target_username="carol", constraint_type="if_joins"
-
-        Mention text:
-        {text}
-
-        Recent chat history (newest last):
-        {compact_history}
-
-        Output JSON only:
-        {{
-          "action_type": "<see allowed list above>",
-          "event_id": 123 or null,
-          "target_username": "alice" or null,
-          "constraint_type": "if_joins|if_attends|unless_joins|null",
-          "assistant_response": "short response"
-        }}
+        v3.5: Delegates to infer_action() for consistent structured dispatch.
+        Maintains backward-compatible return format.
         """
+        result = await self.infer_action(text, history=history)
+
+        # Map infer_action result to legacy format for backward compatibility
+        action_name = result.get("action", "opinion")
+        params = result.get("params", {})
+
+        # Map new action names to legacy names
+        action_map = {
+            "view_events": "status",
+            "view_event_panel": "event_details",
+            "join_event": "join",
+            "relinquish_event": "cancel",
+            "commit_event": "confirm",
+            "lock_event": "lock",
+            "create_event": "organize_event",
+            "add_constraint": "constraint_add",
+            "suggest_time": "suggest_time",
+            "opinion": "opinion",
+        }
+
+        action_type = action_map.get(action_name, "opinion")
+
+        # Extract legacy-format fields from params
+        event_id = params.get("event_id")
         try:
-            response = await self._call_llm(
-                prompt,
-                max_tokens=600,
-                system=system if system is not None else MEDIATOR_SYSTEM,
-            )
-            parsed = json.loads(response)
-            action_type = str(parsed.get("action_type", "opinion")).strip().lower()
-            logger.debug(
-                "LLM raw response: action_type=%s, event_id=%s, text=%s",
-                action_type,
-                parsed.get("event_id"),
-                text[:100],
-            )
-            if action_type not in {
-                "opinion",
-                "organize_event",
-                "organize_event_flexible",
-                "status",
-                "event_details",
-                "suggest_time",
-                "constraint_add",
-                "join",
-                "confirm",
-                "cancel",
-                "lock",
-                "request_confirmations",
-            }:
-                action_type = "opinion"
-            event_id = parsed.get("event_id")
-            try:
-                event_id = int(event_id) if event_id is not None else None
-            except (TypeError, ValueError):
-                event_id = None
-            constraint_type = parsed.get("constraint_type")
-            if constraint_type is not None:
-                constraint_type = str(constraint_type).strip().lower()
-                if constraint_type not in {"if_joins", "if_attends", "unless_joins"}:
-                    constraint_type = None
-            target_username = parsed.get("target_username")
-            if target_username is not None:
-                target_username = str(target_username).strip().lstrip("@")
-                if not target_username:
-                    target_username = None
-            return {
-                "action_type": action_type,
-                "event_id": event_id,
-                "target_username": target_username,
-                "constraint_type": constraint_type,
-                "assistant_response": str(parsed.get("assistant_response", "")).strip(),
-            }
-        except Exception:
-            lowered = text.lower()
-            fallback_action = "opinion"
-            if (
-                "organize" in lowered
-                or "organise" in lowered
-                or "create event" in lowered
-                or "new event" in lowered
-                or "plan event" in lowered
-            ):
-                if "flexible" in lowered:
-                    fallback_action = "organize_event_flexible"
-                else:
-                    fallback_action = "organize_event"
-            elif "status" in lowered:
-                fallback_action = "status"
-            elif "detail" in lowered:
-                fallback_action = "event_details"
-            elif "suggest" in lowered or "time" in lowered:
-                fallback_action = "suggest_time"
-            elif (
-                "constraint" in lowered
-                or " if " in lowered
-                or "unless" in lowered
-                or "only if" in lowered
-                or "as long as" in lowered
-            ):
-                fallback_action = "constraint_add"
-            elif (
-                "request confirmation" in lowered
-                or "confirm button" in lowered
-                or "ask confirmations" in lowered
-            ):
-                fallback_action = "request_confirmations"
-            elif "join" in lowered:
-                fallback_action = "join"
-            elif (
-                "confirm" in lowered or "interested" in lowered or "interest" in lowered
-            ):
-                fallback_action = "confirm"
-            elif "cancel" in lowered:
-                fallback_action = "cancel"
-            elif "lock" in lowered:
-                fallback_action = "lock"
-
-            # Basic event id extraction fallback
+            event_id = int(event_id) if event_id is not None else None
+        except (TypeError, ValueError):
             event_id = None
-            for token in text.split():
-                if token.isdigit():
-                    event_id = int(token)
-                    break
 
-            # Constraint type and target extraction for constraint_add
-            fallback_constraint_type = None
-            fallback_target_username = None
-            if fallback_action == "constraint_add":
-                # Detect constraint type
-                if "unless" in lowered or "won't" in lowered or "won t" in lowered:
-                    fallback_constraint_type = "unless_joins"
-                elif " if " in lowered or "only if" in lowered or "as long as" in lowered:
-                    fallback_constraint_type = "if_joins"
-                elif "attend" in lowered:
-                    fallback_constraint_type = "if_attends"
-                else:
-                    fallback_constraint_type = "if_joins"
+        target_username = params.get("target_username")
+        if target_username:
+            target_username = str(target_username).strip().lstrip("@") or None
 
-                # Extract @username
-                mention_match = re.search(r"@([A-Za-z][A-Za-z0-9_]{4,31})", text)
-                if mention_match:
-                    fallback_target_username = mention_match.group(1)
+        constraint_type = params.get("constraint_type")
+        if constraint_type and constraint_type not in {"if_joins", "if_attends", "unless_joins"}:
+            constraint_type = None
 
-            logger.debug(
-                f"LLM fallback inference: action={fallback_action}, event_id={event_id}, constraint_type={fallback_constraint_type}, target={fallback_target_username}, text={text[:100]}"
-            )
-
-            return {
-                "action_type": fallback_action,
-                "event_id": event_id,
-                "target_username": fallback_target_username,
-                "constraint_type": fallback_constraint_type,
-                "assistant_response": "I inferred a best-effort action from your mention.",
-            }
+        return {
+            "action_type": action_type,
+            "event_id": event_id,
+            "target_username": target_username,
+            "constraint_type": constraint_type,
+            "assistant_response": str(result.get("assistant_response", "")).strip(),
+        }
 
     async def _call_llm(
         self,
@@ -797,7 +747,7 @@ class LLMClient:
         temperature: float = LLM_TEMPERATURE,
     ) -> str:
         """Make LLM API call with standardized quality settings.
-        
+
         v3.5: All LLM calls use consistent temperature and appropriate max_tokens
         based on task complexity (standard/large/small).
         """

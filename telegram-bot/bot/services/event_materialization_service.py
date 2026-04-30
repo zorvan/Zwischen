@@ -16,11 +16,11 @@ v3.2 Additions:
 - Memory hooks at threshold-reached and locked
 - Cancellation DM with inline action buttons (extend deadline, view waitlist)
 """
+
 from __future__ import annotations
 
 import logging
 import sqlalchemy
-from datetime import datetime
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
@@ -106,12 +106,11 @@ class EventMaterializationService:
 
         # v3.2: Append memory hook if available
         if memory_hook:
-            message += f"\n\nThe last time your group did something like this, someone said: \"{memory_hook}\"."
+            message += f'\n\nThe last time your group did something like this, someone said: "{memory_hook}".'
 
         await self._send_to_group(group_chat_id, message)
         logger.info(
-            "Announced threshold reached",
-            extra={"event_id": event.event_id, "count": confirmed_count, "tier": tier}
+            "Announced threshold reached", extra={"event_id": event.event_id, "count": confirmed_count, "tier": tier}
         )
 
     async def announce_event_locked(
@@ -142,15 +141,11 @@ class EventMaterializationService:
 
         names_str = ", ".join(names) if names else "TBD"
 
-        message = (
-            f"{event.event_type} is locked.\n"
-            f"{time_str}.\n\n"
-            f"Who's in: {names_str}"
-        )
+        message = f"{event.event_type} is locked.\n" f"{time_str}.\n\n" f"Who's in: {names_str}"
 
         # v3.2: Append memory hook if available
         if memory_hook:
-            message += f"\n\nThe last time your group did something like this, someone said: \"{memory_hook}\"."
+            message += f'\n\nThe last time your group did something like this, someone said: "{memory_hook}".'
 
         await self._send_to_group(group_chat_id, message)
         logger.info("Announced event locked", extra={"event_id": event.event_id, "tier": tier})
@@ -195,7 +190,7 @@ class EventMaterializationService:
         await self._send_dm(organizer_chat_id, message)
         logger.info(
             "Sent private cancellation notice",
-            extra={"event_id": event.event_id, "cancelled_user": user.user_id, "tier": tier}
+            extra={"event_id": event.event_id, "cancelled_user": user.user_id, "tier": tier},
         )
 
     async def announce_cancellation_with_actions(
@@ -227,28 +222,21 @@ class EventMaterializationService:
         # Inline action buttons
         keyboard = [
             [
-                InlineKeyboardButton(
-                    "⏳ Extend Deadline",
-                    callback_data=f"extend_deadline_{event.event_id}"
-                ),
+                InlineKeyboardButton("⏳ Extend Deadline", callback_data=f"extend_deadline_{event.event_id}"),
             ],
         ]
 
         if waitlist_count > 0:
-            keyboard.append([
-                InlineKeyboardButton(
-                    "📋 View Waitlist",
-                    callback_data=f"view_waitlist_{event.event_id}"
-                ),
-            ])
+            keyboard.append(
+                [
+                    InlineKeyboardButton("📋 View Waitlist", callback_data=f"view_waitlist_{event.event_id}"),
+                ]
+            )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await self._send_dm_with_markup(organizer_chat_id, message, reply_markup)
-        logger.info(
-            "Sent cancellation-with-action DM",
-            extra={"event_id": event.event_id}
-        )
+        logger.info("Sent cancellation-with-action DM", extra={"event_id": event.event_id})
 
     async def announce_event_completed(
         self,
@@ -269,6 +257,7 @@ class EventMaterializationService:
     def _get_display_name(self, user: User) -> str:
         """Get user display name with fallbacks. Escaped for HTML parse mode."""
         import html
+
         if user.display_name:
             return html.escape(user.display_name)
         if user.username:

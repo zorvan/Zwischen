@@ -1,4 +1,5 @@
 """User preferences command handler."""
+
 from __future__ import annotations
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -34,9 +35,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
         # Get or create user
-        result = await session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
-        )
+        result = await session.execute(select(User).where(User.telegram_user_id == telegram_user_id))
         db_user = result.scalar_one_or_none()
 
         if not db_user:
@@ -100,19 +99,21 @@ async def handle_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "Let's set up your preferences for better event matching!\n\n"
         "First, what time of day do you prefer for events?\n\n"
         "Please select:",
-        reply_markup=InlineKeyboardMarkup([
+        reply_markup=InlineKeyboardMarkup(
             [
-                InlineKeyboardButton("Any time", callback_data="pref_wizard_time_any"),
-                InlineKeyboardButton("Morning", callback_data="pref_wizard_time_morning"),
-            ],
-            [
-                InlineKeyboardButton("Afternoon", callback_data="pref_wizard_time_afternoon"),
-                InlineKeyboardButton("Evening", callback_data="pref_wizard_time_evening"),
-            ],
-            [
-                InlineKeyboardButton("Night", callback_data="pref_wizard_time_night"),
-            ],
-        ])
+                [
+                    InlineKeyboardButton("Any time", callback_data="pref_wizard_time_any"),
+                    InlineKeyboardButton("Morning", callback_data="pref_wizard_time_morning"),
+                ],
+                [
+                    InlineKeyboardButton("Afternoon", callback_data="pref_wizard_time_afternoon"),
+                    InlineKeyboardButton("Evening", callback_data="pref_wizard_time_evening"),
+                ],
+                [
+                    InlineKeyboardButton("Night", callback_data="pref_wizard_time_night"),
+                ],
+            ]
+        ),
     )
 
 
@@ -142,9 +143,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         # Get user ID
-        result = await session.execute(
-            select(User).where(User.telegram_user_id == user.id)
-        )
+        result = await session.execute(select(User).where(User.telegram_user_id == user.id))
         db_user = result.scalar_one_or_none()
 
         if not db_user:
@@ -194,23 +193,17 @@ async def set_preference(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     }
 
     if pref_type not in valid_types:
-        await update.message.reply_text(
-            f"❌ Invalid preference type. Use: {', '.join(valid_types.keys())}"
-        )
+        await update.message.reply_text(f"❌ Invalid preference type. Use: {', '.join(valid_types.keys())}")
         return
 
     if pref_value not in valid_types[pref_type]:
-        await update.message.reply_text(
-            f"❌ Invalid value for {pref_type}. Use: {', '.join(valid_types[pref_type])}"
-        )
+        await update.message.reply_text(f"❌ Invalid value for {pref_type}. Use: {', '.join(valid_types[pref_type])}")
         return
 
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
         user = update.effective_user
-        result = await session.execute(
-            select(User).where(User.telegram_user_id == user.id)
-        )
+        result = await session.execute(select(User).where(User.telegram_user_id == user.id))
         db_user = result.scalar_one_or_none()
 
         if not db_user:
@@ -227,6 +220,5 @@ async def set_preference(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         await session.commit()
 
         await update.message.reply_text(
-            f"✅ *Preference updated!*\n\n"
-            f"{pref_type.replace('_', ' ').title()}: {pref_value}"
+            f"✅ *Preference updated!*\n\n" f"{pref_type.replace('_', ' ').title()}: {pref_value}"
         )

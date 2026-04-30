@@ -18,22 +18,74 @@ from telegram.ext import (
 from config.settings import Settings
 from config.logging import setup_logging
 from bot.commands import (
-    start, my_groups, profile, organize_event, private_organize_event,
-    join, confirm, back, cancel, lock, request_confirmations, modify_event, constraints, suggest_time, status,
-    event_details, events, check_deadlines, memory, my_history,
-    personal_attendance_mirror, meaning_formation,
+    start,
+    my_groups,
+    profile,
+    organize_event,
+    private_organize_event,
+    event_creation,
+    join,
+    confirm,
+    back,
+    cancel,
+    lock,
+    request_confirmations,
+    modify_event,
+    constraints,
+    suggest_time,
+    status,
+    event_details,
+    events,
+    check_deadlines,
+    memory,
+    my_history,
+    personal_attendance_mirror,
+    meaning_formation,
+    about,
 )
-from bot.handlers import event_flow, membership, mentions, menus, waitlist as waitlist_handlers
+from bot.handlers import event_flow, event_panel, membership, mentions, menus, waitlist as waitlist_handlers
 from ai.llm import LLMClient
 from db.connection import check_db_connection, create_engine, init_db
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Log full traceback for uncaught update handling errors."""
+    """Log full traceback for uncaught update handling errors with full context."""
     logger = logging.getLogger("coord_bot.bot")
-    logger.exception("Unhandled Telegram update error. update=%r",
-                     update,
-                     exc_info=context.error)
+
+    # Extract context information
+    user_id = None
+    chat_id = None
+    update_type = type(update).__name__ if update else "None"
+
+    if update and hasattr(update, 'effective_user') and update.effective_user:
+        user_id = update.effective_user.id
+    if update and hasattr(update, 'effective_chat') and update.effective_chat:
+        chat_id = update.effective_chat.id
+
+    # Log error with full context
+    logger.error(
+        "[GLOBAL_ERROR] Unhandled error | update_type=%s user_id=%s chat_id=%s error_type=%s error=%s",
+        update_type,
+        user_id,
+        chat_id,
+        type(context.error).__name__ if context.error else "None",
+        str(context.error) if context.error else "None",
+        exc_info=True,
+    )
+
+    # Categorize common errors for easier debugging
+    if context.error:
+        error_str = str(context.error).lower()
+        if "timeout" in error_str:
+            logger.warning("[GLOBAL_ERROR] Timeout error detected - may indicate slow response or network issues")
+        elif "rate limit" in error_str or "too many requests" in error_str:
+            logger.warning("[GLOBAL_ERROR] Rate limit error - Telegram API throttling")
+        elif "chat not found" in error_str or "user not found" in error_str:
+            logger.warning("[GLOBAL_ERROR] Chat/user not found - user may have blocked the bot or deleted account")
+        elif "message is not modified" in error_str:
+            logger.info("[GLOBAL_ERROR] Message not modified - harmless, duplicate edit")
+        elif "message to edit not found" in error_str:
+            logger.warning("[GLOBAL_ERROR] Message not found - may have been deleted")
 
 
 async def check_llm_availability(logger: logging.Logger) -> None:
@@ -89,8 +141,7 @@ def main():
         )
     if ":" not in settings.telegram_token:
         raise ValueError(
-            "TELEGRAM_TOKEN does not look like a valid Telegram bot token. "
-            "Expected '<bot_id>:<secret>'."
+            "TELEGRAM_TOKEN does not look like a valid Telegram bot token. " "Expected '<bot_id>:<secret>'."
         )
     if settings.environment == "production" and not settings.webhook_url:
         raise ValueError("WEBHOOK_URL must be set when ENVIRONMENT=production.")
@@ -117,13 +168,8 @@ def main():
     # Build application with job queue for scheduled tasks
     # v3.5: Add persistence so user_data persists between updates (creation flow)
     persistence = PicklePersistence(filepath="bot_data.pkl")
-    
-    application = (
-        ApplicationBuilder()
-        .token(settings.telegram_token)
-        .persistence(persistence)
-        .build()
-    )
+
+    application = ApplicationBuilder().token(settings.telegram_token).persistence(persistence).build()
 
     # Store settings in bot_data for access by handlers and jobs
     application.bot_data["settings"] = settings
@@ -188,6 +234,7 @@ def main():
         "digest": memory.weekly_digest,  # Manual trigger for now
         # PRD v2: Personal history (DM only)
         "my_history": my_history.handle,
+        "about": about.handle,
     }
 
     for command, handler in command_map.items():
@@ -196,39 +243,37 @@ def main():
     # Register callback query handlers
     # NOTE: Order matters! More specific patterns must come before general ones.
     callback_handlers = [
+        # v3.5: Event panel callbacks (ev:{id}:action format) - must come before menu_
+        (r"^ev:", event_panel.route_event_callback),
         # Menu handlers (must come before general patterns)
         (r"^menu_", menus.handle_menu_callback),
         # v3.5: Events list and creation flow handlers
         (r"^events_", menus.handle_menu_callback),
         (r"^create_", menus.handle_menu_callback),
-
         # Waitlist handlers (must come before general event_ patterns)
         (r"^waitlist_(join|accept|decline)_", waitlist_handlers.handle_menu_callback),
         (r"^extend_deadline_", waitlist_handlers.handle_menu_callback),
         (r"^view_waitlist_", waitlist_handlers.handle_menu_callback),
-
         # Event flow handlers (more specific, must come before general event_)
         (r"^event_(join|confirm|back|cancel|lock)_", event_flow.handle_event_flow),
         (r"^event_unconfirm_", event_flow.handle_event_flow),  # Uncommit (separate from back)
         (r"^event_(details|status|logs|constraints|close)_", event_details.handle_callback),
         (r"^event_modify_", mentions.handle_callback),
-        
         # v3.5: Creation flow scheduling and type handlers (must come before general event_)
         (r"^event_scheduling_", menus.handle_scheduling_callback),
         (r"^event_type_", menus.handle_event_type_callback),
-
         # Event creation handlers (general, comes after specific ones)
-        (r"^event_", organize_event.handle_callback),
-        (r"^private_event_", organize_event.private_handle_callback),
-
+        (r"^event_", event_creation.handle_callback),
+        (r"^private_event_", event_creation.private_handle_callback),
         # Modify input handlers
         (r"^modinput_", mentions.handle_callback),
-
         # Other handlers
         (r"^constraint_nl_", constraints.handle_callback),
         (r"^mentionact_", mentions.handle_mention_callback),
         (r"^suggest_time_retry_", suggest_time.handle_callback),
         (r"^modreq_", modify_event.handle_modify_request_callback),
+        # Help callbacks
+        (r"^help_", menus.handle_menu_callback),
         # Weekly digest callbacks
         (r"^digest_", memory.handle_digest_callback),
     ]
@@ -244,7 +289,7 @@ def main():
 
     # Register text message handler for event creation flow
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, organize_event.handle_message),
+        MessageHandler(filters.TEXT & ~filters.COMMAND, event_creation.handle_message),
         group=0,
     )
 
@@ -277,7 +322,7 @@ def main():
     logger.info("Bot started. Press Ctrl+C to stop.")
 
     # Check if webhook mode is enabled
-    if settings.environment == "production" and hasattr(settings, 'webhook_url') and settings.webhook_url:
+    if settings.environment == "production" and hasattr(settings, "webhook_url") and settings.webhook_url:
         # Production: Use webhook with worker queue
         logger.info("Starting in webhook mode: %s", settings.webhook_url)
         from bot.common.webhook import setup_webhook, shutdown_webhook

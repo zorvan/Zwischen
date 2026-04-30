@@ -5,6 +5,7 @@ PRD v2 Priority 1: Idempotent Command Execution.
 Ensures that duplicate Telegram updates (common with polling) don't cause
 duplicate state changes or side effects.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -70,9 +71,7 @@ class IdempotencyService:
             - response_hash: Hash of cached response if completed
         """
         result = await self.session.execute(
-            select(IdempotencyKey).where(
-                IdempotencyKey.idempotency_key == idempotency_key
-            )
+            select(IdempotencyKey).where(IdempotencyKey.idempotency_key == idempotency_key)
         )
         record = result.scalar_one_or_none()
 
@@ -120,7 +119,7 @@ class IdempotencyService:
                 "command": command_type,
                 "user": user_id,
                 "event": event_id,
-            }
+            },
         )
 
         return record
@@ -136,9 +135,7 @@ class IdempotencyService:
         Should be called AFTER successful command execution.
         """
         result = await self.session.execute(
-            select(IdempotencyKey).where(
-                IdempotencyKey.idempotency_key == idempotency_key
-            )
+            select(IdempotencyKey).where(IdempotencyKey.idempotency_key == idempotency_key)
         )
         record = result.scalar_one_or_none()
 
@@ -161,9 +158,7 @@ class IdempotencyService:
         Should be called if command execution fails.
         """
         result = await self.session.execute(
-            select(IdempotencyKey).where(
-                IdempotencyKey.idempotency_key == idempotency_key
-            )
+            select(IdempotencyKey).where(IdempotencyKey.idempotency_key == idempotency_key)
         )
         record = result.scalar_one_or_none()
 
@@ -184,9 +179,7 @@ class IdempotencyService:
         from sqlalchemy import delete
 
         now = datetime.utcnow()
-        result = await self.session.execute(
-            delete(IdempotencyKey).where(IdempotencyKey.expires_at < now)
-        )
+        result = await self.session.execute(delete(IdempotencyKey).where(IdempotencyKey.expires_at < now))
         deleted_count = result.rowcount
         logger.info("Cleaned up %d expired idempotency keys", deleted_count)
         return deleted_count

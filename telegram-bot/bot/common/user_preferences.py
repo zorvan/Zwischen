@@ -1,4 +1,5 @@
 """User preference handling helpers."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -42,13 +43,9 @@ def get_privacy_defaults(preference_type: str) -> Dict[str, Any]:
     return PRIVACY_DEFAULTS.get(preference_type, PRIVACY_DEFAULTS.get("time", {})).copy()
 
 
-async def get_user_preferences(
-    session: AsyncSession, telegram_user_id: int
-) -> Optional[UserPreference]:
+async def get_user_preferences(session: AsyncSession, telegram_user_id: int) -> Optional[UserPreference]:
     """Get user preferences or None if not set."""
-    result = await session.execute(
-        select(UserPreference).where(UserPreference.user_id == telegram_user_id)
-    )
+    result = await session.execute(select(UserPreference).where(UserPreference.user_id == telegram_user_id))
     return result.scalar_one_or_none()
 
 
@@ -256,9 +253,7 @@ async def get_users_preferences(
     user_ids: List[int],
 ) -> Dict[int, UserPreference]:
     """Get preferences for multiple users."""
-    result = await session.execute(
-        select(UserPreference).where(UserPreference.user_id.in_(user_ids))
-    )
+    result = await session.execute(select(UserPreference).where(UserPreference.user_id.in_(user_ids)))
     prefs = result.scalars().all()
     return {p.user_id: p for p in prefs}
 
@@ -275,19 +270,14 @@ async def get_group_aggregate_preferences(
     """
     from db.models import Event
 
-    result = await session.execute(
-        select(Event).where(Event.event_id == event_id)
-    )
+    result = await session.execute(select(Event).where(Event.event_id == event_id))
     event = result.scalar_one_or_none()
     if not event:
         return {}
 
     from db.users import get_user_ids_for_telegram_ids
 
-    telegram_ids = [
-        int(participant.telegram_user_id)
-        for participant in (event.participants or [])
-    ]
+    telegram_ids = [int(participant.telegram_user_id) for participant in (event.participants or [])]
 
     if not telegram_ids:
         return {}
@@ -306,9 +296,7 @@ async def get_group_aggregate_preferences(
     result_dict: Dict[str, str] = {}
 
     for pref_type in ["time", "activity", "budget", "location_type", "transport"]:
-        counts, total_non_private = get_aggregate_preference_counts(
-            preferences_list, f"{pref_type}_preference"
-        )
+        counts, total_non_private = get_aggregate_preference_counts(preferences_list, f"{pref_type}_preference")
 
         if not is_organizer and total_non_private == 0:
             result_dict[pref_type] = "No preferences shared"

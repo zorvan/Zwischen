@@ -1,5 +1,7 @@
 """Access helpers for event organizer/attendee checks."""
+
 from __future__ import annotations
+
 
 def get_event_organizer_telegram_id(event) -> int | None:
     """Resolve organizer ID from explicit event field."""

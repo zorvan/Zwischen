@@ -28,10 +28,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     event_id_raw = args[0] if args else None
 
     if not event_id_raw:
-        await update.message.reply_text(
-            "Usage: /suggest_time <event_id>\n\n"
-            "Example: /suggest_time 123"
-        )
+        await update.message.reply_text("Usage: /suggest_time <event_id>\n\n" "Example: /suggest_time 123")
         return
 
     try:
@@ -43,9 +40,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await _send_suggestion(update.message, event_id)
 
 
-async def handle_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle callback queries for suggest_time buttons."""
     del context
     query = update.callback_query
@@ -67,15 +62,11 @@ async def handle_callback(
     if not message or isinstance(message, InaccessibleMessage):
         return
 
-    await query.edit_message_text(
-        f"🤖 *Requesting new AI time suggestion for event {event_id}...*"
-    )
+    await query.edit_message_text(f"🤖 *Requesting new AI time suggestion for event {event_id}...*")
     await _send_suggestion(message, event_id)
 
 
-async def _send_suggestion(
-    message: MaybeInaccessibleMessage, event_id: int
-) -> None:
+async def _send_suggestion(message: MaybeInaccessibleMessage, event_id: int) -> None:
     """Fetch and send AI time suggestion for an event."""
     if isinstance(message, InaccessibleMessage):
         return
@@ -83,9 +74,7 @@ async def _send_suggestion(
 
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
-        result = await session.execute(
-            select(Event).where(Event.event_id == event_id)
-        )
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
         if not event:
             await msg.reply_text("❌ Event not found.")
@@ -94,17 +83,14 @@ async def _send_suggestion(
 
         session_factory = create_session_factory(db_url)
         engine = AICoordinationEngine(session_factory)
-        suggestion = await engine.suggest_event_time(session=session,
-                                                     event_id=event_id)
+        suggestion = await engine.suggest_event_time(session=session, event_id=event_id)
         if "error" in suggestion:
             await msg.reply_text(f"❌ Error: {suggestion['error']}")
 
             return
 
         suggested_time_raw = suggestion.get("suggested_time")
-        normalized_suggested = (
-            str(suggested_time_raw) if suggested_time_raw is not None else "TBD"
-        )
+        normalized_suggested = str(suggested_time_raw) if suggested_time_raw is not None else "TBD"
         auto_applied = False
         if event.scheduled_time is None:
             parsed = _parse_suggested_time(normalized_suggested)
@@ -118,12 +104,14 @@ async def _send_suggestion(
                 await session.commit()
                 auto_applied = True
 
-        keyboard = [[
-            InlineKeyboardButton(
-                "🔄 Request New Suggestion",
-                callback_data=f"suggest_time_retry_{event_id}",
-            )
-        ]]
+        keyboard = [
+            [
+                InlineKeyboardButton(
+                    "🔄 Request New Suggestion",
+                    callback_data=f"suggest_time_retry_{event_id}",
+                )
+            ]
+        ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await msg.reply_text(
@@ -132,10 +120,7 @@ async def _send_suggestion(
             f"Reasoning: {suggestion.get('reasoning', 'N/A')}\n"
             f"Confidence: {suggestion.get('confidence', 0):.2f}\n"
             f"Availability Score: {suggestion.get('availability_score', 0):.2f}"
-            + (
-                "\n\n✅ Applied this suggested time to the event."
-                if auto_applied else ""
-            ),
+            + ("\n\n✅ Applied this suggested time to the event." if auto_applied else ""),
             reply_markup=reply_markup,
         )
 
@@ -144,6 +129,7 @@ def create_session_factory(db_url: str):
     """Create session factory for AI coordination engine."""
     from db.connection import create_session
     from sqlalchemy.ext.asyncio import create_async_engine
+
     engine = create_async_engine(db_url)
     return create_session(engine)
 
@@ -168,5 +154,6 @@ def _parse_suggested_time(raw_value: str) -> datetime | None:
 
 class SimpleContextProxy:
     """Minimal context proxy exposing `bot` for notification helpers."""
+
     def __init__(self, bot):
         self.bot = bot

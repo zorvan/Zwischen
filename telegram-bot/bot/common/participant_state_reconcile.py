@@ -1,4 +1,5 @@
 """Helpers for reconciling event state after participant changes."""
+
 from __future__ import annotations
 
 from sqlalchemy import func, select
@@ -20,9 +21,7 @@ async def reconcile_event_state_after_participant_change(
 
     This keeps slash and callback flows aligned after unconfirm/cancel actions.
     """
-    event_result = await session.execute(
-        select(Event).where(Event.event_id == event_id)
-    )
+    event_result = await session.execute(select(Event).where(Event.event_id == event_id))
     event = event_result.scalar_one_or_none()
     if event is None:
         raise ValueError(f"Event {event_id} not found")
@@ -33,10 +32,12 @@ async def reconcile_event_state_after_participant_change(
     active_count_result = await session.execute(
         select(func.count(EventParticipant.telegram_user_id)).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.status.in_([
-                ParticipantStatus.joined,
-                ParticipantStatus.confirmed,
-            ]),
+            EventParticipant.status.in_(
+                [
+                    ParticipantStatus.joined,
+                    ParticipantStatus.confirmed,
+                ]
+            ),
         )
     )
     active_count = int(active_count_result.scalar_one() or 0)
