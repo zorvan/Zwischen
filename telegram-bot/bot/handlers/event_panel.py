@@ -661,6 +661,11 @@ async def _handle_join(
                     event_id,
                     telegram_user_id,
                 )
+
+                # Commit session before calling _handle_view to prevent nested session deadlock
+                await session.commit()
+                logger.info("[JOIN_FLOW] Session committed | event_id=%s", event_id)
+
                 try:
                     await asyncio.wait_for(query.answer("✅ You've joined the event!"), timeout=5.0)
                 except asyncio.TimeoutError:
@@ -764,6 +769,7 @@ async def _handle_relinquish(
                 event_id=event_id,
                 telegram_user_id=telegram_user_id,
             )
+            await session.commit()
 
             await query.answer("👋 You've left the event.")
 
@@ -802,6 +808,7 @@ async def _handle_commit(
                 event_id=event_id,
                 telegram_user_id=telegram_user_id,
             )
+            await session.commit()
 
             await query.answer("✅ You're committed!")
 
@@ -903,6 +910,7 @@ async def _handle_lock(
 
         participant_service = ParticipantService(session)
         await participant_service.finalize_commitments(event_id)
+        await session.commit()
 
         await query.answer("🔒 Event locked!")
         await _handle_view(query, context, event_id, group_id=rbac_chat_id)
@@ -985,6 +993,7 @@ async def _handle_unlock(
             await query.answer(f"❌ Failed to unlock event: {str(e)}", show_alert=True)
             return
 
+        await session.commit()
         await query.answer("🔓 Event unlocked!")
         await _handle_view(query, context, event_id, group_id=rbac_chat_id)
 
