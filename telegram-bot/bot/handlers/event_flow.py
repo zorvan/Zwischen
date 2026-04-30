@@ -59,6 +59,18 @@ async def handle_event_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) 
             elif action == "lock":
                 await handle_lock(query, context, event_id)
 
+    elif data.startswith("lock_approve_"):
+        parts = data.split("_")
+        if len(parts) >= 3:
+            event_id = int(parts[-1])
+            await handle_lock_approval(query, context, event_id, approved=True)
+
+    elif data.startswith("lock_reject_"):
+        parts = data.split("_")
+        if len(parts) >= 3:
+            event_id = int(parts[-1])
+            await handle_lock_approval(query, context, event_id, approved=False)
+
 
 async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
     """Handle joining an event - transition to interested state."""
@@ -203,14 +215,9 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
         )
 
         # Check if we need to transition state from proposed to interested
-        confirmed_count = await participant_service.get_confirmed_count(event_id)
-        logger.info(
-            "[EVENT_FLOW] Checking state transition | event_id=%s current_state=%s confirmed_count=%d",
-            event_id,
-            event.state,
-            confirmed_count,
-        )
-        if event.state == "proposed" and confirmed_count > 0:
+        # Only non-organizer joins trigger the state change
+        organizer_id = get_event_organizer_telegram_id(event)
+        if telegram_user_id != organizer_id and event.state == "proposed":
             lifecycle_service = EventLifecycleService(bot, session)
             try:
                 logger.info(
@@ -222,7 +229,7 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
                     target_state="interested",
                     actor_telegram_user_id=telegram_user_id,
                     source="callback",
-                    reason="First participant joined",
+                    reason="Non-organizer participant joined",
                     expected_version=event.version,
                 )
                 logger.info(
@@ -266,34 +273,34 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
         if not user_joined:
             # User hasn't joined - show Join only
             first_row = [
-                InlineKeyboardButton("✅ Join", callback_data=f"event_join_{event_id}"),
+                InlineKeyboardButton("Join", callback_data=f"event_join_{event_id}", style="success"),
             ]
             # Show Cancel + Lock row
             second_row = [
-                InlineKeyboardButton("❌ Cancel", callback_data=f"event_cancel_{event_id}"),
-                InlineKeyboardButton("🔒 Lock", callback_data=f"event_lock_{event_id}"),
+                InlineKeyboardButton("Cancel", callback_data=f"event_cancel_{event_id}", style="danger"),
+                InlineKeyboardButton("Lock", callback_data=f"event_lock_{event_id}", style="primary"),
             ]
         elif user_confirmed:
             # User is confirmed - show Confirmed + Uncommit
             first_row = [
-                InlineKeyboardButton("✓ Confirmed", callback_data=f"event_confirm_{event_id}"),
-                InlineKeyboardButton("↩️ Uncommit", callback_data=f"event_unconfirm_{event_id}"),
+                InlineKeyboardButton("Confirmed", callback_data=f"event_confirm_{event_id}", style="success"),
+                InlineKeyboardButton("Uncommit", callback_data=f"event_unconfirm_{event_id}", style="danger"),
             ]
             # Show Cancel + Lock row
             second_row = [
-                InlineKeyboardButton("❌ Cancel", callback_data=f"event_cancel_{event_id}"),
-                InlineKeyboardButton("🔒 Lock", callback_data=f"event_lock_{event_id}"),
+                InlineKeyboardButton("Cancel", callback_data=f"event_cancel_{event_id}", style="danger"),
+                InlineKeyboardButton("Lock", callback_data=f"event_lock_{event_id}", style="primary"),
             ]
         else:
             # User joined but not confirmed - show Confirm + Cancel (no separate Cancel row needed)
             first_row = [
-                InlineKeyboardButton("✅ Confirm", callback_data=f"event_confirm_{event_id}"),
-                InlineKeyboardButton("❌ Cancel", callback_data=f"event_cancel_{event_id}"),
+                InlineKeyboardButton("Confirm", callback_data=f"event_confirm_{event_id}", style="success"),
+                InlineKeyboardButton("Cancel", callback_data=f"event_cancel_{event_id}", style="danger"),
             ]
             # Show Lock + Logs row
             second_row = [
-                InlineKeyboardButton("🔒 Lock", callback_data=f"event_lock_{event_id}"),
-                InlineKeyboardButton("📝 View Logs", callback_data=f"event_logs_{event_id}"),
+                InlineKeyboardButton("Lock", callback_data=f"event_lock_{event_id}", style="primary"),
+                InlineKeyboardButton("View Logs", callback_data=f"event_logs_{event_id}", style="primary"),
             ]
 
         keyboard = [
@@ -304,19 +311,20 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
         # Add remaining rows for all users
         if not user_joined or user_confirmed:
             # Add Logs row if not already added
-            keyboard.append([InlineKeyboardButton("📝 View Logs", callback_data=f"event_logs_{event_id}")])
+            keyboard.append([InlineKeyboardButton("View Logs", callback_data=f"event_logs_{event_id}", style="primary")])
 
         keyboard.extend(
             [
                 [
                     InlineKeyboardButton(
-                        "🔒 Manage Constraints",
+                        "Manage Constraints",
                         callback_data=f"event_constraints_{event_id}",
+                        style="primary",
                     )
                 ],
-                [InlineKeyboardButton("📊 Status", callback_data=f"event_status_{event_id}")],
-                [InlineKeyboardButton("🔄 Refresh", callback_data=f"event_details_{event_id}")],
-                [InlineKeyboardButton("🔙 Close", callback_data=f"event_close_{event_id}")],
+                [InlineKeyboardButton("Status", callback_data=f"event_status_{event_id}", style="primary")],
+                [InlineKeyboardButton("Refresh", callback_data=f"event_details_{event_id}", style="primary")],
+                [InlineKeyboardButton("Close", callback_data=f"event_close_{event_id}", style="danger")],
             ]
         )
 
@@ -324,7 +332,7 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
         admin_id = get_event_admin_telegram_id(event)
         organizer_id = get_event_organizer_telegram_id(event)
         if telegram_user_id in [admin_id, organizer_id]:
-            keyboard.insert(4, [InlineKeyboardButton("🛠 Modify", callback_data=f"event_modify_{event_id}")])
+            keyboard.insert(4, [InlineKeyboardButton("Modify", callback_data=f"event_modify_{event_id}", style="primary")])
 
         # Add DM links
         if bot.username:
@@ -439,8 +447,10 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
         )
 
         # Check if we need to transition to confirmed state
+        # Only non-organizer confirmations trigger the state change
+        organizer_id = get_event_organizer_telegram_id(event)
         confirmed_count = await participant_service.get_confirmed_count(event_id)
-        if event.state != "confirmed" and confirmed_count > 0:
+        if telegram_user_id != organizer_id and event.state != "confirmed" and confirmed_count > 0:
             lifecycle_service = EventLifecycleService(bot, session)
             try:
                 event, _ = await lifecycle_service.transition_with_lifecycle(
@@ -448,7 +458,7 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
                     target_state="confirmed",
                     actor_telegram_user_id=telegram_user_id,
                     source="callback",
-                    reason="Participant confirmed attendance",
+                    reason="Non-organizer participant confirmed attendance",
                     expected_version=event.version,
                 )
             except Exception as e:
@@ -478,23 +488,23 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
         keyboard = [
             # Primary actions
             [
-                InlineKeyboardButton("↩️ Back (Uncommit)", callback_data=f"event_back_{event_id}"),
-                InlineKeyboardButton("❌ Exit", callback_data=f"event_cancel_{event_id}"),
+                InlineKeyboardButton("Back", callback_data=f"event_back_{event_id}", style="danger"),
+                InlineKeyboardButton("Exit", callback_data=f"event_cancel_{event_id}", style="danger"),
             ],
             # Event management
             [
-                InlineKeyboardButton("📋 Event Details", callback_data=f"event_details_{event_id}"),
-                InlineKeyboardButton("📊 Status", callback_data=f"event_status_{event_id}"),
+                InlineKeyboardButton("Event Details", callback_data=f"event_details_{event_id}", style="primary"),
+                InlineKeyboardButton("Status", callback_data=f"event_status_{event_id}", style="primary"),
             ],
             # Planning & constraints
             [
-                InlineKeyboardButton("📅 Set Availability", url=f"https://t.me/{bot.username}?start=avail_{event_id}"),
-                InlineKeyboardButton("🔒 Constraints", callback_data=f"event_constraints_{event_id}"),
+                InlineKeyboardButton("Set Availability", url=f"https://t.me/{bot.username}?start=avail_{event_id}"),
+                InlineKeyboardButton("Constraints", callback_data=f"event_constraints_{event_id}", style="primary"),
             ],
             # Logs
             [
-                InlineKeyboardButton("📝 Logs", callback_data=f"event_logs_{event_id}"),
-                InlineKeyboardButton("🔄 Update", callback_data=f"event_details_{event_id}"),
+                InlineKeyboardButton("Logs", callback_data=f"event_logs_{event_id}", style="primary"),
+                InlineKeyboardButton("Update", callback_data=f"event_details_{event_id}", style="primary"),
             ],
         ]
 
@@ -504,7 +514,7 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
         if telegram_user_id in [admin_id, organizer_id] and event.state == "confirmed":
             keyboard.append(
                 [
-                    InlineKeyboardButton("🔒 Lock Event", callback_data=f"event_lock_{event_id}"),
+                    InlineKeyboardButton("Lock Event", callback_data=f"event_lock_{event_id}", style="primary"),
                 ]
             )
 
@@ -633,6 +643,10 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE, event_id: int
             await query.edit_message_text(f"❌ {error_msg or 'Event not found.'}")
             return
 
+        if event.state == "locked":
+            await query.edit_message_text("❌ Event is locked. Cannot cancel attendance.")
+            return
+
         # Use ParticipantService for cancel operation
         participant_service = ParticipantService(session)
         try:
@@ -683,6 +697,86 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE, event_id: int
         )
 
 
+async def _execute_lock(bot, session, event, event_id, telegram_user_id, query):
+    """Execute the lock transition."""
+    lifecycle_service = EventLifecycleService(bot, session)
+    try:
+        event, _ = await lifecycle_service.transition_with_lifecycle(
+            event_id=event_id,
+            target_state="locked",
+            actor_telegram_user_id=telegram_user_id,
+            source="callback",
+            reason="Manual lock via callback",
+            expected_version=event.version,
+        )
+    except Exception as e:
+        await query.edit_message_text(f"❌ Failed to lock event: {str(e)}")
+        return
+
+    participant_service = ParticipantService(session)
+    await participant_service.finalize_commitments(event_id)
+
+    await query.edit_message_text(
+        f"🔒 *Event {event_id} locked!*\n\n"
+        f"State: locked\n"
+        f"Meaning: {STATE_EXPLANATIONS['locked']}\n"
+        f"Locked at: {event.locked_at}"
+    )
+
+
+async def _request_lock_approval(bot, session, event, group, event_id, requester_id, query):
+    """Send a lock approval request to the organizer."""
+    organizer_id = get_event_organizer_telegram_id(event)
+    requester_user = await bot.get_user_profile_ids(requester_id)
+    requester_name = requester_user[0].first_name if requester_user else f"User {requester_id}"
+
+    # Send approval request to organizer in group chat
+    group_chat_id = None
+    if group and hasattr(group, "telegram_group_id"):
+        group_chat_id = group.telegram_group_id
+    elif hasattr(event, "group") and event.group and hasattr(event.group, "telegram_group_id"):
+        group_chat_id = event.group.telegram_group_id
+
+    if not group_chat_id:
+        await query.edit_message_text("❌ Could not determine group chat for approval request.")
+        return
+
+    approval_message = (
+        f"🔒 *Lock Request for Event {event_id}*\n\n"
+        f"*Requested by:* @{requester_id} ({requester_name})\n"
+        f"*Event:* {event.event_type}\n"
+        f"*State:* {event.state}\n\n"
+        f"Does the organizer approve locking this event?"
+    )
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton("Approve Lock", callback_data=f"lock_approve_{event_id}", style="success"),
+                InlineKeyboardButton("Reject", callback_data=f"lock_reject_{event_id}", style="danger"),
+            ]
+        ]
+    )
+
+    try:
+        approval_msg = await bot.send_message(
+            chat_id=group_chat_id,
+            text=approval_message,
+            parse_mode="Markdown",
+            reply_markup=keyboard,
+        )
+    except Exception as e:
+        logger.error(f"Failed to send lock approval request: {e}")
+        await query.edit_message_text(f"❌ Failed to send approval request: {str(e)}")
+        return
+
+    await query.edit_message_text(
+        f"📩 Lock request sent to organizer for approval.\n"
+        f"Event ID: {event_id}\n\n"
+        f"Waiting for organizer decision..."
+    )
+
+
 async def handle_lock(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
     """Handle locking an event - transition from confirmed to locked."""
     telegram_user_id = query.from_user.id
@@ -722,31 +816,64 @@ async def handle_lock(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
 
             return
 
-        # Use EventLifecycleService for state transition with full integration
-        lifecycle_service = EventLifecycleService(bot, session)
-        try:
-            event, _ = await lifecycle_service.transition_with_lifecycle(
-                event_id=event_id,
-                target_state="locked",
-                actor_telegram_user_id=telegram_user_id,
-                source="callback",
-                reason="Manual lock via callback",
-                expected_version=event.version,
-            )
-        except Exception as e:
-            await query.edit_message_text(f"❌ Failed to lock event: {str(e)}")
+        # Check if user is confirmed
+        participant_service = ParticipantService(session)
+        participant = await participant_service.get_participant(event_id, telegram_user_id)
+        if not participant or participant.status != ParticipantStatus.confirmed:
+            await query.edit_message_text("❌ You must be confirmed to lock this event.")
             return
 
-        # Finalize commitments using ParticipantService (new system)
-        participant_service = ParticipantService(session)
-        await participant_service.finalize_commitments(event_id)
+        # Check minimum attendance
+        confirmed_count = await participant_service.get_confirmed_count(event_id)
+        min_required = event.min_participants or 2
+        if confirmed_count < min_required:
+            await query.edit_message_text(
+                f"❌ Cannot lock event {event_id}.\n"
+                f"Only {confirmed_count} confirmed, need {min_required}."
+            )
+            return
 
-        await query.edit_message_text(
-            f"🔒 *Event {event_id} locked!*\n\n"
-            f"State: locked\n"
-            f"Meaning: {STATE_EXPLANATIONS['locked']}\n"
-            f"Locked at: {event.locked_at}"
-        )
+        organizer_id = get_event_organizer_telegram_id(event)
+
+        # Organizer can lock directly
+        if telegram_user_id == organizer_id:
+            await _execute_lock(bot, session, event, event_id, telegram_user_id, query)
+            return
+
+        # Non-organizer lock request - send approval request to organizer
+        await _request_lock_approval(bot, session, event, group, event_id, telegram_user_id, query)
+
+
+async def handle_lock_approval(query, context: ContextTypes.DEFAULT_TYPE, event_id: int, approved: bool) -> None:
+    """Handle lock approval/rejection callbacks."""
+    telegram_user_id = query.from_user.id
+    bot = context.bot
+
+    # Only organizer can approve/reject
+    db_url = settings.db_url or ""
+    async with get_session(db_url) as session:
+        event_result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event = event_result.scalar_one_or_none()
+
+        if not event:
+            await query.answer("❌ Event not found.", show_alert=True)
+            return
+
+        organizer_id = get_event_organizer_telegram_id(event)
+        if telegram_user_id != organizer_id:
+            await query.answer("❌ Only the organizer can approve/reject lock requests.", show_alert=True)
+            return
+
+        if event.state != "confirmed":
+            await query.answer("❌ Event is no longer in confirmed state.", show_alert=True)
+            return
+
+        if approved:
+            await _execute_lock(bot, session, event, event_id, telegram_user_id, query)
+        else:
+            await query.edit_message_text(
+                f"❌ Lock request for event {event_id} has been rejected by the organizer."
+            )
 
 
 async def show_event_details(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:

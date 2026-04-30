@@ -26,7 +26,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"Event ID: {event_id}\n\n"
                 "Submit your free slots from DM using:\n"
                 f"/constraints {event_id} availability "
-                "<YYYY-MM-DD HH:MM,YYYY-MM-DD HH:MM>\n\n"
+                "&lt;YYYY-MM-DD HH:MM,YYYY-MM-DD HH:MM&gt;\n\n"
                 "Example:\n"
                 f"/constraints {event_id} availability "
                 "2026-03-20 18:00,2026-03-21 10:30"

@@ -68,7 +68,7 @@ def build_main_panel_buttons(
     buttons.append(
         [
             InlineKeyboardButton(
-                "📝 Details", callback_data=encode_callback(CALLBACK_ACTIONS["details"], event_id, group_id)
+                "Details", callback_data=encode_callback(CALLBACK_ACTIONS["details"], event_id, group_id), style="primary"
             ),
         ]
     )
@@ -78,10 +78,10 @@ def build_main_panel_buttons(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    "💡 Enrich", callback_data=encode_callback(CALLBACK_ACTIONS["enrich"], event_id, group_id)
+                    "Enrich", callback_data=encode_callback(CALLBACK_ACTIONS["enrich"], event_id, group_id), style="primary"
                 ),
                 InlineKeyboardButton(
-                    "📅 Constraint", callback_data=encode_callback(CALLBACK_ACTIONS["constraint"], event_id, group_id)
+                    "Constraint", callback_data=encode_callback(CALLBACK_ACTIONS["constraint"], event_id, group_id), style="primary"
                 ),
             ]
         )
@@ -92,7 +92,7 @@ def build_main_panel_buttons(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    "🔒 Event Locked", callback_data=encode_callback("view", event_id, group_id)  # Just refresh
+                    "Event Locked", callback_data=encode_callback("view", event_id, group_id), style="primary"
                 ),
             ]
         )
@@ -101,8 +101,9 @@ def build_main_panel_buttons(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    "✅ You're Confirmed",
+                    "Confirmed",
                     callback_data=encode_callback(CALLBACK_ACTIONS["relinquish"], event_id, group_id),
+                    style="success",
                 ),
             ]
         )
@@ -113,11 +114,12 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "🎯 Commit", callback_data=encode_callback(CALLBACK_ACTIONS["commit"], event_id, group_id)
+                        "Commit", callback_data=encode_callback(CALLBACK_ACTIONS["commit"], event_id, group_id), style="success"
                     ),
                     InlineKeyboardButton(
-                        "👋 Relinquish",
+                        "Relinquish",
                         callback_data=encode_callback(CALLBACK_ACTIONS["relinquish"], event_id, group_id),
+                        style="danger",
                     ),
                 ]
             )
@@ -126,8 +128,9 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "👋 Relinquish",
+                        "Relinquish",
                         callback_data=encode_callback(CALLBACK_ACTIONS["relinquish"], event_id, group_id),
+                        style="danger",
                     ),
                 ]
             )
@@ -136,7 +139,7 @@ def build_main_panel_buttons(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    "👋 Join Event", callback_data=encode_callback(CALLBACK_ACTIONS["join"], event_id, group_id)
+                    "Join Event", callback_data=encode_callback(CALLBACK_ACTIONS["join"], event_id, group_id), style="success"
                 ),
             ]
         )
@@ -148,7 +151,7 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "🔒 Lock Event", callback_data=encode_callback(CALLBACK_ACTIONS["lock"], event_id, group_id)
+                        "Lock Event", callback_data=encode_callback(CALLBACK_ACTIONS["lock"], event_id, group_id), style="primary"
                     ),
                 ]
             )
@@ -157,7 +160,7 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "🔓 Unlock Event", callback_data=encode_callback(CALLBACK_ACTIONS["unlock"], event_id, group_id)
+                        "Unlock Event", callback_data=encode_callback(CALLBACK_ACTIONS["unlock"], event_id, group_id), style="danger"
                     ),
                 ]
             )
@@ -166,10 +169,10 @@ def build_main_panel_buttons(
     buttons.append(
         [
             InlineKeyboardButton(
-                "🔙 Back to Events", callback_data=encode_callback(CALLBACK_ACTIONS["back_to_list"], event_id, group_id)
+                "Back to Events", callback_data=encode_callback(CALLBACK_ACTIONS["back_to_list"], event_id, group_id), style="danger"
             ),
             InlineKeyboardButton(
-                "🔄 Refresh", callback_data=encode_callback(CALLBACK_ACTIONS["refresh"], event_id, group_id)
+                "Refresh", callback_data=encode_callback(CALLBACK_ACTIONS["refresh"], event_id, group_id), style="primary"
             ),
         ]
     )
@@ -196,24 +199,25 @@ def build_enrich_submenu(event_id: int, group_id: Optional[int] = None) -> List[
     return [
         [
             InlineKeyboardButton(
-                "💡 Add Idea", callback_data=encode_callback(CALLBACK_ACTIONS["enrich_idea"], event_id, group_id)
+                "Add Idea", callback_data=encode_callback(CALLBACK_ACTIONS["enrich_idea"], event_id, group_id), style="primary"
             ),
             InlineKeyboardButton(
-                "#️⃣ Add Hashtag", callback_data=encode_callback(CALLBACK_ACTIONS["enrich_hashtag"], event_id, group_id)
+                "Add Hashtag", callback_data=encode_callback(CALLBACK_ACTIONS["enrich_hashtag"], event_id, group_id), style="primary"
             ),
         ],
         [
             InlineKeyboardButton(
-                "📝 Add Memory", callback_data=encode_callback(CALLBACK_ACTIONS["enrich_memory"], event_id, group_id)
+                "Add Memory", callback_data=encode_callback(CALLBACK_ACTIONS["enrich_memory"], event_id, group_id), style="primary"
             ),
             InlineKeyboardButton(
-                "👁 View My Contributions",
+                "View Contributions",
                 callback_data=encode_callback(CALLBACK_ACTIONS["enrich_view"], event_id, group_id),
+                style="primary",
             ),
         ],
         [
             InlineKeyboardButton(
-                "🔙 Back to Event", callback_data=encode_callback(CALLBACK_ACTIONS["back_to_panel"], event_id, group_id)
+                "Back to Event", callback_data=encode_callback(CALLBACK_ACTIONS["back_to_panel"], event_id, group_id), style="danger"
             ),
         ],
     ]
@@ -684,6 +688,32 @@ async def _handle_join(
                     event_id,
                     telegram_user_id,
                 )
+
+                # Transition to interested if non-organizer joins and event is proposed
+                organizer_id = event.organizer_telegram_user_id
+                if telegram_user_id != organizer_id and event.state == "proposed":
+                    from bot.services import EventLifecycleService
+                    lifecycle_service = EventLifecycleService(bot, session)
+                    try:
+                        event, _ = await lifecycle_service.transition_with_lifecycle(
+                            event_id=event_id,
+                            target_state="interested",
+                            actor_telegram_user_id=telegram_user_id,
+                            source="callback",
+                            reason="Non-organizer participant joined",
+                            expected_version=event.version,
+                        )
+                        logger.info(
+                            "[JOIN_FLOW] State transitioned to interested | event_id=%s",
+                            event_id,
+                        )
+                    except Exception as e:
+                        logger.error(
+                            "[JOIN_FLOW] State transition failed | event_id=%s error=%s",
+                            event_id,
+                            str(e),
+                            exc_info=True,
+                        )
 
                 # Commit session before calling _handle_view to prevent nested session deadlock
                 await session.commit()

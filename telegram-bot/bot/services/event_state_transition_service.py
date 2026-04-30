@@ -9,7 +9,7 @@ All command handlers must route through this service.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Tuple, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -121,7 +121,7 @@ class EventStateTransitionService:
         event.version += 1
 
         # Set state-specific timestamps
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if target_state == "locked":
             event.locked_at = now
         elif target_state == "completed":

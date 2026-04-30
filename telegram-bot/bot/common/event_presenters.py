@@ -254,34 +254,73 @@ async def format_event_details_message(
         async with get_session(settings.db_url) as session:
             admin_text = await get_user_mention(session, int(admin_id), bot=bot)
 
+    # Type emoji
+    type_emoji = {
+        "sports": "🏃",
+        "social": "🍕",
+        "work": "💻",
+    }.get(event.event_type, "🎯")
+
+    # State badge with emoji
+    state_emoji = {
+        "proposed": "📝",
+        "interested": "👀",
+        "confirmed": "✅",
+        "locked": "🔒",
+        "completed": "🏁",
+        "cancelled": "❌",
+    }.get(event.state, "📌")
+
+    state_badge = f"{state_emoji} *{event.state.upper()}*"
+
+    # Progress bar
+    if threshold > 0 and confirmed_count >= 0:
+        progress_pct = min(confirmed_count / threshold * 100, 100)
+        filled = int(progress_pct / 10)
+        empty = 10 - filled
+        progress_bar = "█" * filled + "░" * empty
+    else:
+        progress_bar = "░" * 10
+
     return (
-        f"📋 *Event {event_id} Details*\n\n"
-        f"Type: {event.event_type}\n"
-        f"Description: {event.description or 'Not provided'}\n"
-        f"Time: {format_scheduled_time(event.scheduled_time)}\n"
-        f"Commit-By: {format_commit_by(event.commit_by)}\n"
-        f"Date Preset: {date_preset}\n"
-        f"Time Window: {time_window}\n"
-        f"Location Type: {location_type}\n"
-        f"Budget: {budget_level}\n"
-        f"Transport: {transport_mode}\n"
-        f"Duration: {format_duration(event.duration_minutes)}\n"
-        f"Minimum Needed: {threshold}\n"
-        f"State: {event.state}\n"
-        f"State Meaning: {STATE_EXPLANATIONS.get(event.state, 'Unknown state')}\n"
-        f"Created: {event.created_at}\n"
-        f"Locked: {event.locked_at or 'Not locked'}\n"
-        f"Completed: {event.completed_at or 'Not completed'}\n\n"
-        f"Admin: {admin_text}\n\n"
-        f"Progress:\n"
-        f"- Interested: {interested_count}\n"
-        f"- Confirmed: {confirmed_count}\n"
-        f"- Needed to reach minimum: {needed}\n"
-        f"- Availability slots: {availability_count}\n\n"
-        f"Attendees ({attendee_count}):\n{attendees_text}\n\n"
-        f"Logs: {len(logs)}\n"
-        f"Constraints: {len(constraints)}\n\n"
-        f"Next step: {next_step}"
+        f"{'='*40}\n"
+        f"  {type_emoji} *{event.event_type.capitalize()}* #{event_id}\n"
+        f"{'='*40}\n\n"
+        f"{event.description or 'No description provided'}\n\n"
+        f"{'─'*40}\n"
+        f"  {state_badge}\n"
+        f"{'─'*40}\n\n"
+        f"📅 *When*\n"
+        f"   Time: {format_scheduled_time(event.scheduled_time)}\n"
+        f"   Commit-By: {format_commit_by(event.commit_by)}\n"
+        f"   Date Preset: {date_preset}\n"
+        f"   Time Window: {time_window}\n\n"
+        f"📍 *Where & What*\n"
+        f"   Location: {location_type}\n"
+        f"   Budget: {budget_level}\n"
+        f"   Transport: {transport_mode}\n"
+        f"   Duration: {format_duration(event.duration_minutes)}\n\n"
+        f"{'─'*40}\n"
+        f"  👥 Progress\n"
+        f"{'─'*40}\n\n"
+        f"   {progress_bar} {confirmed_count}/{threshold}\n\n"
+        f"   Interested: {interested_count}\n"
+        f"   Confirmed: {confirmed_count}\n"
+        f"   Needed: {needed}\n"
+        f"   Availability slots: {availability_count}\n\n"
+        f"{'─'*40}\n"
+        f"  Attendees ({attendee_count})\n"
+        f"{'─'*40}\n\n"
+        f"   {attendees_text}\n\n"
+        f"{'─'*40}\n"
+        f"  ℹ️ Info\n"
+        f"{'─'*40}\n\n"
+        f"   Admin: {admin_text}\n"
+        f"   Created: {event.created_at.strftime('%Y-%m-%d %H:%M') if event.created_at else 'N/A'}\n"
+        f"   Logs: {len(logs)} | Constraints: {len(constraints)}\n\n"
+        f"{'='*40}\n"
+        f"  {next_step}\n"
+        f"{'='*40}"
     )
 
 
