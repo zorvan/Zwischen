@@ -64,7 +64,16 @@ def build_main_panel_buttons(
     """
     buttons = []
 
-    # Row 1: Enrich & Constraint (available to all participants)
+    # Row 1: Details are always available from the panel.
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                "📝 Details", callback_data=encode_callback(CALLBACK_ACTIONS["details"], event_id, group_id)
+            ),
+        ]
+    )
+
+    # Row 2: Enrich & Constraint (available to all participants)
     if user_status in [ParticipantStatus.joined, ParticipantStatus.confirmed]:
         buttons.append(
             [
@@ -77,7 +86,7 @@ def build_main_panel_buttons(
             ]
         )
 
-    # Row 2: Primary action based on user status
+    # Row 3: Primary action based on user status
     if event_state == "locked":
         # Locked events - no changes allowed
         buttons.append(
@@ -132,7 +141,7 @@ def build_main_panel_buttons(
             ]
         )
 
-    # Row 3: Organizer actions
+    # Row 4: Organizer actions
     if is_organizer:
         if event_state == "confirmed" and confirmed_count >= min_participants:
             # Ready to lock
@@ -153,7 +162,7 @@ def build_main_panel_buttons(
                 ]
             )
 
-    # Row 4: Navigation
+    # Row 5: Navigation
     buttons.append(
         [
             InlineKeyboardButton(
@@ -235,7 +244,7 @@ def build_constraint_submenu(event_id: int, group_id: Optional[int] = None) -> L
         ],
         [
             InlineKeyboardButton(
-                "❌ Unless someone joins...", callback_data=encode_callback("constraint_add_unless", event_id, group_id)
+                "❌ Unless someone joins...", callback_data=encode_callback(CALLBACK_ACTIONS["constraint_add_unless"], event_id, group_id)
             ),
         ],
         [
@@ -304,7 +313,7 @@ async def route_event_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     # Route to appropriate handler
     handler_map = {
         CALLBACK_ACTIONS["view"]: _handle_view,
-        CALLBACK_ACTIONS["det"]: _handle_view,  # Alias
+        CALLBACK_ACTIONS["det"]: _handle_details,
         CALLBACK_ACTIONS["join"]: _handle_join,
         CALLBACK_ACTIONS["relinquish"]: _handle_relinquish,
         CALLBACK_ACTIONS["commit"]: _handle_commit,
@@ -318,7 +327,9 @@ async def route_event_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         CALLBACK_ACTIONS["enrich_view"]: handle_view_contributions,
         CALLBACK_ACTIONS["constraint"]: handle_constraint_menu,
         CALLBACK_ACTIONS["constraint_add"]: handle_add_constraint_prompt,
+        CALLBACK_ACTIONS["constraint_add_unless"]: handle_add_constraint_unless_prompt,
         CALLBACK_ACTIONS["suggest_time"]: handle_suggest_time,
+        CALLBACK_ACTIONS["negotiate_time"]: handle_suggest_time,
         CALLBACK_ACTIONS["refresh"]: _handle_refresh,
         CALLBACK_ACTIONS["back_to_panel"]: _handle_view,
         CALLBACK_ACTIONS["back_to_list"]: _handle_back_to_list,
@@ -502,6 +513,18 @@ async def _handle_view(
                 await query.answer("ℹ️ Already up to date.")
             else:
                 raise
+
+
+async def _handle_details(
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_id: int,
+    group_id: Optional[int] = None,
+) -> None:
+    """Display the full legacy event detail view from the v3.5 panel."""
+    from bot.commands import event_details
+
+    await event_details.show_details(query, context, event_id, group_id=group_id)
 
 
 async def _handle_join(
@@ -1068,6 +1091,7 @@ async def handle_add_idea_prompt(
     query: CallbackQuery,
     context: ContextTypes.DEFAULT_TYPE,
     event_id: int,
+    group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add an idea."""
     await query.edit_message_text(
@@ -1089,6 +1113,7 @@ async def handle_add_hashtag_prompt(
     query: CallbackQuery,
     context: ContextTypes.DEFAULT_TYPE,
     event_id: int,
+    group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add a hashtag."""
     await query.edit_message_text(
@@ -1110,6 +1135,7 @@ async def handle_add_memory_prompt(
     query: CallbackQuery,
     context: ContextTypes.DEFAULT_TYPE,
     event_id: int,
+    group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add a memory."""
     await query.edit_message_text(
@@ -1130,20 +1156,19 @@ async def handle_view_contributions(
     query: CallbackQuery,
     context: ContextTypes.DEFAULT_TYPE,
     event_id: int,
+    group_id: Optional[int] = None,
 ) -> None:
     """Show user's contributions to this event."""
-    session = context.chat_data.get("session")
-    if not session:
-        await query.edit_message_text("❌ Session error. Please try again.")
-        return
+    db_url = settings.db_url or ""
 
-    enrichment_service = EventEnrichmentService(session)
+    async with get_session(db_url) as session:
+        enrichment_service = EventEnrichmentService(session)
 
-    # Get user's contributions
-    contributions = await enrichment_service.get_user_contributions(
-        event_id=event_id,
-        telegram_user_id=query.from_user.id,
-    )
+        # Get user's contributions
+        contributions = await enrichment_service.get_user_contributions(
+            event_id=event_id,
+            telegram_user_id=query.from_user.id,
+        )
 
     if not contributions:
         text = "You haven't added any contributions to this event yet."
@@ -1156,7 +1181,7 @@ async def handle_view_contributions(
     buttons = [
         [
             InlineKeyboardButton(
-                "🔙 Back to Enrich", callback_data=encode_callback(CALLBACK_ACTIONS["enrich"], event_id)
+                "🔙 Back to Enrich", callback_data=encode_callback(CALLBACK_ACTIONS["enrich"], event_id, group_id)
             ),
         ]
     ]
@@ -1202,6 +1227,7 @@ async def handle_add_constraint_prompt(
     query: CallbackQuery,
     context: ContextTypes.DEFAULT_TYPE,
     event_id: int,
+    group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add a constraint."""
     await query.edit_message_text(
@@ -1219,10 +1245,33 @@ async def handle_add_constraint_prompt(
     await query.answer("Type the username and send it!")
 
 
+async def handle_add_constraint_unless_prompt(
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_id: int,
+    group_id: Optional[int] = None,
+) -> None:
+    """Prompt user to add an 'unless' constraint."""
+    await query.edit_message_text(
+        text=(
+            f"❌ *Add 'Unless' Constraint to Event #{event_id}*\n\n"
+            "Reply with the username of who you'd rather not attend.\n\n"
+            "Format: @username\n\n"
+            "Example: 'Unless @bob comes, I'm in'"
+        ),
+        parse_mode="Markdown",
+    )
+
+    context.user_data["enrich_event_id"] = event_id
+    context.user_data["enrich_action"] = "add_constraint_unless"
+    await query.answer("Type the username and send it!")
+
+
 async def handle_suggest_time(
     query: CallbackQuery,
     context: ContextTypes.DEFAULT_TYPE,
     event_id: int,
+    group_id: Optional[int] = None,
 ) -> None:
     """Handle suggest time action."""
     await query.edit_message_text(

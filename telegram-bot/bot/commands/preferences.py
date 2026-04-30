@@ -28,6 +28,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_user:
         return
 
+    args = context.args or []
+    if args and args[0].lower() == "wizard":
+        await handle_wizard(update, context)
+        return
+    if len(args) >= 2:
+        await set_preference(update, context)
+        return
+
     user = update.effective_user
     telegram_user_id = user.id
     display_name = user.full_name
