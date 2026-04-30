@@ -531,6 +531,25 @@ async def _handle_enrichment_message(
                     "✅ Memory saved! (private until mosaic assembles when event completes)"
                 )
 
+            elif action in {"add_constraint", "add_constraint_unless"}:
+                event_result = await session.execute(select(Event).where(Event.event_id == event_id))
+                event = event_result.scalar_one_or_none()
+                planning_prefs = event.planning_prefs.copy() if event and event.planning_prefs else {}
+                constraint_key = "member_constraints"
+                planning_prefs.setdefault(constraint_key, [])
+                planning_prefs[constraint_key].append(
+                    {
+                        "type": "if_joins" if action == "add_constraint" else "unless_joins",
+                        "text": text,
+                        "submitted_by": user_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+                await session.execute(
+                    sa_update(Event).where(Event.event_id == event_id).values(planning_prefs=planning_prefs)
+                )
+                await update.message.reply_text("✅ Constraint saved! The organizer will see it on the event.")
+
             elif action == "suggest_time":
                 event_result = await session.execute(select(Event).where(Event.event_id == event_id))
                 event = event_result.scalar_one_or_none()
@@ -557,6 +576,8 @@ async def _handle_enrichment_message(
                 await update.message.reply_text(
                     "✅ Time suggestion saved! The organizer will see your preferred time."
                 )
+
+            await session.commit()
 
         except Exception as e:
             logger.error("Enrichment save failed for event %d, action %s: %s", event_id, action, e)

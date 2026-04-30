@@ -16,12 +16,32 @@ from bot.common.event_presenters import format_event_details_message, format_use
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Deprecated: redirects to /events."""
+    """Show event details when an ID is provided; otherwise redirect to /events."""
     if not update.message:
         return
+    if context.args:
+        try:
+            event_id = int(context.args[0])
+        except (TypeError, ValueError):
+            await update.message.reply_text("Usage: /event_details <event_id>")
+            return
+
+        class MessageQueryAdapter:
+            from_user = update.effective_user
+            message = update.message
+
+            async def answer(self, *args, **kwargs):
+                return None
+
+            async def edit_message_text(self, text, reply_markup=None, parse_mode=None):
+                await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+
+        await show_details(MessageQueryAdapter(), context, event_id)
+        return
+
     keyboard = [[InlineKeyboardButton("📋 View Events", callback_data="menu_my_events")]]
     await update.message.reply_text(
-        "Use /events to view and manage your events.",
+        "Use /event_details <event_id> to open details, or /events to browse and manage your events.",
         reply_markup=InlineKeyboardMarkup(keyboard),
     )
 
@@ -38,7 +58,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if data and data.startswith("event_details_"):
         event_id = int(data.replace("event_details_", ""))
-        await _show_details(query, context, event_id)
+        await show_details(query, context, event_id)
+    elif data and data.startswith("private_event_details_"):
+        event_id = int(data.replace("private_event_details_", ""))
+        await show_details(query, context, event_id)
     elif data and data.startswith("event_status_"):
         event_id = int(data.replace("event_status_", ""))
         await _show_status(query, context, event_id)
@@ -52,7 +75,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await query.edit_message_text("✅ Event details closed.")
 
 
-async def _show_details(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
+async def show_details(
+    query,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_id: int,
+    group_id: int | None = None,
+) -> None:
     user_id = query.from_user.id if query.from_user else None
     chat_id = getattr(getattr(query, "message", None), "chat_id", None)
     chat_type = getattr(getattr(getattr(query, "message", None), "chat", None), "type", None)
@@ -62,7 +90,7 @@ async def _show_details(query, context: ContextTypes.DEFAULT_TYPE, event_id: int
             session,
             event_id,
             user_id,
-            telegram_chat_id=chat_id,
+            telegram_chat_id=group_id if group_id is not None else chat_id,
             bot=context.bot,
         )
         if not is_visible:
@@ -74,6 +102,14 @@ async def _show_details(query, context: ContextTypes.DEFAULT_TYPE, event_id: int
         reply_markup = None
         if chat_type == "private":
             reply_markup = await _build_details_markup(event, user_id, bot_username, session)
+        elif group_id is not None:
+            reply_markup = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 Back to Event", callback_data=f"ev:{event_id}:{group_id}:view")]]
+            )
+        else:
+            reply_markup = InlineKeyboardMarkup(
+                [[InlineKeyboardButton("🔙 Back to Event", callback_data=f"ev:{event_id}:view")]]
+            )
         await query.edit_message_text(
             await format_event_details_message(event_id, event, logs, constraints, context.bot),
             reply_markup=reply_markup,
@@ -313,3 +349,6 @@ async def _build_details_markup(event, user_id, bot_username, session) -> Inline
     if avail_link:
         keyboard.append([InlineKeyboardButton("📥 Set Availability in DM", url=avail_link)])
     return InlineKeyboardMarkup(keyboard)
+
+
+_show_details = show_details

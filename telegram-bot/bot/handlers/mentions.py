@@ -642,6 +642,19 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         return
 
+    if data.startswith("event_admin_"):
+        event_id_str = data.replace("event_admin_", "")
+        try:
+            event_id = int(event_id_str)
+        except (TypeError, ValueError):
+            await query.edit_message_text("❌ Invalid event ID.")
+            return
+
+        from bot.handlers import event_panel
+
+        await event_panel._handle_view(query, context, event_id)
+        return
+
     if data.startswith("event_details_"):
         event_id_str = data.replace("event_details_", "")
         try:

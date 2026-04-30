@@ -26,6 +26,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         from bot.handlers import event_panel
         from bot.common.callback_data import decode_callback
 
-        action, event_id = decode_callback(data)
+        action, event_id, _ = decode_callback(data)
         if event_id:
             await event_panel.route_event_callback(update, context)

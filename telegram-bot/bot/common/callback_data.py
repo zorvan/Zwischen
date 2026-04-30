@@ -40,7 +40,8 @@ CALLBACK_ACTIONS = {
     "enrich_memory": "enrich_memory",  # Add memory (post-event)
     "enrich_view": "enrich_view",  # View my contributions
     "constraint": "constraint",  # Open constraint sub-menu
-    "constraint_add": "constraint_add",  # Add constraint
+    "constraint_add": "constraint_add",  # Add constraint (if joins)
+    "constraint_add_unless": "constraint_add_unless",  # Add constraint (unless joins)
     "constraint_remove": "constraint_remove",  # Remove constraint
     "suggest_time": "suggest_time",  # Suggest time
     "negotiate_time": "negotiate_time",  # Negotiate time
@@ -48,6 +49,7 @@ CALLBACK_ACTIONS = {
     "back_to_list": "back_to_list",  # Return to event list
     "refresh": "refresh",  # Refresh live card
     "det": "det",  # Event details (shorthand)
+    "details": "det",  # Event details alias
 }
 
 

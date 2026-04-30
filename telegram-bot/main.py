@@ -42,6 +42,7 @@ from bot.commands import (
     personal_attendance_mirror,
     meaning_formation,
     about,
+    preferences,
 )
 from bot.handlers import event_flow, event_panel, membership, mentions, menus, waitlist as waitlist_handlers
 from ai.llm import LLMClient
@@ -235,6 +236,7 @@ def main():
         # PRD v2: Personal history (DM only)
         "my_history": my_history.handle,
         "about": about.handle,
+        "preferences": preferences.handle,
     }
 
     for command, handler in command_map.items():
@@ -247,6 +249,7 @@ def main():
         (r"^ev:", event_panel.route_event_callback),
         # Menu handlers (must come before general patterns)
         (r"^menu_", menus.handle_menu_callback),
+        (r"^noop$", menus.handle_menu_callback),
         # v3.5: Events list and creation flow handlers
         (r"^events_", menus.handle_menu_callback),
         (r"^create_", menus.handle_menu_callback),
@@ -259,12 +262,16 @@ def main():
         (r"^event_unconfirm_", event_flow.handle_event_flow),  # Uncommit (separate from back)
         (r"^event_(details|status|logs|constraints|close)_", event_details.handle_callback),
         (r"^event_modify_", mentions.handle_callback),
+        (r"^event_admin_", mentions.handle_callback),
         # v3.5: Creation flow scheduling and type handlers (must come before general event_)
         (r"^event_scheduling_", menus.handle_scheduling_callback),
         (r"^event_type_", menus.handle_event_type_callback),
         # Event creation handlers (general, comes after specific ones)
         (r"^event_", event_creation.handle_callback),
+        (r"^private_event_details_", event_details.handle_callback),
         (r"^private_event_", event_creation.private_handle_callback),
+        (r"^mnpick_", mentions.handle_disambiguation_callbacks),
+        (r"^mention_(start_organize|show_status|ask_help)$", mentions.handle_disambiguation_callbacks),
         # Modify input handlers
         (r"^modinput_", mentions.handle_callback),
         # Other handlers
@@ -272,6 +279,7 @@ def main():
         (r"^mentionact_", mentions.handle_mention_callback),
         (r"^suggest_time_retry_", suggest_time.handle_callback),
         (r"^modreq_", modify_event.handle_modify_request_callback),
+        (r"^pref_wizard_", preferences.handle_callback),
         # Help callbacks
         (r"^help_", menus.handle_menu_callback),
         # Weekly digest callbacks
