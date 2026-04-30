@@ -2,7 +2,7 @@
 # Runtime dependencies only.
 
 # Core bot/runtime
-python-telegram-bot[job-queue]>=22.6,<23
+python-telegram-bot[job-queue]>=22.7,<23
 SQLAlchemy>=2.0.40,<2.1
 python-dotenv>=1.0.1,<2
 pydantic>=2.11,<3

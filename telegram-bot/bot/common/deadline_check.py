@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Deadline and auto-lock utilities."""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -20,7 +20,7 @@ async def check_and_lock_expired_events(bot=None) -> list[dict]:
         return []
 
     results = []
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
 
     async with get_session(settings.db_url) as session:
         events_to_check = (
@@ -140,7 +140,7 @@ async def check_deadline_status(event_id: int) -> Optional[dict]:
         if not event:
             return None
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         commit_by = event.commit_by
         state = str(event.state or "")
         locked_at = event.locked_at
