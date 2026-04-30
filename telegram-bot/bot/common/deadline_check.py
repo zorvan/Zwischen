@@ -24,26 +24,32 @@ async def check_and_lock_expired_events(bot=None) -> list[dict]:
 
     async with get_session(settings.db_url) as session:
         events_to_check = (
-            await session.execute(
-                select(Event).where(
-                    Event.state == "confirmed",
-                    Event.commit_by.isnot(None),
-                    Event.commit_by <= now,
-                    Event.locked_at.is_(None),
+            (
+                await session.execute(
+                    select(Event).where(
+                        Event.state == "confirmed",
+                        Event.commit_by.isnot(None),
+                        Event.commit_by <= now,
+                        Event.locked_at.is_(None),
+                    )
                 )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
 
         for event in events_to_check:
             try:
                 result = await _try_auto_lock_event(session, event, now, bot)
                 results.append(result)
             except Exception as e:
-                results.append({
-                    "event_id": int(event.event_id) if event.event_id else 0,
-                    "status": "error",
-                    "message": str(e),
-                })
+                results.append(
+                    {
+                        "event_id": int(event.event_id) if event.event_id else 0,
+                        "status": "error",
+                        "message": str(e),
+                    }
+                )
 
     return results
 
@@ -86,6 +92,7 @@ async def _try_auto_lock_event(session, event, now: datetime, bot=None) -> dict:
             else:
                 # Fallback to direct transition if no bot available
                 from bot.services import EventStateTransitionService
+
                 transition_service = EventStateTransitionService(session)
                 event, _ = await transition_service.transition(
                     event_id=event.event_id,
@@ -99,7 +106,10 @@ async def _try_auto_lock_event(session, event, now: datetime, bot=None) -> dict:
             return {
                 "event_id": int(event.event_id) if event.event_id else 0,
                 "status": "locked",
-                "message": f"Auto-locked event {event.event_id} after deadline reached with {current_confirmed}/{threshold} confirmed",
+                "message": (
+                    f"Auto-locked event {event.event_id} after deadline reached "
+                    f"with {current_confirmed}/{threshold} confirmed"
+                ),
             }
         else:
             return {
@@ -125,11 +135,7 @@ async def check_deadline_status(event_id: int) -> Optional[dict]:
         return None
 
     async with get_session(settings.db_url) as session:
-        event = (
-            await session.execute(
-                select(Event).where(Event.event_id == event_id)
-            )
-        ).scalar_one_or_none()
+        event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
 
         if not event:
             return None

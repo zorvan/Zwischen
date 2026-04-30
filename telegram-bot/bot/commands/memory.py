@@ -8,6 +8,7 @@ Commands:
 - /remember [event_id] - Add a memory fragment outside the DM window
 - /digest - Get weekly digest for the group (manual trigger)
 """
+
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -35,10 +36,7 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         if not context.args:
-            await update.message.reply_text(
-                "Usage: /memory [event_id]\n\n"
-                "Example: /memory 123"
-            )
+            await update.message.reply_text("Usage: /memory [event_id]\n\n" "Example: /memory 123")
             return
 
         try:
@@ -50,9 +48,8 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with get_session(context.bot_data.get("db_url")) as session:
             # Get event
             from sqlalchemy import select
-            result = await session.execute(
-                select(Event).where(Event.event_id == event_id)
-            )
+
+            result = await session.execute(select(Event).where(Event.event_id == event_id))
             event = result.scalar_one_or_none()
 
             if not event:
@@ -85,7 +82,7 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 extra={
                     "event_id": event_id,
                     "user": update.effective_user.id,
-                }
+                },
             )
 
     finally:
@@ -113,16 +110,11 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             from sqlalchemy import select
             from db.models import Group
 
-            result = await session.execute(
-                select(Group).where(Group.telegram_group_id == update.effective_chat.id)
-            )
+            result = await session.execute(select(Group).where(Group.telegram_group_id == update.effective_chat.id))
             group = result.scalar_one_or_none()
 
             if not group:
-                await update.message.reply_text(
-                    "This group is not registered yet.\n"
-                    "Use /start to register."
-                )
+                await update.message.reply_text("This group is not registered yet.\n" "Use /start to register.")
                 return
 
             # Get recent memories
@@ -131,8 +123,7 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             if not memories:
                 await update.message.reply_text(
-                    "No memory weaves yet.\n\n"
-                    "Memories will appear here after events complete."
+                    "No memory weaves yet.\n\n" "Memories will appear here after events complete."
                 )
                 return
 
@@ -141,14 +132,18 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             for memory in memories:
                 event = memory.event
-                event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                event_title = (
+                    f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                )
 
                 # Show first fragment preview
                 preview = ""
                 if memory.fragments and len(memory.fragments) > 0:
                     first_fragment = memory.fragments[0].get("text", "")[:50]
                     if first_fragment:
-                        preview = f"\n  \"{first_fragment}...\"" if len(first_fragment) >= 50 else f"\n  \"{first_fragment}\""
+                        preview = (
+                            f'\n  "{first_fragment}..."' if len(first_fragment) >= 50 else f'\n  "{first_fragment}"'
+                        )
 
                 # Show hashtags
                 hashtags = ""
@@ -168,7 +163,7 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     "group_id": group.group_id,
                     "user": update.effective_user.id,
                     "count": len(memories),
-                }
+                },
             )
 
     finally:
@@ -212,9 +207,8 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         async with get_session(context.bot_data.get("db_url")) as session:
             # Get event
             from sqlalchemy import select
-            result = await session.execute(
-                select(Event).where(Event.event_id == event_id)
-            )
+
+            result = await session.execute(select(Event).where(Event.event_id == event_id))
             event = result.scalar_one_or_none()
 
             if not event:
@@ -223,6 +217,7 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             # Check if user was a participant
             from db.models import EventParticipant
+
             participant_result = await session.execute(
                 select(EventParticipant).where(
                     EventParticipant.event_id == event_id,
@@ -251,8 +246,7 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await session.commit()
 
             await update.message.reply_text(
-                "✓ Memory added!\n\n"
-                "Thank you for sharing. This will be woven into the group's memory of the event."
+                "✓ Memory added!\n\n" "Thank you for sharing. This will be woven into the group's memory of the event."
             )
 
             logger.info(
@@ -261,7 +255,7 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     "event_id": event_id,
                     "user": update.effective_user.id,
                     "fragment_length": len(memory_text),
-                }
+                },
             )
 
     finally:
@@ -289,16 +283,11 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             from sqlalchemy import select
             from db.models import Group
 
-            result = await session.execute(
-                select(Group).where(Group.telegram_group_id == update.effective_chat.id)
-            )
+            result = await session.execute(select(Group).where(Group.telegram_group_id == update.effective_chat.id))
             group = result.scalar_one_or_none()
 
             if not group:
-                await update.message.reply_text(
-                    "This group is not registered yet.\n"
-                    "Use /start to register."
-                )
+                await update.message.reply_text("This group is not registered yet.\n" "Use /start to register.")
                 return
 
             # Generate digest
@@ -313,14 +302,20 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 response_parts.append("📿 <b>Recent Memories</b>")
                 for memory in digest_data["memories"]:
                     event = memory.event
-                    event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                    event_title = (
+                        f"{event.event_type} • "
+                        f"{event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                    )
                     response_parts.append(f"• {event_title}")
 
             # Upcoming events
             if digest_data.get("upcoming_events"):
                 response_parts.append("\n📅 <b>Upcoming Events</b>")
                 for event in digest_data["upcoming_events"]:
-                    event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b %H:%M') if event.scheduled_time else 'TBD'}"
+                    event_title = (
+                        f"{event.event_type} • "
+                        f"{event.scheduled_time.strftime('%d %b %H:%M') if event.scheduled_time else 'TBD'}"
+                    )
                     response_parts.append(f"• {event_title}")
 
             # Stats
@@ -349,7 +344,7 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 extra={
                     "group_id": group.group_id,
                     "user": update.effective_user.id,
-                }
+                },
             )
 
     finally:
@@ -377,9 +372,7 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
         from db.models import Group
 
         # Get group
-        result = await session.execute(
-            select(Group).where(Group.telegram_group_id == query.message.chat_id)
-        )
+        result = await session.execute(select(Group).where(Group.telegram_group_id == query.message.chat_id))
         group = result.scalar_one_or_none()
 
         if not group:
@@ -389,11 +382,9 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
         if action == "events":
             # Show all events
             from db.models import Event
+
             result = await session.execute(
-                select(Event)
-                .where(Event.group_id == group.group_id)
-                .order_by(Event.scheduled_time.desc())
-                .limit(10)
+                select(Event).where(Event.group_id == group.group_id).order_by(Event.scheduled_time.desc()).limit(10)
             )
             events = result.scalars().all()
 
@@ -427,7 +418,9 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
             response = "📿 <b>Recent Memories</b>\n\n"
             for memory in memories:
                 event = memory.event
-                event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                event_title = (
+                    f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                )
                 fragment_count = len(memory.fragments) if memory.fragments else 0
                 response += f"• {event_title} ({fragment_count} fragments)\n"
 

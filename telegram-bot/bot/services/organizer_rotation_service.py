@@ -14,6 +14,7 @@ Features:
 - Surface "Who wants to organize next?" prompt
 - Log rotation for transparency
 """
+
 from __future__ import annotations
 
 import logging
@@ -149,9 +150,7 @@ class OrganizerRotationService:
         Returns:
             (should_suggest, consecutive_count)
         """
-        consecutive = await self.count_consecutive_organized(
-            telegram_user_id, event_type, group_id
-        )
+        consecutive = await self.count_consecutive_organized(telegram_user_id, event_type, group_id)
 
         should_suggest = consecutive >= self.CONSECUTIVE_THRESHOLD
 
@@ -191,10 +190,12 @@ class OrganizerRotationService:
             .join(User, EventParticipant.telegram_user_id == User.telegram_user_id)
             .where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.status.in_([
-                    ParticipantStatus.confirmed,
-                    ParticipantStatus.joined,
-                ]),
+                EventParticipant.status.in_(
+                    [
+                        ParticipantStatus.confirmed,
+                        ParticipantStatus.joined,
+                    ]
+                ),
             )
         )
         participants = result.all()
@@ -216,18 +217,17 @@ class OrganizerRotationService:
         candidates = []
         for participant, user in eligible:
             # Count recent organizing activity
-            history = await self.get_organizer_history(
-                user.telegram_user_id,
-                limit=10  # Last 10 events
-            )
+            history = await self.get_organizer_history(user.telegram_user_id, limit=10)  # Last 10 events
             organized_count = len(history)
 
-            candidates.append({
-                "user_id": user.user_id,
-                "telegram_user_id": user.telegram_user_id,
-                "display_name": user.display_name or user.username,
-                "organized_count": organized_count,
-            })
+            candidates.append(
+                {
+                    "user_id": user.user_id,
+                    "telegram_user_id": user.telegram_user_id,
+                    "display_name": user.display_name or user.username,
+                    "organized_count": organized_count,
+                }
+            )
 
         # Sort by organized_count (ascending - prefer those who organized less)
         candidates.sort(key=lambda c: c["organized_count"])
@@ -251,11 +251,10 @@ class OrganizerRotationService:
             f"🎯 {current_organizer_name} has organized {consecutive_count} {event_type} events in a row!\n\n"
             f"Would someone else like to organize the next one? "
             f"Fresh perspectives make events more interesting!",
-
-            f"✨ Shoutout to {current_organizer_name} for organizing {consecutive_count} consecutive {event_type} events!\n\n"
+            f"✨ Shoutout to {current_organizer_name} for organizing "
+            f"{consecutive_count} consecutive {event_type} events!\n\n"
             f"Who wants to take a turn organizing next? "
             f"It's a great way to shape the group's experience!",
-
             f"🙏 {current_organizer_name} has been awesome at organizing {event_type} events!\n\n"
             f"To spread the coordination love, would someone else like to organize next time? "
             f"The bot can help with all the logistics!",
@@ -266,8 +265,7 @@ class OrganizerRotationService:
         # Add suggested organizer if available
         if suggested_organizer:
             prompt += (
-                f"\n\n💡 {suggested_organizer['display_name']} hasn't organized recently "
-                f"and might be interested!"
+                f"\n\n💡 {suggested_organizer['display_name']} hasn't organized recently " f"and might be interested!"
             )
 
         return prompt
@@ -326,17 +324,13 @@ async def check_and_suggest_rotation(
     """
     service = OrganizerRotationService(session)
 
-    should_suggest, count = await service.should_suggest_rotation(
-        organizer_telegram_user_id, event_type, group_id
-    )
+    should_suggest, count = await service.should_suggest_rotation(organizer_telegram_user_id, event_type, group_id)
 
     if not should_suggest:
         return None
 
     # Get organizer name
-    user_result = await session.execute(
-        select(User).where(User.telegram_user_id == organizer_telegram_user_id)
-    )
+    user_result = await session.execute(select(User).where(User.telegram_user_id == organizer_telegram_user_id))
     organizer = user_result.scalar_one_or_none()
     organizer_name = organizer.display_name or organizer.username or "Organizer"
 

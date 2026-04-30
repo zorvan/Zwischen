@@ -7,7 +7,11 @@ Features:
 - Per-group rate limits
 - Sliding window algorithm
 - Configurable limits per action type
+
+WARNING: Rate limit state is in-memory and NOT restart-safe.
+For multi-instance deployment, move state to Redis or a dedicated DB table.
 """
+
 from __future__ import annotations
 
 import logging
@@ -99,10 +103,9 @@ class RateLimiter:
         self._cleanup()
 
         # Get limits for action type
-        config = self.ACTION_LIMITS.get(action_type, {
-            "limit": self.DEFAULT_LIMIT,
-            "window": self.DEFAULT_WINDOW_SECONDS
-        })
+        config = self.ACTION_LIMITS.get(
+            action_type, {"limit": self.DEFAULT_LIMIT, "window": self.DEFAULT_WINDOW_SECONDS}
+        )
         limit = config["limit"]
         window = config["window"]
 
@@ -144,10 +147,9 @@ class RateLimiter:
 
         Returns dict with: current_count, limit, window, remaining, reset_at
         """
-        config = self.ACTION_LIMITS.get(action_type, {
-            "limit": self.DEFAULT_LIMIT,
-            "window": self.DEFAULT_WINDOW_SECONDS
-        })
+        config = self.ACTION_LIMITS.get(
+            action_type, {"limit": self.DEFAULT_LIMIT, "window": self.DEFAULT_WINDOW_SECONDS}
+        )
         limit = config["limit"]
         window = config["window"]
 
@@ -203,10 +205,7 @@ async def check_rate_limit(
     is_allowed, retry_after = limiter.check_rate_limit(user_id, group_id, action_type)
 
     if not is_allowed:
-        error_msg = (
-            f"⚠️ Rate limit exceeded. Please wait {retry_after} seconds "
-            f"before trying again."
-        )
+        error_msg = f"⚠️ Rate limit exceeded. Please wait {retry_after} seconds " f"before trying again."
         if raise_on_exceed:
             raise RateLimitExceeded(error_msg, retry_after)
         return False, error_msg
@@ -261,7 +260,7 @@ async def rate_limit_middleware(update, context, next_handler):
                 "group_id": group_id,
                 "action_type": action_type,
                 "error": error,
-            }
+            },
         )
         # Silently drop the update or send rate limit message
         # For now, silently drop to avoid spam

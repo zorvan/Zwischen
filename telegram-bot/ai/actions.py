@@ -74,16 +74,16 @@ ACTIONS: Dict[str, Dict[str, Any]] = {
 # =============================================================================
 
 ACTION_HANDLERS: Dict[str, str] = {
-    "view_events":      "bot.commands.events",
+    "view_events": "bot.commands.events",
     "view_event_panel": "bot.handlers.event_flow",
-    "join_event":       "bot.handlers.event_flow",
+    "join_event": "bot.handlers.event_flow",
     "relinquish_event": "bot.handlers.event_flow",
-    "commit_event":     "bot.handlers.event_flow",
-    "lock_event":       "bot.handlers.event_flow",
-    "create_event":     "bot.commands.events",
-    "add_constraint":   "bot.handlers.event_flow",
-    "suggest_time":     "bot.handlers.event_flow",
-    "opinion":          "bot.handlers.mentions",
+    "commit_event": "bot.handlers.event_flow",
+    "lock_event": "bot.handlers.event_flow",
+    "create_event": "bot.commands.events",
+    "add_constraint": "bot.handlers.event_flow",
+    "suggest_time": "bot.handlers.event_flow",
+    "opinion": "bot.handlers.mentions",
 }
 
 
@@ -95,12 +95,21 @@ VALID_CONSTRAINT_TYPES: Set[str] = {"if_joins", "if_attends", "unless_joins"}
 
 VALID_LOG_ACTIONS: Set[str] = {
     # Legacy actions
-    "organize_event", "join", "confirm", "cancel",
-    "suggest_time", "nudge", "constraint_update",
+    "organize_event",
+    "join",
+    "confirm",
+    "cancel",
+    "suggest_time",
+    "nudge",
+    "constraint_update",
     # v3.5 new actions
     "relinquish",
-    "enrich_idea", "enrich_hashtag", "enrich_memory",
-    "lock", "complete", "collapse",
+    "enrich_idea",
+    "enrich_hashtag",
+    "enrich_memory",
+    "lock",
+    "complete",
+    "collapse",
 }
 
 VALID_GROUP_TYPES: Set[str] = {"casual", "gathering", "tournament"}
@@ -110,8 +119,10 @@ VALID_GROUP_TYPES: Set[str] = {"casual", "gathering", "tournament"}
 # Validation Exceptions
 # =============================================================================
 
+
 class ValidationError(ValueError):
     """Raised when validation fails for constraint types or log actions."""
+
     pass
 
 
@@ -119,30 +130,30 @@ class ValidationError(ValueError):
 # Validation Functions
 # =============================================================================
 
+
 def validate_constraint_type(value: str) -> str:
     """
     Validate and normalize constraint type.
-    
+
     Replaces SQL CHECK constraint on constraints.type.
     Raises ValidationError if type is not recognized.
-    
+
     Args:
         value: The constraint type string to validate
-        
+
     Returns:
         Normalized (lowercase, stripped) constraint type
-        
+
     Raises:
         ValidationError: If the constraint type is not valid
     """
     if not value or not isinstance(value, str):
         raise ValidationError(f"Constraint type must be a non-empty string, got: {value!r}")
-    
+
     normalized = value.strip().lower()
     if normalized not in VALID_CONSTRAINT_TYPES:
         raise ValidationError(
-            f"Unknown constraint type: {value!r}. "
-            f"Valid types: {', '.join(sorted(VALID_CONSTRAINT_TYPES))}"
+            f"Unknown constraint type: {value!r}. " f"Valid types: {', '.join(sorted(VALID_CONSTRAINT_TYPES))}"
         )
     return normalized
 
@@ -150,27 +161,26 @@ def validate_constraint_type(value: str) -> str:
 def validate_log_action(value: str) -> str:
     """
     Validate and normalize log action.
-    
+
     Replaces SQL CHECK constraint on logs.action.
     Raises ValidationError if action is not recognized.
-    
+
     Args:
         value: The log action string to validate
-        
+
     Returns:
         Normalized (lowercase, stripped) action name
-        
+
     Raises:
         ValidationError: If the action is not valid
     """
     if not value or not isinstance(value, str):
         raise ValidationError(f"Log action must be a non-empty string, got: {value!r}")
-    
+
     normalized = value.strip().lower()
     if normalized not in VALID_LOG_ACTIONS:
         raise ValidationError(
-            f"Unknown log action: {value!r}. "
-            f"Valid actions: {', '.join(sorted(VALID_LOG_ACTIONS))}"
+            f"Unknown log action: {value!r}. " f"Valid actions: {', '.join(sorted(VALID_LOG_ACTIONS))}"
         )
     return normalized
 
@@ -178,19 +188,19 @@ def validate_log_action(value: str) -> str:
 def validate_group_type(value: str) -> str:
     """
     Validate and normalize group type.
-    
+
     Replaces SQL CHECK constraint on groups.group_type.
     Note: Unlike the SQL CHECK, this doesn't reject unknown types - it just normalizes.
-    
+
     Args:
         value: The group type string to validate
-        
+
     Returns:
         Normalized (lowercase, stripped) group type
     """
     if not value or not isinstance(value, str):
         return "casual"  # Default
-    
+
     normalized = value.strip().lower()
     return normalized if normalized in VALID_GROUP_TYPES else normalized
 
@@ -198,13 +208,13 @@ def validate_group_type(value: str) -> str:
 def get_action_schema(action_name: str) -> Dict[str, Any]:
     """
     Get the schema definition for an action.
-    
+
     Args:
         action_name: Name of the action to look up
-        
+
     Returns:
         Action schema dict with description, required_params, optional_params
-        
+
     Raises:
         KeyError: If action is not in the registry
     """
@@ -216,13 +226,13 @@ def get_action_schema(action_name: str) -> Dict[str, Any]:
 def get_handler_path(action_name: str) -> str:
     """
     Get the handler module path for an action.
-    
+
     Args:
         action_name: Name of the action to look up
-        
+
     Returns:
         Module path string for the handler
-        
+
     Raises:
         KeyError: If action is not in the registry
     """

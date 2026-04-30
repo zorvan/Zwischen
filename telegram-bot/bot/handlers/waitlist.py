@@ -30,9 +30,7 @@ async def handle_accept(update: Update, context: ContextTypes.DEFAULT_TYPE, even
         # Accept the offer
         accepted = await waitlist_service.accept_offer(event_id, telegram_user_id)
         if not accepted:
-            await query.edit_message_text(
-                "❌ This offer has expired or is no longer available."
-            )
+            await query.edit_message_text("❌ This offer has expired or is no longer available.")
             return
 
         # Get event info for confirmation message
@@ -104,14 +102,15 @@ async def handle_extend_deadline(update: Update, context: ContextTypes.DEFAULT_T
         )
 
         # Notify group with neutral state update only
-        group_result = await session.execute(
-            select(Group.telegram_group_id).where(Group.group_id == event.group_id)
-        )
+        group_result = await session.execute(select(Group.telegram_group_id).where(Group.group_id == event.group_id))
         group_chat_id = group_result.scalar_one_or_none()
         if group_chat_id:
             await context.bot.send_message(
                 chat_id=group_chat_id,
-                text=f"⏳ The {event.event_type} deadline has been extended. New collapse time: {event.collapse_at.strftime('%a %d %b, %H:%M')}."
+                text=(
+                    f"⏳ The {event.event_type} deadline has been extended. "
+                    f"New collapse time: {event.collapse_at.strftime('%a %d %b, %H:%M')}."
+                ),
             )
 
 
@@ -142,17 +141,12 @@ async def handle_view_waitlist(update: Update, context: ContextTypes.DEFAULT_TYP
         waitlist = await waitlist_service.get_waitlist(event_id)
 
         if not waitlist:
-            await query.edit_message_text(
-                f"📋 Waitlist for {event.event_type}:\n\n"
-                f"No one on the waitlist."
-            )
+            await query.edit_message_text(f"📋 Waitlist for {event.event_type}:\n\n" f"No one on the waitlist.")
             return
 
         lines = [f"📋 Waitlist for {event.event_type}:\n"]
         for i, entry in enumerate(waitlist, 1):
-            user_result = await session.execute(
-                select(User).where(User.telegram_user_id == entry.telegram_user_id)
-            )
+            user_result = await session.execute(select(User).where(User.telegram_user_id == entry.telegram_user_id))
             user = user_result.scalar_one_or_none()
             name = f"User #{entry.telegram_user_id}"
             if user:
@@ -185,11 +179,16 @@ async def handle_join_waitlist(update: Update, context: ContextTypes.DEFAULT_TYP
 
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Route waitlist callback queries to the right handler."""
+    import asyncio
+
     query = update.callback_query
     if not query or not query.data:
         return
 
-    await query.answer()
+    try:
+        await asyncio.wait_for(query.answer(), timeout=5.0)
+    except asyncio.TimeoutError:
+        pass
 
     data = query.data
     if data.startswith("waitlist_join_"):

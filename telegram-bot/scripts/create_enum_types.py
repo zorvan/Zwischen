@@ -28,7 +28,8 @@ async def run_migration():
     try:
         # Create participant_status enum (matches SQLAlchemy model with name="participant_status")
         print("Creating participant_status enum type...")
-        await conn.execute("""
+        await conn.execute(
+            """
             DO $$ BEGIN
                 CREATE TYPE participant_status AS ENUM (
                     'joined', 'confirmed', 'cancelled', 'no_show'
@@ -36,12 +37,14 @@ async def run_migration():
             EXCEPTION
                 WHEN duplicate_object THEN null;
             END $$;
-        """)
+        """
+        )
         print("  ✓ participant_status type created")
 
         # Create participant_role enum (matches SQLAlchemy model with name="participant_role")
         print("Creating participant_role enum type...")
-        await conn.execute("""
+        await conn.execute(
+            """
             DO $$ BEGIN
                 CREATE TYPE participant_role AS ENUM (
                     'organizer', 'participant', 'observer'
@@ -49,7 +52,8 @@ async def run_migration():
             EXCEPTION
                 WHEN duplicate_object THEN null;
             END $$;
-        """)
+        """
+        )
         print("  ✓ participant_role type created")
 
         print("\n✓ Enum types migration completed successfully!")
@@ -57,6 +61,7 @@ async def run_migration():
     except Exception as e:
         print(f"\n✗ Migration failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:

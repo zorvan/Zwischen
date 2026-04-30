@@ -32,9 +32,7 @@ async def send_confirmation_request_message(
         return
 
     async with get_session(settings.db_url) as session:
-        event = (
-            await session.execute(select(Event).where(Event.event_id == event_id))
-        ).scalar_one_or_none()
+        event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
         if not event:
             await reply_message.reply_text("❌ Event not found.")
             return
@@ -47,7 +45,7 @@ async def send_confirmation_request_message(
         confirmed = set()
         for p in all_participants:
             participants.add(p.telegram_user_id)
-            if p.status == 'confirmed':
+            if p.status == "confirmed":
                 confirmed.add(p.telegram_user_id)
 
         pending = sorted(participants - confirmed)
@@ -55,22 +53,19 @@ async def send_confirmation_request_message(
         users_by_tid: dict[int, User] = {}
         if participants:
             users = (
-                await session.execute(
-                    select(User).where(User.telegram_user_id.in_(list(participants)))
-                )
-            ).scalars().all()
+                (await session.execute(select(User).where(User.telegram_user_id.in_(list(participants)))))
+                .scalars()
+                .all()
+            )
             users_by_tid = {int(u.telegram_user_id): u for u in users}
 
     pending_labels = (
         ", ".join(_format_user_label(users_by_tid.get(uid), uid) for uid in pending)
-        if pending else "No pending participants."
+        if pending
+        else "No pending participants."
     )
     confirmed_labels = (
-        ", ".join(
-            _format_user_label(users_by_tid.get(uid), uid)
-            for uid in sorted(confirmed)
-        )
-        if confirmed else "None"
+        ", ".join(_format_user_label(users_by_tid.get(uid), uid) for uid in sorted(confirmed)) if confirmed else "None"
     )
 
     keyboard = InlineKeyboardMarkup(
@@ -124,9 +119,7 @@ async def send_confirmation_request_message(
         except Exception:
             continue
 
-    await reply_message.reply_text(
-        f"ℹ️ Final-confirmation DM sent to {dm_sent}/{len(participants)} attendees."
-    )
+    await reply_message.reply_text(f"ℹ️ Final-confirmation DM sent to {dm_sent}/{len(participants)} attendees.")
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -137,8 +130,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     event_id_raw = context.args[0] if context.args else None
     if not event_id_raw:
         await update.message.reply_text(
-            "Usage: /request_confirmations <event_id>\n\n"
-            "Example: /request_confirmations 123"
+            "Usage: /request_confirmations <event_id>\n\n" "Example: /request_confirmations 123"
         )
         return
     try:

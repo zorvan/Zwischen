@@ -1,4 +1,5 @@
 """Shared inline keyboard builders."""
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 
@@ -21,9 +22,7 @@ def build_threshold_markup(
             keyboard.append(row)
             row = []
     if back_callback:
-        keyboard.append(
-            [InlineKeyboardButton("✏️ Edit Previous", callback_data=back_callback)]
-        )
+        keyboard.append([InlineKeyboardButton("✏️ Edit Previous", callback_data=back_callback)])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -48,9 +47,7 @@ def build_min_participants_markup(
             keyboard.append(row)
             row = []
     if back_callback:
-        keyboard.append(
-            [InlineKeyboardButton("✏️ Edit Previous", callback_data=back_callback)]
-        )
+        keyboard.append([InlineKeyboardButton("✏️ Edit Previous", callback_data=back_callback)])
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -76,7 +73,5 @@ def build_target_participants_markup(
             keyboard.append(row)
             row = []
     if back_callback:
-        keyboard.append(
-            [InlineKeyboardButton("✏️ Edit Previous", callback_data=back_callback)]
-        )
+        keyboard.append([InlineKeyboardButton("✏️ Edit Previous", callback_data=back_callback)])
     return InlineKeyboardMarkup(keyboard)

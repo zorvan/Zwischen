@@ -62,5 +62,6 @@ async def run_scheduled_check(context: ContextTypes.DEFAULT_TYPE) -> None:
     if locked_count > 0:
         # Log the success
         import logging
+
         logger = logging.getLogger("coord_bot.deadline")
         logger.info(f"Auto-locked {locked_count} event(s) after deadline reached")

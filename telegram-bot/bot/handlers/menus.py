@@ -3,11 +3,10 @@
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 
 from bot.common.menus import (
     build_main_menu,
-    build_events_list_menu,
     build_event_detail_keyboard,
     build_back_to_menu_keyboard,
     build_help_keyboard,
@@ -15,7 +14,7 @@ from bot.common.menus import (
 from bot.common.rbac import check_group_membership, check_event_visibility_and_get_event
 from config.settings import settings
 from db.connection import get_session
-from db.models import Event, Group, EventParticipant, ParticipantStatus
+from db.models import Event, Group, EventParticipant
 
 logger = logging.getLogger("coord_bot.menus")
 
@@ -24,14 +23,18 @@ EVENTS_PER_PAGE = 5
 
 async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle all menu callback queries."""
+    import asyncio
+
     query = update.callback_query
     if not query:
         return
 
-    await query.answer()
+    try:
+        await asyncio.wait_for(query.answer(), timeout=5.0)
+    except asyncio.TimeoutError:
+        pass
 
     data = query.data
-    user_id = query.from_user.id
 
     # Route to appropriate handler
     if data == "menu_main":
@@ -46,7 +49,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await _show_my_events(query, context, page=page + 1)
     elif data.startswith("menu_event_select_"):
         event_id = int(data.split("_")[-1])
-        await _show_event_detail(query, context, event_id)
+        # v3.5: Route to event panel (Level 2) instead of old detail view
+        from bot.handlers import event_panel
+
+        await event_panel._handle_view(query, context, event_id)
     elif data == "menu_my_profile":
         await _redirect_to_profile(query, context)
     elif data == "menu_history":
@@ -102,9 +108,7 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
     async with get_session(db_url) as session:
         # Get events where user is a participant
         result = await session.execute(
-            select(EventParticipant.event_id)
-            .where(EventParticipant.telegram_user_id == user_id)
-            .distinct()
+            select(EventParticipant.event_id).where(EventParticipant.telegram_user_id == user_id).distinct()
         )
         participant_event_ids = [row[0] for row in result.all()]
 
@@ -130,7 +134,9 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
 
             # Check group membership
             is_member, _ = await check_group_membership(
-                session, group.group_id, user_id,
+                session,
+                group.group_id,
+                user_id,
                 telegram_chat_id=chat_id,
                 bot=context.bot,
             )
@@ -142,25 +148,28 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
                 user_events.append((event, group))
             else:
                 other_events.append((event, group))
-        
+
         # Combine and paginate
         sorted_events = user_events + other_events
-        
+
         if not sorted_events:
-            await query.edit_message_text(
-                "ℹ️ *No Events Found*\n\n"
-                "You haven't joined any events yet.\n\n"
-                "Use the menu below to get started!",
-                reply_markup=build_main_menu(),
-                parse_mode="Markdown",
-            )
+            try:
+                await query.edit_message_text(
+                    "ℹ️ *No Events Found*\n\n"
+                    "You haven't joined any events yet.\n\n"
+                    "Use the menu below to get started!",
+                    reply_markup=build_main_menu(),
+                    parse_mode="Markdown",
+                )
+            except Exception:
+                await query.answer("ℹ️ No events found.")
             return
-        
+
         # Paginate
         start_idx = page * EVENTS_PER_PAGE
         end_idx = start_idx + EVENTS_PER_PAGE
         page_events = sorted_events[start_idx:end_idx]
-        
+
         if not page_events:
             # Page is empty, go back to last page
             max_page = (len(sorted_events) - 1) // EVENTS_PER_PAGE
@@ -168,23 +177,22 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
                 await _show_my_events(query, context, page=max_page)
                 return
             else:
-                await query.edit_message_text(
-                    "ℹ️ *No Events Found*",
-                    reply_markup=build_back_to_menu_keyboard(),
-                    parse_mode="Markdown",
-                )
+                try:
+                    await query.edit_message_text(
+                        "ℹ️ *No Events Found*",
+                        reply_markup=build_back_to_menu_keyboard(),
+                        parse_mode="Markdown",
+                    )
+                except Exception:
+                    await query.answer("ℹ️ No events found.")
                 return
-        
+
         # Build message with event list
         lines = ["📋 *Your Events*", ""]
-        
+
         # Add each event as a numbered item
         for idx, (event, group) in enumerate(page_events, start=start_idx + 1):
-            group_name = (
-                group.group_name[:20]
-                if group and group.group_name
-                else "Private"
-            )
+            group_name = group.group_name[:20] if group and group.group_name else "Private"
             time_str = event.scheduled_time.strftime("%m-%d %H:%M") if event.scheduled_time else "TBD"
             desc = (event.description or "No description")[:40]
             if len(desc) == 40:
@@ -193,58 +201,59 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
             # Three-word description + ID as requested
             words = (event.description or "Event").split()[:3]
             short_desc = " ".join(words)
-            
+
             # Escape any underscores in descriptions and group names
             short_desc_escaped = short_desc.replace("_", "\\_")
             group_name_escaped = group_name.replace("_", "\\_")
             time_str_escaped = time_str.replace("_", "\\_")
             state_escaped = event.state.replace("_", "\\_")
 
-            lines.append(f"{idx}. ID `{event.event_id}` - {short_desc_escaped}")
+            lines.append(f"{idx}. {short_desc_escaped}")
             lines.append(f"   {time_str_escaped} | {state_escaped} | {group_name_escaped}")
             lines.append("")
-        
+
         # Add instruction
         lines.append("💡 *Tap a button below to view event details*")
         lines.append(f"📄 Page {page + 1} of {(len(sorted_events) - 1) // EVENTS_PER_PAGE + 1}")
-        
+
         # Build keyboard with event selection buttons
         keyboard = []
         for idx, (event, group) in enumerate(page_events, start=start_idx + 1):
             words = (event.description or "Event").split()[:3]
             short_desc = " ".join(words)
-            keyboard.append([
-                InlineKeyboardButton(
-                    f"{idx}. {short_desc} (#{event.event_id})",
-                    callback_data=f"menu_event_select_{event.event_id}"
-                )
-            ])
-        
+            keyboard.append(
+                [InlineKeyboardButton(f"{idx}. {short_desc}", callback_data=f"menu_event_select_{event.event_id}")]
+            )
+
         # Navigation
         nav_row = []
         if page > 0:
             nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"menu_events_prev_{page}"))
         if end_idx < len(sorted_events):
             nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"menu_events_next_{page}"))
-        
+
         if nav_row:
             keyboard.append(nav_row)
-        
-        keyboard.append([
-            InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main"),
-        ])
-        
-        await query.edit_message_text(
-            "\n".join(lines),
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
+
+        keyboard.append(
+            [
+                InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main"),
+            ]
         )
+
+        try:
+            await query.edit_message_text(
+                "\n".join(lines),
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode="Markdown",
+            )
+        except Exception:
+            await query.answer("ℹ️ Events list refreshed.")
 
 
 async def _show_event_detail(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
     """Show detailed view of a specific event."""
     from bot.common.event_presenters import format_status_message
-    from bot.services import ParticipantService
 
     db_url = settings.db_url or ""
     user_id = query.from_user.id
@@ -252,34 +261,34 @@ async def _show_event_detail(query, context: ContextTypes.DEFAULT_TYPE, event_id
     async with get_session(db_url) as session:
         # Check event visibility based on group membership
         chat_id = getattr(getattr(query, "message", None), "chat_id", None)
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, user_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            user_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
 
         if not is_visible:
-            await query.edit_message_text(
-                f"❌ {error_msg or 'Event not found.'}",
-                reply_markup=build_back_to_menu_keyboard(),
-            )
+            try:
+                await query.edit_message_text(
+                    f"❌ {error_msg or 'Event not found.'}",
+                    reply_markup=build_back_to_menu_keyboard(),
+                )
+            except Exception:
+                await query.answer(f"❌ {error_msg or 'Event not found.'}")
             return
 
         # Get user's participation status
         result = await session.execute(
-            select(EventParticipant)
-            .where(
-                EventParticipant.event_id == event_id,
-                EventParticipant.telegram_user_id == user_id
+            select(EventParticipant).where(
+                EventParticipant.event_id == event_id, EventParticipant.telegram_user_id == user_id
             )
         )
         participant = result.scalar_one_or_none()
         user_status = participant.status.value if participant else None
-        
+
         # Format event details using existing presenter
-        participant_service = ParticipantService(session)
         status_message = await format_status_message(
             event_id=event_id,
             event=event,
@@ -306,14 +315,19 @@ async def _show_event_detail(query, context: ContextTypes.DEFAULT_TYPE, event_id
         except Exception as e:
             if "Can't parse entities" in str(e):
                 # Fallback to plain text if Markdown parsing fails
-                await query.edit_message_text(
-                    status_message.replace("*", "").replace("_", ""),
-                    reply_markup=build_event_detail_keyboard(
-                        event_id=event_id,
-                        user_status=user_status,
-                        event_state=event.state,
-                    ),
-                )
+                try:
+                    await query.edit_message_text(
+                        status_message.replace("*", "").replace("_", ""),
+                        reply_markup=build_event_detail_keyboard(
+                            event_id=event_id,
+                            user_status=user_status,
+                            event_state=event.state,
+                        ),
+                    )
+                except Exception:
+                    await query.answer("ℹ️ Event details refreshed.")
+            elif "Message is not modified" in str(e):
+                await query.answer("ℹ️ Already up to date.")
             else:
                 raise
 
@@ -321,8 +335,7 @@ async def _show_event_detail(query, context: ContextTypes.DEFAULT_TYPE, event_id
 async def _show_help(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show help menu."""
     await query.edit_message_text(
-        "❓ *Help & Information*\n\n"
-        "Choose a topic below:",
+        "❓ *Help & Information*\n\n" "Choose a topic below:",
         reply_markup=build_help_keyboard(),
         parse_mode="Markdown",
     )
@@ -359,7 +372,7 @@ async def _show_help_topic(query, context: ContextTypes.DEFAULT_TYPE, topic: str
     }
 
     text = topics.get(topic, "❓ Help topic not found.")
-    
+
     await query.edit_message_text(
         text,
         reply_markup=build_help_keyboard(),
@@ -371,8 +384,7 @@ async def _show_help_topic(query, context: ContextTypes.DEFAULT_TYPE, topic: str
 async def _redirect_to_profile(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Redirect to profile command."""
     await query.edit_message_text(
-        "Your Profile\n\n"
-        "Please use /profile command to view your full profile and stats.",
+        "Your Profile\n\n" "Please use /profile command to view your full profile and stats.",
         reply_markup=build_back_to_menu_keyboard(),
     )
 
@@ -380,8 +392,7 @@ async def _redirect_to_profile(query, context: ContextTypes.DEFAULT_TYPE) -> Non
 async def _redirect_to_history(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Redirect to history command."""
     await query.edit_message_text(
-        "Your History\n\n"
-        "Please use /my_history command to view your event timeline.",
+        "Your History\n\n" "Please use /my_history command to view your event timeline.",
         reply_markup=build_back_to_menu_keyboard(),
     )
 
@@ -409,8 +420,7 @@ async def _redirect_to_modify(query, context: ContextTypes.DEFAULT_TYPE) -> None
 async def _redirect_to_groups(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Redirect to groups command."""
     await query.edit_message_text(
-        "Your Groups\n\n"
-        "Please use /my_groups command to view your groups.",
+        "Your Groups\n\n" "Please use /my_groups command to view your groups.",
         reply_markup=build_back_to_menu_keyboard(),
     )
 
@@ -419,6 +429,7 @@ async def _redirect_to_groups(query, context: ContextTypes.DEFAULT_TYPE) -> None
 # v3.5: Memory-First Creation Flow Handlers
 # =============================================================================
 
+
 async def _handle_create_new_event(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Show memory-first creation intent selection."""
     keyboard = [
@@ -426,7 +437,7 @@ async def _handle_create_new_event(query, context: ContextTypes.DEFAULT_TYPE) ->
         [InlineKeyboardButton("💭 Just exploring ideas", callback_data="create_flexible")],
         [InlineKeyboardButton("🔙 Back to Events", callback_data="events_back")],
     ]
-    
+
     await query.edit_message_text(
         "🌟 *Let's create something together*\n\n"
         "What brings you here?\n\n"
@@ -442,7 +453,7 @@ async def _handle_create_specific(query, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle 'Plan something specific' - structured creation."""
     # Store intent in context for the creation flow
     context.user_data["creation_intent"] = "specific"
-    
+
     await query.edit_message_text(
         "🎯 *Planning something specific*\n\n"
         "Great! Let's build this together.\n\n"
@@ -450,7 +461,7 @@ async def _handle_create_specific(query, context: ContextTypes.DEFAULT_TYPE) -> 
         "💡 *Type your answer or use /cancel to stop*",
         parse_mode="Markdown",
     )
-    
+
     # Set conversation state for the creation flow
     context.user_data["creation_step"] = "awaiting_event_type"
 
@@ -459,7 +470,7 @@ async def _handle_create_flexible(query, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle 'Just exploring ideas' - flexible creation."""
     # Store intent in context
     context.user_data["creation_intent"] = "flexible"
-    
+
     await query.edit_message_text(
         "💭 *Exploring ideas together*\n\n"
         "Perfect! Let's discover what might work.\n\n"
@@ -474,14 +485,99 @@ async def _handle_create_flexible(query, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 # =============================================================================
+# Enrichment Message Handler
+# =============================================================================
+
+
+async def _handle_enrichment_message(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_id: int,
+    action: str,
+) -> None:
+    """Process user text input for enrichment actions."""
+    from db.models import Event
+    from db.connection import get_session
+    from config.settings import settings
+    from bot.services.event_enrichment_service import EventEnrichmentService
+    from datetime import datetime, timezone
+
+    if not update.message or not update.effective_user:
+        return
+
+    text = update.message.text or ""
+    user_id = update.effective_user.id
+
+    async with get_session(settings.db_url) as session:
+        enrichment_service = EventEnrichmentService(session)
+
+        try:
+            if action == "add_idea":
+                await enrichment_service.add_idea(event_id, user_id, text)
+                await update.message.reply_text("✅ Idea saved! (visible to organizer until event locks)")
+
+            elif action == "add_hashtag":
+                hashtag = text.strip()
+                if not hashtag.startswith("#"):
+                    hashtag = f"#{hashtag}"
+                await enrichment_service.add_hashtag(event_id, user_id, hashtag)
+                await update.message.reply_text(
+                    "✅ Hashtag saved! Hashtags become public on the live card when 2+ people add the same tag."
+                )
+
+            elif action == "add_memory":
+                await enrichment_service.add_memory(event_id, user_id, text)
+                await update.message.reply_text(
+                    "✅ Memory saved! (private until mosaic assembles when event completes)"
+                )
+
+            elif action == "suggest_time":
+                event_result = await session.execute(select(Event).where(Event.event_id == event_id))
+                event = event_result.scalar_one_or_none()
+                if event and event.planning_prefs:
+                    planning_prefs = event.planning_prefs.copy()
+                else:
+                    planning_prefs = {}
+
+                if "time_suggestions" not in planning_prefs:
+                    planning_prefs["time_suggestions"] = []
+                planning_prefs["time_suggestions"].append(
+                    {
+                        "suggestion": text,
+                        "suggested_by": user_id,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    }
+                )
+
+                await session.execute(
+                    sa_update(Event).where(Event.event_id == event_id).values(planning_prefs=planning_prefs)
+                )
+                await session.flush()
+
+                await update.message.reply_text(
+                    "✅ Time suggestion saved! The organizer will see your preferred time."
+                )
+
+        except Exception as e:
+            logger.error("Enrichment save failed for event %d, action %s: %s", event_id, action, e)
+            await update.message.reply_text(f"❌ Failed to save: {str(e)[:200]}")
+
+    # Clear enrichment state
+    context.user_data["enrich_event_id"] = None
+    context.user_data["enrich_action"] = None
+
+
+# =============================================================================
 # Message Handler for Creation Flow
 # =============================================================================
+
 
 async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle text messages during memory-first creation flow.
 
     This handler processes user input when creation_step is set in user_data.
     It bridges the menu-based creation flow to the event creation system.
+    Also handles enrichment prompts (idea, hashtag, memory, constraint, suggest_time).
     """
     if not update.message or not update.effective_user:
         return
@@ -492,6 +588,14 @@ async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_
 
     # Check if we're in a creation flow
     creation_step = context.user_data.get("creation_step")
+    enrich_event_id = context.user_data.get("enrich_event_id")
+    enrich_action = context.user_data.get("enrich_action")
+
+    # Check enrichment flow first (it takes priority over creation_step)
+    if enrich_event_id and enrich_action:
+        await _handle_enrichment_message(update, context, enrich_event_id, enrich_action)
+        return
+
     if not creation_step:
         return  # Not in creation flow, let other handlers process
 
@@ -503,9 +607,7 @@ async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_
             # User provided event type for specific creation
             event_type = text.strip()
             if not event_type:
-                await update.message.reply_text(
-                    "❌ Please provide an event type (e.g., 'hiking', 'dinner')."
-                )
+                await update.message.reply_text("❌ Please provide an event type (e.g., 'hiking', 'dinner').")
                 return
 
             # Initialize the event flow in the format expected by event_creation.py
@@ -527,8 +629,7 @@ async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_
                 [InlineKeyboardButton("🔙 Back", callback_data="events_back")],
             ]
             await update.message.reply_text(
-                f"✅ *Event type: {event_type}*\n\n"
-                "When would you like to schedule it?",
+                f"✅ *Event type: {event_type}*\n\n" "When would you like to schedule it?",
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown",
             )
@@ -537,9 +638,7 @@ async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_
             # User provided flexible input
             user_input = text.strip()
             if not user_input:
-                await update.message.reply_text(
-                    "❌ Please tell me what you're looking for."
-                )
+                await update.message.reply_text("❌ Please tell me what you're looking for.")
                 return
 
             # Initialize flexible event flow
@@ -556,72 +655,68 @@ async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_
 
             # Show event type selection
             await update.message.reply_text(
-                f"💭 *Got it: '{user_input}'*\n\n"
-                "What type of event would best fit?",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🎉 Social", callback_data="event_type_social")],
-                    [InlineKeyboardButton("⚽ Sports/Activity", callback_data="event_type_sports")],
-                    [InlineKeyboardButton("💼 Work/Meeting", callback_data="event_type_work")],
-                    [InlineKeyboardButton("🍽️ Food/Drinks", callback_data="event_type_food")],
-                    [InlineKeyboardButton("🎭 Entertainment", callback_data="event_type_entertainment")],
-                    [InlineKeyboardButton("🔙 Back", callback_data="events_back")],
-                ]),
+                f"💭 *Got it: '{user_input}'*\n\n" "What type of event would best fit?",
+                reply_markup=InlineKeyboardMarkup(
+                    [
+                        [InlineKeyboardButton("🎉 Social", callback_data="event_type_social")],
+                        [InlineKeyboardButton("⚽ Sports/Activity", callback_data="event_type_sports")],
+                        [InlineKeyboardButton("💼 Work/Meeting", callback_data="event_type_work")],
+                        [InlineKeyboardButton("🍽️ Food/Drinks", callback_data="event_type_food")],
+                        [InlineKeyboardButton("🎭 Entertainment", callback_data="event_type_entertainment")],
+                        [InlineKeyboardButton("🔙 Back", callback_data="events_back")],
+                    ]
+                ),
                 parse_mode="Markdown",
             )
 
     except Exception as e:
         logger.exception("Error in handle_creation_message: %s", e)
-        await update.message.reply_text(
-            "❌ Sorry, something went wrong. Please try /events again."
-        )
+        await update.message.reply_text("❌ Sorry, something went wrong. Please try /events again.")
 
 
 # =============================================================================
 # Scheduling Callback Handlers
 # =============================================================================
 
+
 async def handle_scheduling_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle scheduling option callbacks (fixed vs flexible).
-    
+
     Transitions to the full event creation flow from event_creation.py.
     """
     query = update.callback_query
     if not query:
         return
-    
+
     await query.answer()
     data = query.data
-    
+
     # Get the collected data from our creation flow
     event_flow_data = context.user_data.get("event_flow", {})
     flow_data = event_flow_data.get("data", {})
-    
+
     if not flow_data:
         logger.warning("No event_flow data in user_data")
-        await query.edit_message_text(
-            "❌ Session expired. Please start again with /events"
-        )
+        await query.edit_message_text("❌ Session expired. Please start again with /events")
         return
-    
+
     # Extract what we collected
     event_type = flow_data.get("event_type", "General")
     description = flow_data.get("description", f"Planning {event_type}")
-    
+
     # Get chat info
     chat = query.message.chat if query.message else None
     chat_id = chat.id if chat else None
     chat_title = chat.title if chat else None
-    
+
     # Look up or create the group to get database group_id
     db_group_id = None
     if chat_id and settings.db_url:
         try:
             async with get_session(settings.db_url) as session:
-                result = await session.execute(
-                    select(Group).where(Group.telegram_group_id == chat_id)
-                )
+                result = await session.execute(select(Group).where(Group.telegram_group_id == chat_id))
                 group = result.scalar_one_or_none()
-                
+
                 if not group:
                     # Create group if it doesn't exist
                     user_id = query.from_user.id if query.from_user else None
@@ -633,11 +728,11 @@ async def handle_scheduling_callback(update: Update, context: ContextTypes.DEFAU
                     session.add(group)
                     await session.commit()
                     await session.refresh(group)
-                
+
                 db_group_id = group.group_id
         except Exception as e:
             logger.warning("Failed to look up/create group: %s", e)
-    
+
     # Directly create the event flow structure that event_creation.py expects
     # (don't call start_event_flow() as it sends a description prompt)
     full_flow = {
@@ -655,7 +750,7 @@ async def handle_scheduling_callback(update: Update, context: ContextTypes.DEFAU
             "scheduling_mode": "fixed" if data == "event_scheduling_fixed" else "flexible",
         },
     }
-    
+
     # Add group info if available (use database group_id, not telegram_group_id)
     if db_group_id:
         full_flow["group_id"] = db_group_id
@@ -666,11 +761,12 @@ async def handle_scheduling_callback(update: Update, context: ContextTypes.DEFAU
         # Fallback: store telegram_group_id for later lookup
         full_flow["data"]["telegram_group_id"] = chat_id
         full_flow["data"]["chat_title"] = chat_title
-    
+
     context.user_data["event_flow"] = full_flow
-    
+
     # Show date preset selection
     from bot.commands.event_creation import build_date_preset_markup
+
     await query.edit_message_text(
         f"✅ *Event: {description}*\n\n"
         f"Type: {event_type}\n"
@@ -683,16 +779,16 @@ async def handle_scheduling_callback(update: Update, context: ContextTypes.DEFAU
 
 async def handle_event_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle event type selection for flexible flow.
-    
+
     Updates the collected data and shows scheduling options.
     """
     query = update.callback_query
     if not query:
         return
-    
+
     await query.answer()
     data = query.data
-    
+
     # Map callback to event type
     type_map = {
         "event_type_social": "Social",
@@ -701,19 +797,19 @@ async def handle_event_type_callback(update: Update, context: ContextTypes.DEFAU
         "event_type_food": "Food/Drinks",
         "event_type_entertainment": "Entertainment",
     }
-    
+
     event_type = type_map.get(data)
     if not event_type:
         logger.warning("Unknown event type callback: %s", data)
         return
-    
+
     # Get our collected flow data
     event_flow = context.user_data.get("event_flow")
     if event_flow:
         # Update the event type
         event_flow["data"]["event_type"] = event_type
         context.user_data["event_flow"] = event_flow
-        
+
         # Show scheduling options (same as specific flow)
         keyboard = [
             [InlineKeyboardButton("📅 Fixed Date/Time", callback_data="event_scheduling_fixed")],
@@ -721,8 +817,7 @@ async def handle_event_type_callback(update: Update, context: ContextTypes.DEFAU
             [InlineKeyboardButton("🔙 Back", callback_data="events_back")],
         ]
         await query.edit_message_text(
-            f"✅ *Event type: {event_type}*\n\n"
-            "When would you like to schedule it?",
+            f"✅ *Event type: {event_type}*\n\n" "When would you like to schedule it?",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown",
         )

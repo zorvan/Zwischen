@@ -7,6 +7,7 @@ Sends weekly digest to group chat with:
 - Upcoming events
 - Activity statistics
 """
+
 from __future__ import annotations
 
 import logging
@@ -88,15 +89,17 @@ class WeeklyDigestService:
 
         memories = []
         for memory, event in result.all():
-            memories.append({
-                "event_id": event.event_id,
-                "event_type": event.event_type,
-                "description": event.description[:100] if event.description else "N/A",
-                "completed_at": event.completed_at,
-                "weave_text": memory.weave_text,
-                "hashtags": memory.hashtags or [],
-                "participant_count": await self._get_participant_count(event.event_id),
-            })
+            memories.append(
+                {
+                    "event_id": event.event_id,
+                    "event_type": event.event_type,
+                    "description": event.description[:100] if event.description else "N/A",
+                    "completed_at": event.completed_at,
+                    "weave_text": memory.weave_text,
+                    "hashtags": memory.hashtags or [],
+                    "participant_count": await self._get_participant_count(event.event_id),
+                }
+            )
 
         return memories
 
@@ -121,15 +124,17 @@ class WeeklyDigestService:
 
         events = []
         for event in result.scalars().all():
-            events.append({
-                "event_id": event.event_id,
-                "event_type": event.event_type,
-                "description": event.description[:100] if event.description else "N/A",
-                "scheduled_time": event.scheduled_time,
-                "state": event.state,
-                "confirmed_count": await self._get_confirmed_count(event.event_id),
-                "minimum": event.min_participants,
-            })
+            events.append(
+                {
+                    "event_id": event.event_id,
+                    "event_type": event.event_type,
+                    "description": event.description[:100] if event.description else "N/A",
+                    "scheduled_time": event.scheduled_time,
+                    "state": event.state,
+                    "confirmed_count": await self._get_confirmed_count(event.event_id),
+                    "minimum": event.min_participants,
+                }
+            )
 
         return events
 
@@ -142,8 +147,7 @@ class WeeklyDigestService:
         """Get activity statistics for group."""
         # Events completed
         completed_result = await self.session.execute(
-            select(func.count(Event.event_id))
-            .where(
+            select(func.count(Event.event_id)).where(
                 Event.group_id == group_id,
                 Event.completed_at >= from_date,
                 Event.completed_at <= to_date,
@@ -153,8 +157,7 @@ class WeeklyDigestService:
 
         # Events created
         created_result = await self.session.execute(
-            select(func.count(Event.event_id))
-            .where(
+            select(func.count(Event.event_id)).where(
                 Event.group_id == group_id,
                 Event.created_at >= from_date,
                 Event.created_at <= to_date,
@@ -196,16 +199,14 @@ class WeeklyDigestService:
     async def _get_participant_count(self, event_id: int) -> int:
         """Get total participant count for event."""
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id))
-            .where(EventParticipant.event_id == event_id)
+            select(func.count(EventParticipant.telegram_user_id)).where(EventParticipant.event_id == event_id)
         )
         return result.scalar() or 0
 
     async def _get_confirmed_count(self, event_id: int) -> int:
         """Get confirmed participant count for event."""
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id))
-            .where(
+            select(func.count(EventParticipant.telegram_user_id)).where(
                 EventParticipant.event_id == event_id,
                 EventParticipant.status == ParticipantStatus.confirmed,
             )
@@ -221,13 +222,15 @@ class WeeklyDigestService:
 
         # Activity Stats
         stats = digest["stats"]
-        lines.extend([
-            "*📊 Activity Summary*\n",
-            f"• Events completed: {stats['events_completed']}",
-            f"• Events created: {stats['events_created']}",
-            f"• Active participants: {stats['unique_participants']}",
-            f"• Total confirmations: {stats['total_confirmations']}\n",
-        ])
+        lines.extend(
+            [
+                "*📊 Activity Summary*\n",
+                f"• Events completed: {stats['events_completed']}",
+                f"• Events created: {stats['events_created']}",
+                f"• Active participants: {stats['unique_participants']}",
+                f"• Total confirmations: {stats['total_confirmations']}\n",
+            ]
+        )
 
         # Recent Memories
         memories = digest["memories"]
@@ -254,9 +257,7 @@ class WeeklyDigestService:
             lines.append("")
 
         # Footer
-        lines.append(
-            f"_Generated on {digest['generated_at'].strftime('%Y-%m-%d %H:%M')}_"
-        )
+        lines.append(f"_Generated on {digest['generated_at'].strftime('%Y-%m-%d %H:%M')}_")
 
         return "\n".join(lines)
 
@@ -269,18 +270,14 @@ class WeeklyDigestService:
         message = self.format_digest_message(digest)
 
         # Add keyboard for quick actions
-        keyboard = InlineKeyboardMarkup([
+        keyboard = InlineKeyboardMarkup(
             [
-                InlineKeyboardButton(
-                    "📊 View All Events",
-                    callback_data="digest_events"
-                ),
-                InlineKeyboardButton(
-                    "📿 View All Memories",
-                    callback_data="digest_memories"
-                ),
-            ],
-        ])
+                [
+                    InlineKeyboardButton("📊 View All Events", callback_data="digest_events"),
+                    InlineKeyboardButton("📿 View All Memories", callback_data="digest_memories"),
+                ],
+            ]
+        )
 
         try:
             await self.bot.send_message(
@@ -289,17 +286,10 @@ class WeeklyDigestService:
                 reply_markup=keyboard,
                 parse_mode="Markdown",
             )
-            logger.info(
-                "Weekly digest sent to group %s",
-                group_chat_id
-            )
+            logger.info("Weekly digest sent to group %s", group_chat_id)
             return True
         except Exception as e:
-            logger.error(
-                "Failed to send digest to group %s: %s",
-                group_chat_id,
-                e
-            )
+            logger.error("Failed to send digest to group %s: %s", group_chat_id, e)
             return False
 
 
@@ -329,9 +319,7 @@ async def send_digest_to_all_groups(
 
     Returns dict with: sent, failed, skipped
     """
-    result = await session.execute(
-        select(Group)
-    )
+    result = await session.execute(select(Group))
     groups = result.scalars().all()
 
     stats = {"sent": 0, "failed": 0, "skipped": 0}
@@ -339,8 +327,7 @@ async def send_digest_to_all_groups(
     for group in groups:
         # Skip groups with no recent activity
         event_result = await session.execute(
-            select(func.count(Event.event_id))
-            .where(
+            select(func.count(Event.event_id)).where(
                 Event.group_id == group.group_id,
                 Event.created_at >= datetime.utcnow() - timedelta(days=30),
             )

@@ -13,7 +13,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     args = context.args or []
     payload = args[0] if args else ""
-    
+
     # Handle deep links
     if payload.startswith("avail_"):
         try:
@@ -21,8 +21,8 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         except ValueError:
             event_id = None
         if event_id is not None:
-            await update.message.reply_text(
-                f"📥 *Private Availability Mode*\n\n"
+            await update.message.reply_html(
+                f"<b>📥 Private Availability Mode</b>\n\n"
                 f"Event ID: {event_id}\n\n"
                 "Submit your free slots from DM using:\n"
                 f"/constraints {event_id} availability "
@@ -34,17 +34,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
     # Show main menu with buttons
-    display_name = (
-        update.effective_user.full_name
-        if update.effective_user
-        else "User"
-    )
+    display_name = update.effective_user.full_name if update.effective_user else "User"
 
-    await update.message.reply_text(
-        f"👋 *Welcome, {display_name}!*\n\n"
+    await update.message.reply_html(
+        f"<b>👋 Welcome, {display_name}!</b>\n\n"
         "I'm your coordination bot. I help organize group events with "
         "AI-powered scheduling.\n\n"
-        "💡 *Use the menu buttons below* to navigate instead of typing commands!\n\n"
+        "💡 <b>Use the menu buttons below</b> to navigate instead of typing commands!\n\n"
         "Quick commands:\n"
         "/plan - Start planning an event\n"
         "/organize_event - Create a new event\n"
@@ -53,5 +49,4 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "/profile - View your profile\n"
         "/how_am_i_doing - See your participation mirror",
         reply_markup=build_main_menu(),
-        parse_mode="Markdown",
     )

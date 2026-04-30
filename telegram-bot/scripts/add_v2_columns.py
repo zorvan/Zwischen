@@ -35,11 +35,13 @@ async def run_migration():
         ]
 
         # Get existing columns
-        existing = await conn.fetch("""
+        existing = await conn.fetch(
+            """
             SELECT column_name FROM information_schema.columns
             WHERE table_name = 'events'
-        """)
-        existing_columns = {row['column_name'] for row in existing}
+        """
+        )
+        existing_columns = {row["column_name"] for row in existing}
 
         print(f"Found {len(existing_columns)} existing columns in events table")
 
@@ -55,6 +57,7 @@ async def run_migration():
     except Exception as e:
         print(f"\n✗ Migration failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
     finally:

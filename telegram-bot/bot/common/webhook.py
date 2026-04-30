@@ -5,6 +5,7 @@ PRD v2 Priority 1: Production Hardening.
 Replaces polling with webhook for scalability.
 Uses asyncio queue for background task processing.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,10 +38,7 @@ class WorkerQueue:
         """Start worker tasks."""
         logger.info("Starting %d worker tasks", self.num_workers)
         for i in range(self.num_workers):
-            worker = asyncio.create_task(
-                self._worker(f"worker-{i}"),
-                name=f"worker-{i}"
-            )
+            worker = asyncio.create_task(self._worker(f"worker-{i}"), name=f"worker-{i}")
             self.workers.append(worker)
 
     async def _worker(self, name: str) -> None:
@@ -50,10 +48,7 @@ class WorkerQueue:
             try:
                 # Get task with timeout
                 try:
-                    task = await asyncio.wait_for(
-                        self.queue.get(),
-                        timeout=1.0
-                    )
+                    task = await asyncio.wait_for(self.queue.get(), timeout=1.0)
                 except asyncio.TimeoutError:
                     continue
 
@@ -91,10 +86,7 @@ class WorkerQueue:
             return False
 
         try:
-            await asyncio.wait_for(
-                self.queue.put((callback, args, kwargs)),
-                timeout=0.1  # Fail fast if queue is full
-            )
+            await asyncio.wait_for(self.queue.put((callback, args, kwargs)), timeout=0.1)  # Fail fast if queue is full
             return True
         except asyncio.TimeoutError:
             logger.warning("Worker queue is full, task rejected")
@@ -122,10 +114,7 @@ class WorkerQueue:
         await asyncio.gather(*self.workers, return_exceptions=True)
         self.workers.clear()
 
-        logger.info(
-            "Worker queue shutdown complete. Processed %d tasks.",
-            self._tasks_processed
-        )
+        logger.info("Worker queue shutdown complete. Processed %d tasks.", self._tasks_processed)
 
     def get_stats(self) -> dict[str, Any]:
         """Get queue statistics."""
@@ -175,11 +164,7 @@ async def setup_webhook(
     await worker_queue.start()
 
     # Setup webhook
-    logger.info(
-        "Setting up webhook: %s (port %d)",
-        webhook_url,
-        webhook_port
-    )
+    logger.info("Setting up webhook: %s (port %d)", webhook_url, webhook_port)
 
     await application.run_webhook(
         listen=webhook_host,
@@ -226,9 +211,7 @@ def submit_to_worker(
         submit_to_worker(send_notification, user_id=123, message="Hello!")
     """
     worker_queue = get_worker_queue()
-    return asyncio.get_event_loop().run_until_complete(
-        worker_queue.submit(callback, *args, **kwargs)
-    )
+    return asyncio.get_event_loop().run_until_complete(worker_queue.submit(callback, *args, **kwargs))
 
 
 async def submit_to_worker_async(

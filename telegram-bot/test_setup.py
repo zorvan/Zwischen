@@ -16,6 +16,7 @@ def test_all():
     print("\n1. Testing config module...")
     from config.settings import settings
     from config.logging import setup_logging
+
     setup_logging(settings)
     print("   ✅ config module")
 
@@ -23,6 +24,7 @@ def test_all():
     print("\n2. Testing database module...")
     from db.connection import create_engine, create_session
     from db.models import Base, User, Group, Event, Constraint, Log, Feedback, AILog
+
     print("   ✅ db module")
 
     # Test AI
@@ -30,20 +32,31 @@ def test_all():
     from ai.core import AICoordinationEngine
     from ai.rules import RuleBasedEngine
     from ai.llm import LLMClient
+
     print("   ✅ ai module")
 
     # Test commands
     print("\n4. Testing command handlers...")
     from bot.commands import (
-        start, my_groups, profile,
-        organize_event, join, confirm, cancel,
-        constraints, suggest_time, status, event_details
+        start,
+        my_groups,
+        profile,
+        organize_event,
+        join,
+        confirm,
+        cancel,
+        constraints,
+        suggest_time,
+        status,
+        event_details,
     )
+
     print("   ✅ 12 command handlers")
 
     # Test handlers
     print("\n5. Testing handlers...")
     from bot.handlers import event_flow, feedback
+
     print("   ✅ event_flow, feedback")
 
     # Test utils
@@ -54,6 +67,7 @@ def test_all():
     # Test main
     print("\n7. Testing main entry point...")
     from main import main
+
     print("   ✅ main.py ready")
 
     # Test database connection
@@ -86,5 +100,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

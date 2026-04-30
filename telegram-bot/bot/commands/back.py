@@ -3,11 +3,9 @@
 import logging
 from telegram import Update
 from telegram.ext import ContextTypes
-from sqlalchemy import select
-
 from config.settings import settings
 from db.connection import get_session
-from db.models import Event, Log
+from db.models import Log
 from db.users import get_or_create_user_id
 from bot.common.participant_state_reconcile import reconcile_event_state_after_participant_change
 from bot.services import ParticipantService
@@ -35,12 +33,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     telegram_user_id = update.effective_user.id
     chat_id = update.effective_chat.id if update.effective_chat else None
     async with get_session(settings.db_url) as session:
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, telegram_user_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            telegram_user_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
         if not is_visible:
             await message.reply_text(f"❌ {error_msg or 'Event not found.'}")
@@ -58,9 +56,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 source="slash",
             )
         except Exception:
-            await message.reply_text(
-                "ℹ️ You are not confirmed in this event."
-            )
+            await message.reply_text("ℹ️ You are not confirmed in this event.")
             return
 
         user_id = await get_or_create_user_id(

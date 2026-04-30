@@ -3,6 +3,7 @@ Application configuration management.
 Loads environment variables and provides centralized access to settings.
 PRD v2: Updated for production hardening.
 """
+
 import os
 from dotenv import load_dotenv
 
@@ -21,9 +22,7 @@ class Settings:
         self.db_url: str | None = os.environ.get("DB_URL")
 
         # AI/LLM
-        self.ai_endpoint: str = os.environ.get(
-            "AI_ENDPOINT", "http://127.0.0.1:8080/v1/"
-        )
+        self.ai_endpoint: str = os.environ.get("AI_ENDPOINT", "http://127.0.0.1:8080/v1/")
         self.ai_model: str = os.environ.get("AI_MODEL", "qwen/qwen3-coder-next")
         self.ai_api_key: str = os.environ.get("AI_API_KEY", "dummy-key")
 

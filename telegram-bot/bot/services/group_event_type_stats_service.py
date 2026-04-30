@@ -4,6 +4,7 @@ PRD v3.2: Used for repeated failure pattern surface in meaning-formation.
 
 Invariant: No individual user data. Group-level only.
 """
+
 from __future__ import annotations
 
 import logging
@@ -11,7 +12,7 @@ from typing import Optional, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from db.models import GroupEventTypeStats, Event
+from db.models import GroupEventTypeStats
 
 logger = logging.getLogger("coord_bot.services.event_type_stats")
 

@@ -27,12 +27,17 @@ logger = logging.getLogger(__name__)
 
 async def handle_event_flow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Main event flow handler - routes to state-specific handlers."""
+    import asyncio
+
     query = update.callback_query
 
     if not query or not query.data:
         return
 
-    await query.answer()
+    try:
+        await asyncio.wait_for(query.answer(), timeout=5.0)
+    except asyncio.TimeoutError:
+        pass
 
     data = query.data
 
@@ -62,6 +67,13 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
     username = query.from_user.username
     bot = context.bot
 
+    logger.info(
+        "[EVENT_FLOW] Join handler started | event_id=%s user_id=%s username=%s",
+        event_id,
+        telegram_user_id,
+        username,
+    )
+
     # Prevent interactions from group chats - all event interactions should be in DMs
     chat_type = getattr(getattr(query, "message", None), "chat", None)
     if chat_type:
@@ -74,12 +86,12 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
     async with get_session(db_url) as session:
         # Check event visibility based on group membership
         chat_id = getattr(getattr(query, "message", None), "chat_id", None)
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, telegram_user_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            telegram_user_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
 
         if not is_visible:
@@ -129,24 +141,27 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
             return
 
         # v3.2: Check if event is at target capacity → offer waitlist
+        # Bug 5 fix: Only count confirmed participants against capacity (not joined/interested)
         from sqlalchemy import func as sql_func
         from db.models import EventParticipant
+
         participant_result = await session.execute(
-            select(sql_func.count(EventParticipant.telegram_user_id))
-            .where(
+            select(sql_func.count(EventParticipant.telegram_user_id)).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.status.in_([
-                    ParticipantStatus.confirmed,
-                    ParticipantStatus.joined,
-                ])
+                EventParticipant.status == ParticipantStatus.confirmed,
             )
         )
         current_count = participant_result.scalar() or 0
         target = event.target_participants or event.min_participants or 6
 
-        if current_count >= target and not (participant and participant.status in [ParticipantStatus.joined, ParticipantStatus.confirmed, ParticipantStatus.cancelled]):
+        if current_count >= target and not (
+            participant
+            and participant.status
+            in [ParticipantStatus.joined, ParticipantStatus.confirmed, ParticipantStatus.cancelled]
+        ):
             # Event at capacity — offer waitlist
             from bot.services import WaitlistService
+
             waitlist_service = WaitlistService(session, bot)
 
             # Check if already on waitlist
@@ -162,12 +177,14 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
             await query.edit_message_text(
                 f"📋 The {event.event_type} is full at the moment. "
                 f"Want me to add you to the waitlist? You'll be notified if a spot opens.",
-                reply_markup=InlineKeyboardMarkup([
+                reply_markup=InlineKeyboardMarkup(
                     [
-                        InlineKeyboardButton("✅ Join Waitlist", callback_data=f"waitlist_join_{event_id}"),
-                        InlineKeyboardButton("❌ No Thanks", callback_data=f"event_close_{event_id}"),
+                        [
+                            InlineKeyboardButton("✅ Join Waitlist", callback_data=f"waitlist_join_{event_id}"),
+                            InlineKeyboardButton("❌ No Thanks", callback_data=f"event_close_{event_id}"),
+                        ]
                     ]
-                ])
+                ),
             )
             return
 
@@ -187,32 +204,56 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
 
         # Check if we need to transition state from proposed to interested
         confirmed_count = await participant_service.get_confirmed_count(event_id)
+        logger.info(
+            "[EVENT_FLOW] Checking state transition | event_id=%s current_state=%s confirmed_count=%d",
+            event_id,
+            event.state,
+            confirmed_count,
+        )
         if event.state == "proposed" and confirmed_count > 0:
             lifecycle_service = EventLifecycleService(bot, session)
             try:
+                logger.info(
+                    "[EVENT_FLOW] Triggering state transition | event_id=%s from=proposed to=interested",
+                    event_id,
+                )
                 event, _ = await lifecycle_service.transition_with_lifecycle(
                     event_id=event_id,
                     target_state="interested",
                     actor_telegram_user_id=telegram_user_id,
                     source="callback",
                     reason="First participant joined",
+                    expected_version=event.version,
+                )
+                logger.info(
+                    "[EVENT_FLOW] State transition successful | event_id=%s new_state=interested",
+                    event_id,
                 )
             except Exception as e:
-                logger.error(f"Failed to transition event {event_id} to interested: {e}")
+                logger.error(
+                    "[EVENT_FLOW] State transition failed | event_id=%s target_state=interested error=%s",
+                    event_id,
+                    str(e),
+                    exc_info=True,
+                )
 
         log = Log(
             event_id=event_id,
             user_id=user_id,
             action="join",
-            metadata_dict={"timestamp": datetime.utcnow().isoformat()}
+            metadata_dict={"timestamp": datetime.utcnow().isoformat()},
         )
         session.add(log)
         await session.commit()
+        logger.info(
+            "[EVENT_FLOW] Join committed to database | event_id=%s user_id=%s log_id=%s",
+            event_id,
+            telegram_user_id,
+            log.log_id if hasattr(log, 'log_id') else 'pending',
+        )
 
         # Refresh event to get latest state
-        result = await session.execute(
-            select(Event).where(Event.event_id == event_id)
-        )
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
 
         # Get participant status to determine button text
@@ -265,17 +306,19 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
             # Add Logs row if not already added
             keyboard.append([InlineKeyboardButton("📝 View Logs", callback_data=f"event_logs_{event_id}")])
 
-        keyboard.extend([
+        keyboard.extend(
             [
-                InlineKeyboardButton(
-                    "🔒 Manage Constraints",
-                    callback_data=f"event_constraints_{event_id}",
-                )
-            ],
-            [InlineKeyboardButton("📊 Status", callback_data=f"event_status_{event_id}")],
-            [InlineKeyboardButton("🔄 Refresh", callback_data=f"event_details_{event_id}")],
-            [InlineKeyboardButton("🔙 Close", callback_data=f"event_close_{event_id}")],
-        ])
+                [
+                    InlineKeyboardButton(
+                        "🔒 Manage Constraints",
+                        callback_data=f"event_constraints_{event_id}",
+                    )
+                ],
+                [InlineKeyboardButton("📊 Status", callback_data=f"event_status_{event_id}")],
+                [InlineKeyboardButton("🔄 Refresh", callback_data=f"event_details_{event_id}")],
+                [InlineKeyboardButton("🔙 Close", callback_data=f"event_close_{event_id}")],
+            ]
+        )
 
         # Add Modify button for organizer/admin
         admin_id = get_event_admin_telegram_id(event)
@@ -286,9 +329,7 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
         # Add DM links
         if bot.username:
             avail_link = f"https://t.me/{bot.username}?start=avail_{event_id}"
-            keyboard.append(
-                [InlineKeyboardButton("📥 Set Availability in DM", url=avail_link)]
-            )
+            keyboard.append([InlineKeyboardButton("📥 Set Availability in DM", url=avail_link)])
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -316,9 +357,8 @@ async def handle_join(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
             f"_The event is now gathering momentum!_\n"
             f"_Set your availability, add constraints, and engage with the group._",
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
-
 
 
 async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
@@ -340,12 +380,12 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
     async with get_session(db_url) as session:
         # Check event visibility based on group membership
         chat_id = getattr(getattr(query, "message", None), "chat_id", None)
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, telegram_user_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            telegram_user_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
 
         if not is_visible:
@@ -409,6 +449,7 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
                     actor_telegram_user_id=telegram_user_id,
                     source="callback",
                     reason="Participant confirmed attendance",
+                    expected_version=event.version,
                 )
             except Exception as e:
                 logger.error(f"Failed to transition event {event_id} to confirmed: {e}")
@@ -424,15 +465,13 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
             event_id=event_id,
             user_id=user_id,
             action="confirm",
-            metadata_dict={"timestamp": datetime.utcnow().isoformat()}
+            metadata_dict={"timestamp": datetime.utcnow().isoformat()},
         )
         session.add(log)
         await session.commit()
 
         # Refresh event to get latest state
-        result = await session.execute(
-            select(Event).where(Event.event_id == event_id)
-        )
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
 
         # Build comprehensive event menu with all actions
@@ -463,9 +502,11 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
         admin_id = get_event_admin_telegram_id(event)
         organizer_id = get_event_organizer_telegram_id(event)
         if telegram_user_id in [admin_id, organizer_id] and event.state == "confirmed":
-            keyboard.append([
-                InlineKeyboardButton("🔒 Lock Event", callback_data=f"event_lock_{event_id}"),
-            ])
+            keyboard.append(
+                [
+                    InlineKeyboardButton("🔒 Lock Event", callback_data=f"event_lock_{event_id}"),
+                ]
+            )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -493,7 +534,7 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
             f"_Your confirmation helps the event reach critical mass!_\n"
             f"_You can go back before the event is locked._",
             reply_markup=reply_markup,
-            parse_mode="Markdown"
+            parse_mode="Markdown",
         )
 
 
@@ -513,12 +554,12 @@ async def handle_back(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
     async with get_session(db_url) as session:
         # Check event visibility based on group membership
         chat_id = getattr(getattr(query, "message", None), "chat_id", None)
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, telegram_user_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            telegram_user_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
 
         if not is_visible:
@@ -534,9 +575,7 @@ async def handle_back(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
         participant = await participant_service.get_participant(event_id, telegram_user_id)
 
         if not participant or participant.status != ParticipantStatus.confirmed:
-            await query.edit_message_text(
-                "ℹ️ You are not confirmed in this event."
-            )
+            await query.edit_message_text("ℹ️ You are not confirmed in this event.")
             return
 
         await participant_service.unconfirm(
@@ -561,7 +600,6 @@ async def handle_back(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
     )
 
 
-
 async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
     """Handle cancelling attendance for the clicking user.
     v3.2: Triggers waitlist auto-fill if someone is waiting.
@@ -583,12 +621,12 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE, event_id: int
     async with get_session(db_url) as session:
         # Check event visibility based on group membership
         chat_id = getattr(getattr(query, "message", None), "chat_id", None)
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, telegram_user_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            telegram_user_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
 
         if not is_visible:
@@ -609,6 +647,7 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE, event_id: int
 
         # v3.2: Trigger waitlist auto-fill
         from bot.services import WaitlistService
+
         waitlist_service = WaitlistService(session, bot)
         await waitlist_service.trigger_auto_fill(event_id)
 
@@ -632,7 +671,7 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE, event_id: int
             event_id=event_id,
             user_id=user_id,
             action="cancel",
-            metadata_dict={"timestamp": datetime.utcnow().isoformat()}
+            metadata_dict={"timestamp": datetime.utcnow().isoformat()},
         )
         session.add(log)
         await session.commit()
@@ -642,7 +681,6 @@ async def handle_cancel(query, context: ContextTypes.DEFAULT_TYPE, event_id: int
             f"State: {event.state}\n"
             f"Meaning: {STATE_EXPLANATIONS.get(event.state, 'Unknown state')}"
         )
-
 
 
 async def handle_lock(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
@@ -662,12 +700,12 @@ async def handle_lock(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
     async with get_session(db_url) as session:
         # Check event visibility based on group membership
         chat_id = getattr(getattr(query, "message", None), "chat_id", None)
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, telegram_user_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            telegram_user_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
 
         if not is_visible:
@@ -711,14 +749,11 @@ async def handle_lock(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) 
         )
 
 
-
 async def show_event_details(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
     """Show detailed event information."""
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
-        result = await session.execute(
-            select(Event).where(Event.event_id == event_id)
-        )
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
 
         if not event:

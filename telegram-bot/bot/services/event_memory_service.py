@@ -8,6 +8,7 @@ This service manages:
 - Event lineage (connecting related events)
 - Memory-first event creation support
 """
+
 from __future__ import annotations
 
 import logging
@@ -53,13 +54,14 @@ class EventMemoryService:
             return
 
         result = await self.session.execute(
-            select(EventParticipant)
-            .where(
+            select(EventParticipant).where(
                 EventParticipant.event_id == event.event_id,
-                EventParticipant.status.in_([
-                    ParticipantStatus.confirmed,
-                    ParticipantStatus.joined,
-                ])
+                EventParticipant.status.in_(
+                    [
+                        ParticipantStatus.confirmed,
+                        ParticipantStatus.joined,
+                    ]
+                ),
             )
         )
         participants = result.scalars().all()
@@ -69,15 +71,11 @@ class EventMemoryService:
             return
 
         logger.info(
-            "Starting memory collection for %d participants",
-            len(participants),
-            extra={"event_id": event.event_id}
+            "Starting memory collection for %d participants", len(participants), extra={"event_id": event.event_id}
         )
 
         # v3.2: Check for reflexive lineage fragment
-        lineage_fragment = await self.get_lineage_door_fragment(
-            event.group_id or 0, event.event_type
-        )
+        lineage_fragment = await self.get_lineage_door_fragment(event.group_id or 0, event.event_type)
 
         for participant in participants:
             await self._send_memory_request(participant, event, lineage_fragment)
@@ -114,7 +112,7 @@ class EventMemoryService:
             # Reflexive lineage door with prior fragment
             message = (
                 f"How was {event_name}? The last time your group did something like this, "
-                f"someone said: \"{lineage_fragment}\".\n\n"
+                f'someone said: "{lineage_fragment}".\n\n'
                 f"Anything from today you'd want to remember? A moment that worked, "
                 f"something that surprised you, something that didn't quite go as planned. "
                 f"Whatever comes to mind."
@@ -152,9 +150,7 @@ class EventMemoryService:
         v3: No deadline — fragments accepted weeks after event.
         v3.2: word_count computed at write time for hook/lineage qualification.
         """
-        contributor_hash = hashlib.sha256(
-            f"{event_id}:{user_id}:{datetime.utcnow().date()}".encode()
-        ).hexdigest()[:8]
+        contributor_hash = hashlib.sha256(f"{event_id}:{user_id}:{datetime.utcnow().date()}".encode()).hexdigest()[:8]
 
         # v3.2: count words at write time
         word_count = len(fragment_text.split())
@@ -169,7 +165,12 @@ class EventMemoryService:
 
         logger.info(
             "Collected memory fragment",
-            extra={"event_id": event_id, "contributor_hash": contributor_hash, "tone": fragment["tone_tag"], "word_count": word_count},
+            extra={
+                "event_id": event_id,
+                "contributor_hash": contributor_hash,
+                "tone": fragment["tone_tag"],
+                "word_count": word_count,
+            },
         )
 
         return fragment
@@ -180,9 +181,7 @@ class EventMemoryService:
         fragment: Dict[str, Any],
     ) -> EventMemory:
         """Add fragment to event memory (create or update EventMemory)."""
-        result = await self.session.execute(
-            select(EventMemory).where(EventMemory.event_id == event_id)
-        )
+        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == event_id))
         memory = result.scalar_one_or_none()
 
         if not memory:
@@ -207,9 +206,7 @@ class EventMemoryService:
         v3 Constraint: LLM rearranges fragments only. No words added. No interpretation.
         If LLM can't be constrained, fall back to chronological ordering.
         """
-        result = await self.session.execute(
-            select(EventMemory).where(EventMemory.event_id == event.event_id)
-        )
+        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == event.event_id))
         memory = result.scalar_one_or_none()
 
         if not memory or not memory.fragments:
@@ -218,6 +215,7 @@ class EventMemoryService:
 
         try:
             from ai.llm import LLMClient
+
             llm = LLMClient()
 
             fragments_json = json.dumps(
@@ -256,7 +254,9 @@ class EventMemoryService:
             )
             weave_text = self._chronological_weave(memory.fragments)
 
-        event_anchor = f"{event.event_type} • {event.scheduled_time.strftime('%d %b %Y') if event.scheduled_time else 'TBD'}"
+        event_anchor = (
+            f"{event.event_type} • {event.scheduled_time.strftime('%d %b %Y') if event.scheduled_time else 'TBD'}"
+        )
         header = f"📿 <b>How people remember: {event_anchor}</b>\n\n"
         full_weave = header + weave_text
 
@@ -300,9 +300,7 @@ class EventMemoryService:
 
     async def add_hashtags(self, event_id: int, hashtags: List[str]) -> EventMemory:
         """Add group hashtags to event memory."""
-        result = await self.session.execute(
-            select(EventMemory).where(EventMemory.event_id == event_id)
-        )
+        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == event_id))
         memory = result.scalar_one_or_none()
 
         if not memory:
@@ -318,9 +316,7 @@ class EventMemoryService:
         marker: Dict[str, Any],
     ) -> EventMemory:
         """Add outcome marker (e.g., 'led to collaboration X')."""
-        result = await self.session.execute(
-            select(EventMemory).where(EventMemory.event_id == event_id)
-        )
+        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == event_id))
         memory = result.scalar_one_or_none()
 
         if not memory:
@@ -339,9 +335,7 @@ class EventMemoryService:
         prior_event_ids: List[int],
     ) -> EventMemory:
         """Link current event to prior similar events (lineage)."""
-        result = await self.session.execute(
-            select(EventMemory).where(EventMemory.event_id == current_event_id)
-        )
+        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == current_event_id))
         memory = result.scalar_one_or_none()
 
         if not memory:
@@ -354,9 +348,7 @@ class EventMemoryService:
 
     async def get_memory_weave(self, event_id: int) -> Optional[EventMemory]:
         """Get memory weave for an event."""
-        result = await self.session.execute(
-            select(EventMemory).where(EventMemory.event_id == event_id)
-        )
+        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == event_id))
         return result.scalar_one_or_none()
 
     async def get_recent_memories(self, group_id: int, limit: int = 10) -> List[EventMemory]:
@@ -393,6 +385,7 @@ class EventMemoryService:
                 all_hashtags.extend(hashtags)
 
         from collections import Counter
+
         counts = Counter(all_hashtags)
         return [tag for tag, _ in counts.most_common(3)]
 
@@ -514,14 +507,26 @@ class EventMemoryService:
 
         # Reflexive keyword heuristic
         reflexive_keywords = {
-            "almost", "hard", "wrong", "late", "cold", "rain", "tired",
-            "difficult", "unexpected", "surprised", "didn't", "couldn't",
-            "changed", "figured", "adapted", "anyway", "despite", "still",
+            "almost",
+            "hard",
+            "wrong",
+            "late",
+            "cold",
+            "rain",
+            "tired",
+            "difficult",
+            "unexpected",
+            "surprised",
+            "didn't",
+            "couldn't",
+            "changed",
+            "figured",
+            "adapted",
+            "anyway",
+            "despite",
+            "still",
         }
-        reflexive = [
-            f for f in qualifying
-            if any(kw in f.get("text", "").lower() for kw in reflexive_keywords)
-        ]
+        reflexive = [f for f in qualifying if any(kw in f.get("text", "").lower() for kw in reflexive_keywords)]
         if reflexive:
             return min(reflexive, key=lambda f: f.get("word_count", 999)).get("text")
 

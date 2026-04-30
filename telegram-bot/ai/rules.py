@@ -2,6 +2,7 @@
 AI rules-based engine for coordination.
 Provides fallback logic when LLM is unavailable.
 """
+
 from collections import defaultdict
 from typing import Any, Dict, List
 from db.models import Event
@@ -22,14 +23,8 @@ class RuleBasedEngine:
                 if slot:
                     slot_users[slot].add(int(constraint.user_id))
             if slot_users:
-                return {
-                    slot: float(len(users))
-                    for slot, users in slot_users.items()
-                }
-        return {
-            int(participant.telegram_user_id): 1.0
-            for participant in (getattr(event, "participants", None) or [])
-        }
+                return {slot: float(len(users)) for slot, users in slot_users.items()}
+        return {int(participant.telegram_user_id): 1.0 for participant in (getattr(event, "participants", None) or [])}
 
     def resolve_conflicts(
         self,
@@ -45,8 +40,7 @@ class RuleBasedEngine:
             best_slot = max(availability, key=availability.get)
             suggested_time = str(best_slot).replace("T", " ")
             reasoning = (
-                "Using attendee availability constraints; selected the slot "
-                "with the most declared availability"
+                "Using attendee availability constraints; selected the slot " "with the most declared availability"
             )
 
         return {
@@ -62,9 +56,10 @@ class RuleBasedEngine:
             {
                 "user": c.user_id,
                 "target": c.target_user_id,
-                "condition": f"User {c.user_id} joins only if User {c.target_user_id} joins"
+                "condition": f"User {c.user_id} joins only if User {c.target_user_id} joins",
             }
-            for c in constraints if c.type == "if_joins"
+            for c in constraints
+            if c.type == "if_joins"
         ]
 
     def generate_compromises(self, conflicts: List[Dict[str, Any]]) -> List[str]:
@@ -80,5 +75,5 @@ class RuleBasedEngine:
             "suggested_time": str(event.scheduled_time) if event.scheduled_time else "TBD",
             "reasoning": "AI fallback - rules-based suggestion only",
             "confidence": 0.3,
-            "note": "LLM unavailable, using rules-based suggestion"
+            "note": "LLM unavailable, using rules-based suggestion",
         }

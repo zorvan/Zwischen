@@ -32,10 +32,7 @@ def _build_event_draft(event: Event) -> dict[str, object]:
     return {
         "description": event.description or "",
         "event_type": event.event_type,
-        "scheduled_time": (
-            event.scheduled_time.isoformat(timespec="minutes")
-            if event.scheduled_time else None
-        ),
+        "scheduled_time": (event.scheduled_time.isoformat(timespec="minutes") if event.scheduled_time else None),
         "duration_minutes": int(event.duration_minutes or 120),
         "min_participants": int(event.min_participants or 2),
         "target_participants": int(event.target_participants or event.min_participants or 2),
@@ -123,11 +120,7 @@ def _apply_inferred_event_patch(
         except ValueError:
             pass
 
-    planning_prefs = (
-        dict(event.planning_prefs)
-        if isinstance(event.planning_prefs, dict)
-        else {}
-    )
+    planning_prefs = dict(event.planning_prefs) if isinstance(event.planning_prefs, dict) else {}
     planning_changed = False
 
     for pref_key in ["location_type", "budget_level", "transport_mode"]:
@@ -171,20 +164,18 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with get_session(settings.db_url) as session:
         requester_id = int(update.effective_user.id)
         chat_id = update.effective_chat.id if update.effective_chat else None
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, requester_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            requester_id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
         if not is_visible:
             await update.message.reply_text(f"❌ {error_msg or 'Event not found.'}")
             return
         if event.state in {"locked", "completed", "cancelled"}:
-            await update.message.reply_text(
-                f"❌ Event {event_id} is {event.state}; modification is not allowed."
-            )
+            await update.message.reply_text(f"❌ Event {event_id} is {event.state}; modification is not allowed.")
             return
         admin_id = get_event_admin_telegram_id(event)
         requester_id = int(update.effective_user.id)
@@ -208,9 +199,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         changed_fields, reason_parts = _apply_inferred_event_patch(event, patch)
 
         if not changed_fields:
-            await update.message.reply_text(
-                "⚠️ No valid event change inferred from your message."
-            )
+            await update.message.reply_text("⚠️ No valid event change inferred from your message.")
             return
 
         invalidated = await invalidate_confirmations_and_notify(
@@ -226,9 +215,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await session.commit()
 
     await update.message.reply_text(
-        "✅ Event updated.\n"
-        f"Changed fields: {', '.join(changed_fields)}\n"
-        f"Confirmations reset: {invalidated}"
+        "✅ Event updated.\n" f"Changed fields: {', '.join(changed_fields)}\n" f"Confirmations reset: {invalidated}"
     )
 
 
@@ -242,9 +229,7 @@ async def _submit_modify_request(
     """Submit a modify request when non-admin user requests changes."""
     admin_id = get_event_admin_telegram_id(event)
     if admin_id is None:
-        await update.message.reply_text(
-            "❌ Could not identify event admin to approve modification request."
-        )
+        await update.message.reply_text("❌ Could not identify event admin to approve modification request.")
         return
 
     request_id = uuid_lib.uuid4().hex[:8]
@@ -273,19 +258,12 @@ async def _submit_modify_request(
         event_data={
             "description": event.description or "",
             "event_type": event.event_type,
-            "scheduled_time": (
-                event.scheduled_time.isoformat(timespec="minutes")
-                if event.scheduled_time else None
-            ),
+            "scheduled_time": (event.scheduled_time.isoformat(timespec="minutes") if event.scheduled_time else None),
             "duration_minutes": int(event.duration_minutes or 120),
             "min_participants": int(event.min_participants or 2),
-            "target_participants": int(
-                event.target_participants or event.min_participants or 2
-            ),
+            "target_participants": int(event.target_participants or event.min_participants or 2),
             "location_type": (
-                (event.planning_prefs or {}).get("location_type")
-                if hasattr(event, "planning_prefs")
-                else None
+                (event.planning_prefs or {}).get("location_type") if hasattr(event, "planning_prefs") else None
             ),
             "change_text": change_text,
             "requester": update.effective_user.username or update.effective_user.full_name,
@@ -300,14 +278,10 @@ async def _submit_modify_request(
     )
 
     if not adminDM_sent:
-        await update.message.reply_text(
-            "⚠️ Could not send DM to admin. Please check your privacy settings."
-        )
+        await update.message.reply_text("⚠️ Could not send DM to admin. Please check your privacy settings.")
 
 
-async def handle_modify_request_callback(
-    update: Update, context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle_modify_request_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle modify request approval/rejection callbacks."""
     query = update.callback_query
     if not query or not query.data:
@@ -344,15 +318,13 @@ async def handle_modify_request_callback(
     pending_root.pop(f"modreq_{request_id}", None)
 
     if decision == "reject":
-        await query.edit_message_text(
-            f"❌ Modify request for event {event_id} was rejected by admin."
-        )
+        await query.edit_message_text(f"❌ Modify request for event {event_id} was rejected by admin.")
         # Notify requester of rejection
         if requester_id:
             try:
                 await context.bot.send_message(
                     chat_id=requester_id,
-                    text=f"❌ Your modify request for event {event_id} was rejected by the event admin."
+                    text=f"❌ Your modify request for event {event_id} was rejected by the event admin.",
                 )
             except Exception as e:
                 logger.warning(f"Could not notify requester ({requester_id}) of rejection: {e}")
@@ -361,20 +333,18 @@ async def handle_modify_request_callback(
     async with get_session(settings.db_url) as session:
         # Admin is already authorized via pending request check above
         chat_id = getattr(getattr(query, "message", None), "chat_id", None)
-        is_visible, event, group, error_msg = (
-            await check_event_visibility_and_get_event(
-                session, event_id, query.from_user.id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
-            )
+        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
+            session,
+            event_id,
+            query.from_user.id,
+            telegram_chat_id=chat_id,
+            bot=context.bot,
         )
         if not is_visible:
             await query.edit_message_text(f"❌ {error_msg or 'Event not found.'}")
             return
         if event.state in {"locked", "completed", "cancelled"}:
-            await query.edit_message_text(
-                f"❌ Event {event_id} is {event.state}; modification is no longer possible."
-            )
+            await query.edit_message_text(f"❌ Event {event_id} is {event.state}; modification is no longer possible.")
             return
 
         draft = _build_event_draft(event)
@@ -428,7 +398,7 @@ async def handle_modify_request_callback(
                 text=(
                     f"✅ Your modify request for event {event_id} was approved by the event admin.\n"
                     f"Changed fields: {', '.join(changed_fields)}"
-                )
+                ),
             )
         except Exception as e:
             logger.warning(f"Could not notify requester ({requester_id}) of approval: {e}")

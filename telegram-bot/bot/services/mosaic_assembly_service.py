@@ -21,9 +21,11 @@ from bot.services.event_enrichment_service import EventEnrichmentService
 # Data Structures
 # =============================================================================
 
+
 @dataclass
 class MosaicFragment:
     """A single fragment in the mosaic."""
+
     id: int
     content: str
     author_id: int
@@ -34,6 +36,7 @@ class MosaicFragment:
 @dataclass
 class MosaicResult:
     """Result of mosaic assembly."""
+
     event_id: int
     fragments: List[MosaicFragment]
     summary: Optional[str]
@@ -46,10 +49,11 @@ class MosaicResult:
 # Service Class
 # =============================================================================
 
+
 class MosaicAssembler:
     """
     Assembles private memories into public mosaics.
-    
+
     When an event completes, this service:
     1. Fetches all private memory enrichments for the event
     2. Marks them as public
@@ -84,17 +88,17 @@ class MosaicAssembler:
     ) -> Dict[str, Any]:
         """
         Assemble a mosaic from event memories.
-        
+
         Args:
             event_id: Event to assemble mosaic for
             parent_event_id: Optional parent event for lineage tracking
-            
+
         Returns:
             Mosaic result dictionary
         """
         # Fetch all private memories for this event
         memories = await self._fetch_memories(event_id)
-        
+
         if not memories:
             return {
                 "event_id": event_id,
@@ -106,7 +110,7 @@ class MosaicAssembler:
 
         # Create fragments from memories
         fragments = [self._create_fragment(m) for m in memories]
-        
+
         # Mark memories as public
         for memory in memories:
             await self._update_memory_visibility(memory.id, is_public=True)
@@ -149,13 +153,13 @@ class MosaicAssembler:
     ) -> Dict[str, Any]:
         """
         Assemble mosaic and store it in EventMemory.
-        
+
         This is the main entry point for completing the memory loop.
-        
+
         Args:
             event_id: Event to assemble mosaic for
             parent_event_id: Optional parent event for lineage tracking
-            
+
         Returns:
             Mosaic result dictionary
         """
@@ -177,10 +181,10 @@ class MosaicAssembler:
     async def _fetch_memories(self, event_id: int) -> List[EventEnrichment]:
         """
         Fetch all private memory enrichments for an event.
-        
+
         Args:
             event_id: Event to fetch memories for
-            
+
         Returns:
             List of memory enrichments
         """
@@ -188,7 +192,7 @@ class MosaicAssembler:
             EventEnrichment.event_id == event_id,
             EventEnrichment.enrichment_type == "memory",
         )
-        
+
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
@@ -199,50 +203,55 @@ class MosaicAssembler:
     async def get_lineage_fragments(self, event_id: int) -> List[Dict[str, Any]]:
         """
         Get memory fragments from parent events via lineage.
-        
+
         v3.5: Displays memories from previous events that are related
         to this event through the lineage chain. Creates a memory
         trail that shows context and history.
-        
+
         Args:
             event_id: Event to get lineage for
-            
+
         Returns:
             List of fragment dictionaries with content and metadata
         """
         # Find parent event through lineage
-        lineage_stmt = select(EventLineage).where(
-            EventLineage.child_event_id == event_id
-        )
+        lineage_stmt = select(EventLineage).where(EventLineage.child_event_id == event_id)
         lineage_result = await self.session.execute(lineage_stmt)
         lineage = lineage_result.scalar_one_or_none()
-        
+
         if not lineage:
             return []  # No parent event
-        
+
         parent_event_id = lineage.parent_event_id
-        
+
         # Fetch public memories from parent event
-        memories_stmt = select(EventEnrichment).where(
-            EventEnrichment.event_id == parent_event_id,
-            EventEnrichment.enrichment_type == "memory",
-            EventEnrichment.is_public == True,  # Only public memories
-        ).order_by(EventEnrichment.created_at.desc()).limit(5)  # Show last 5
-        
+        memories_stmt = (
+            select(EventEnrichment)
+            .where(
+                EventEnrichment.event_id == parent_event_id,
+                EventEnrichment.enrichment_type == "memory",
+                EventEnrichment.is_public.is_(True),  # Only public memories
+            )
+            .order_by(EventEnrichment.created_at.desc())
+            .limit(5)
+        )  # Show last 5
+
         memories_result = await self.session.execute(memories_stmt)
         memories = memories_result.scalars().all()
-        
+
         # Convert to display format
         fragments = []
         for memory in memories:
-            fragments.append({
-                "id": memory.id,
-                "content": memory.content[:200] + "..." if len(memory.content) > 200 else memory.content,
-                "author_id": memory.telegram_user_id,
-                "created_at": memory.created_at.isoformat() if memory.created_at else None,
-                "parent_event_id": parent_event_id,
-            })
-        
+            fragments.append(
+                {
+                    "id": memory.id,
+                    "content": memory.content[:200] + "..." if len(memory.content) > 200 else memory.content,
+                    "author_id": memory.telegram_user_id,
+                    "created_at": memory.created_at.isoformat() if memory.created_at else None,
+                    "parent_event_id": parent_event_id,
+                }
+            )
+
         return fragments
 
     # -------------------------------------------------------------------------
@@ -252,18 +261,18 @@ class MosaicAssembler:
     def _create_fragment(self, memory: EventEnrichment) -> MosaicFragment:
         """
         Create a mosaic fragment from a memory enrichment.
-        
+
         Args:
             memory: Memory enrichment to convert
-            
+
         Returns:
             Mosaic fragment
         """
         content = memory.content
-        
+
         # Truncate if too long
         if len(content) > self.MAX_FRAGMENT_LENGTH:
-            content = content[:self.MAX_FRAGMENT_LENGTH - 3] + "..."
+            content = content[: self.MAX_FRAGMENT_LENGTH - 3] + "..."
 
         return MosaicFragment(
             id=memory.id,
@@ -284,16 +293,12 @@ class MosaicAssembler:
     ) -> None:
         """
         Update the visibility of a memory.
-        
+
         Args:
             memory_id: Memory to update
             is_public: New visibility status
         """
-        stmt = (
-            update(EventEnrichment)
-            .where(EventEnrichment.id == memory_id)
-            .values(is_public=is_public)
-        )
+        stmt = update(EventEnrichment).where(EventEnrichment.id == memory_id).values(is_public=is_public)
         await self.session.execute(stmt)
         await self.session.commit()
 
@@ -307,12 +312,12 @@ class MosaicAssembler:
     ) -> Optional[str]:
         """
         Generate a summary of memories using LLM.
-        
+
         Falls back to simple concatenation if LLM unavailable.
-        
+
         Args:
             memories: List of memories to summarize
-            
+
         Returns:
             Summary string or None
         """
@@ -336,10 +341,10 @@ class MosaicAssembler:
     ) -> str:
         """
         Use LLM to generate a poetic summary of memories.
-        
+
         Args:
             memories: List of memories to summarize
-            
+
         Returns:
             Generated summary
         """
@@ -360,7 +365,7 @@ class MosaicAssembler:
     def _build_summary_prompt(self, memory_texts: List[str]) -> str:
         """Build prompt for LLM summarization."""
         memories_str = "\n".join(f"- {text}" for text in memory_texts)
-        
+
         return f"""Summarize these event memories into a brief, poetic paragraph:
 
 Memories:
@@ -380,11 +385,11 @@ Keep it under 200 words."""
     ) -> Dict[str, Any]:
         """
         Record lineage between events.
-        
+
         Args:
             event_id: Child event
             parent_event_id: Parent event
-            
+
         Returns:
             Lineage record
         """
@@ -394,7 +399,7 @@ Keep it under 200 words."""
             relationship_type="memory_continuation",
             created_at=datetime.now(timezone.utc),
         )
-        
+
         self.session.add(lineage)
         await self.session.commit()
 
@@ -415,7 +420,7 @@ Keep it under 200 words."""
     ) -> None:
         """
         Store mosaic in EventMemory.
-        
+
         Args:
             event_id: Event to store mosaic for
             mosaic: Mosaic data to store
@@ -448,7 +453,7 @@ Keep it under 200 words."""
     ) -> None:
         """
         Append mosaic fragments to EventMemory.fragments.
-        
+
         Args:
             event_id: Event to append to
             fragments: Fragments to append
@@ -491,6 +496,7 @@ Keep it under 200 words."""
 # Convenience Functions
 # =============================================================================
 
+
 async def assemble_mosaic_for_event(
     session: AsyncSession,
     event_id: int,
@@ -499,13 +505,13 @@ async def assemble_mosaic_for_event(
 ) -> Dict[str, Any]:
     """
     Convenience function to assemble and store a mosaic.
-    
+
     Args:
         session: Database session
         event_id: Event to assemble mosaic for
         llm_client: Optional LLM client for summary generation
         parent_event_id: Optional parent event for lineage
-        
+
     Returns:
         Mosaic result
     """

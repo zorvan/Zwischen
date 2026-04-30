@@ -9,9 +9,7 @@ from db.connection import get_session
 from db.models import User
 
 
-async def handle(
-    update: Update, _context: ContextTypes.DEFAULT_TYPE
-) -> None:
+async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /profile command."""
     if not update.message:
         return
@@ -24,15 +22,11 @@ async def handle(
 
     telegram_user_id = update.effective_user.id
     async with get_session(settings.db_url) as session:
-        user_result = await session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
-        )
+        user_result = await session.execute(select(User).where(User.telegram_user_id == telegram_user_id))
         user = user_result.scalar_one_or_none()
         if not user:
             await update.message.reply_text(
-                "👤 *Your Profile*\n\n"
-                "No profile data yet.\n"
-                "Join events to build your participation history."
+                "👤 *Your Profile*\n\n" "No profile data yet.\n" "Join events to build your participation history."
             )
             return
 

@@ -1,4 +1,5 @@
 """Shared event presentation helpers."""
+
 from typing import Any
 
 from sqlalchemy import select
@@ -36,11 +37,7 @@ async def get_user_mention(session, telegram_user_id: int, bot=None) -> str:
     Returns:
         Formatted mention string
     """
-    user = (
-        await session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
-        )
-    ).scalar_one_or_none()
+    user = (await session.execute(select(User).where(User.telegram_user_id == telegram_user_id))).scalar_one_or_none()
 
     username = None
     display_name = None
@@ -68,6 +65,7 @@ async def get_user_mention(session, telegram_user_id: int, bot=None) -> str:
                 elif not user:
                     # Create user record
                     from db.models import User as UserModel
+
                     new_user = UserModel(
                         telegram_user_id=telegram_user_id,
                         username=username.lower() if username else None,
@@ -132,9 +130,7 @@ def summarize_description(description: str | None, max_len: int = 400) -> str:
     return text
 
 
-async def attendance_stats_with_usernames(
-    session, event_id: int
-) -> tuple[int, int, str]:
+async def attendance_stats_with_usernames(session, event_id: int) -> tuple[int, int, str]:
     """
     Return interested count, confirmed count, and formatted attendee text with usernames.
 
@@ -143,21 +139,13 @@ async def attendance_stats_with_usernames(
     """
     from db.models import EventParticipant
 
-    result = await session.execute(
-        select(EventParticipant).where(EventParticipant.event_id == event_id)
-    )
+    result = await session.execute(select(EventParticipant).where(EventParticipant.event_id == event_id))
     participants = result.scalars().all()
-    status_by_user = {
-        p.telegram_user_id: p.status.value for p in participants
-    }
+    status_by_user = {p.telegram_user_id: p.status.value for p in participants}
 
     # Count statuses (new system uses 'joined' and 'confirmed')
-    interested_count = sum(
-        1 for status in status_by_user.values() if status == "joined"
-    )
-    confirmed_count = sum(
-        1 for status in status_by_user.values() if status == "confirmed"
-    )
+    interested_count = sum(1 for status in status_by_user.values() if status == "joined")
+    confirmed_count = sum(1 for status in status_by_user.values() if status == "confirmed")
 
     if not status_by_user:
         return interested_count, confirmed_count, "No attendees yet."
@@ -167,9 +155,7 @@ async def attendance_stats_with_usernames(
 
     users = {}
     if user_ids:
-        result = await session.execute(
-            select(User).where(User.telegram_user_id.in_(user_ids))
-        )
+        result = await session.execute(select(User).where(User.telegram_user_id.in_(user_ids)))
         for user in result.scalars().all():
             users[user.telegram_user_id] = user
 
@@ -237,15 +223,9 @@ async def format_event_details_message(
     attendee_count = interested_count + confirmed_count
     threshold = event.min_participants or 0
     needed = max(threshold - confirmed_count, 0)
-    availability_count = sum(
-        1 for c in constraints if str(getattr(c, "type", "")).startswith("available:")
-    )
-    planning_prefs = (
-        event.planning_prefs
-        if isinstance(getattr(event, "planning_prefs", None), dict)
-        else {}
-    )
-    
+    availability_count = sum(1 for c in constraints if str(getattr(c, "type", "")).startswith("available:"))
+    planning_prefs = event.planning_prefs if isinstance(getattr(event, "planning_prefs", None), dict) else {}
+
     # Use human-readable formatters instead of raw values
     location_type = format_location_type(planning_prefs.get("location_type"))
     budget_level = format_budget_level(planning_prefs.get("budget_level"))
@@ -345,8 +325,8 @@ async def format_status_message(
         for participant, user in result.all():
             user_display = format_user_display(
                 telegram_user_id=participant.telegram_user_id,
-                username=getattr(user, 'username', None),
-                display_name=getattr(user, 'display_name', None),
+                username=getattr(user, "username", None),
+                display_name=getattr(user, "display_name", None),
             )
 
             if participant.status == ParticipantStatus.confirmed:
