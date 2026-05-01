@@ -59,6 +59,10 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         await _redirect_to_history(query, context)
     elif data == "menu_organize":
         await _redirect_to_organize(query, context)
+    elif data == "organize_public":
+        await _handle_organize_public(query, context)
+    elif data == "organize_private":
+        await _handle_organize_private(query, context)
     elif data == "menu_modify":
         await _redirect_to_modify(query, context)
     elif data == "menu_groups":
@@ -399,11 +403,41 @@ async def _redirect_to_history(query, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def _redirect_to_organize(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Redirect to organize command."""
+    keyboard = [
+        [InlineKeyboardButton("👥 Public / Group Event", callback_data="organize_public")],
+        [InlineKeyboardButton("🔒 Private Event", callback_data="organize_private")],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main")],
+    ]
+
     await query.edit_message_text(
-        "Organize Event\n\n"
-        "Please use /organize_event command in a group chat to create an event.\n\n"
-        "Or use /private_organize_event to create a private locked event.",
-        reply_markup=build_back_to_menu_keyboard(),
+        "✏️ *Organize Event*\n\n"
+        "Choose the type of event you want to create:\n\n"
+        "• *Public / Group Event* — Shared with the group, everyone can join\n"
+        "• *Private Event* — Only you can see and manage it",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown",
+    )
+
+
+async def _handle_organize_public(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle public/group event creation."""
+    from bot.commands.event_creation import start_event_flow
+
+    await start_event_flow(
+        context=context,
+        mode="public",
+        callback_query=query,
+    )
+
+
+async def _handle_organize_private(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle private event creation."""
+    from bot.commands.event_creation import start_event_flow
+
+    await start_event_flow(
+        context=context,
+        mode="private",
+        callback_query=query,
     )
 
 
@@ -453,19 +487,19 @@ async def _handle_create_specific(query, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle 'Plan something specific' - structured creation."""
     from bot.commands.event_creation import start_event_flow
 
-    # Store intent in context for the creation flow
+    # Store intent in context
     context.user_data["creation_intent"] = "specific"
 
     # Get the event type from the message
     event_type = query.message.text.strip() if query.message and query.message.text else ""
-    
-    # Start the unified event creation flow
+
+    # Start the unified event creation flow via callback_query
     await start_event_flow(
-        update=query.update_object,
         context=context,
         mode="public",
+        callback_query=query,
     )
-    
+
     # Pre-fill the event type in the flow data
     if context.user_data:
         flow = context.user_data.get("event_flow")
@@ -482,11 +516,11 @@ async def _handle_create_flexible(query, context: ContextTypes.DEFAULT_TYPE) -> 
     # Store intent in context
     context.user_data["creation_intent"] = "flexible"
 
-    # Start the unified event creation flow
+    # Start the unified event creation flow via callback_query
     await start_event_flow(
-        update=query.update_object,
         context=context,
         mode="public",
+        callback_query=query,
     )
 
 
@@ -506,6 +540,7 @@ async def _handle_enrichment_message(
     from db.connection import get_session
     from config.settings import settings
     from bot.services.event_enrichment_service import EventEnrichmentService
+    from bot.services.state_store import get_state_store
     from datetime import datetime, timezone
 
     if not update.message or not update.effective_user:
@@ -590,8 +625,8 @@ async def _handle_enrichment_message(
             await update.message.reply_text(f"❌ Failed to save: {str(e)[:200]}")
 
     # Clear enrichment state
-    context.user_data["enrich_event_id"] = None
-    context.user_data["enrich_action"] = None
+    store = get_state_store(user_id, context.user_data)
+    store.clear_enrichment_session()
 
 
 # =============================================================================
@@ -612,12 +647,17 @@ async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_
     if context.user_data is None:
         context.user_data = {}
 
-    # Check if we're in an enrichment flow
-    enrich_event_id = context.user_data.get("enrich_event_id")
-    enrich_action = context.user_data.get("enrich_action")
+    # Check if we're in an enrichment flow (using session-based state)
+    from bot.services.state_store import get_state_store
 
-    if not enrich_event_id or not enrich_action:
+    store = get_state_store(update.effective_user.id, context.user_data)
+    session = store.get_enrichment_session()
+
+    if not session:
         return  # Not in enrichment flow, let other handlers process
+
+    enrich_event_id = session["event_id"]
+    enrich_action = session["action"]
 
     try:
         await _handle_enrichment_message(update, context, enrich_event_id, enrich_action)

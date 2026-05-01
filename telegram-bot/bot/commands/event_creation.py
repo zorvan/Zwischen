@@ -13,7 +13,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
-from telegram.error import BadRequest
+from telegram.error import BadRequest, RetryAfter
 from telegram.ext import ContextTypes
 
 from sqlalchemy import select
@@ -665,16 +665,34 @@ async def _apply_final_stage_patch(
 
 
 async def start_event_flow(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
+    update: Update | None = None,
+    context: ContextTypes.DEFAULT_TYPE = None,
     mode: str = "public",
+    callback_query: CallbackQuery | None = None,
 ) -> None:
-    """Initialize event creation flow for public/group or private events."""
-    message = update.effective_message
-    if not message or not update.effective_chat:
+    """Initialize event creation flow for public/group or private events.
+    
+    Accepts either an Update (from command handlers) or a CallbackQuery
+    (from inline button handlers). When callback_query is provided, the
+    message/chat/user are extracted from it directly.
+    """
+    # Resolve message, chat, and user from either Update or CallbackQuery
+    if callback_query:
+        message = callback_query.message
+        if not message:
+            return
+        chat = message.chat
+        user = callback_query.from_user
+    elif update:
+        message = update.effective_message
+        chat = update.effective_chat
+        user = update.effective_user
+    else:
+        return
+    
+    if not message or not chat:
         return
 
-    chat = update.effective_chat
     chat_type = chat.type
     if mode == "public" and chat_type not in {"group", "supergroup"}:
         await message.reply_text("❌ This command can only be used in a Telegram group.")
@@ -682,7 +700,7 @@ async def start_event_flow(
 
     chat_id = chat.id
     chat_title = chat.title or str(chat_id)
-    telegram_user_id = update.effective_user.id if update.effective_user else None
+    telegram_user_id = user.id if user else None
 
     if not settings.db_url:
         await message.reply_text("❌ Database configuration is unavailable.")
@@ -762,13 +780,14 @@ async def start_event_flow(
 
 
 async def start_event_flow_from_prefill(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE,
+    update: Update | None = None,
+    context: ContextTypes.DEFAULT_TYPE = None,
     mode: str = "public",
     prefill: dict[str, Any] | None = None,
+    callback_query: CallbackQuery | None = None,
 ) -> None:
     """Start organize flow from inferred draft and jump to confirmation stage."""
-    await start_event_flow(update, context, mode=mode)
+    await start_event_flow(update, context, mode=mode, callback_query=callback_query)
     if context.user_data is None:
         return
 
@@ -884,7 +903,10 @@ async def private_handle_callback(update: Update, context: ContextTypes.DEFAULT_
 
 
 async def _safe_edit_message(query: CallbackQuery, text: str, **kwargs) -> bool:
-    """Safely edit message, returning False if content is unchanged."""
+    """Safely edit message, returning False if content is unchanged.
+    
+    Handles Telegram API rate limits (Flood Control) with retry logic.
+    """
     try:
         await query.edit_message_text(text, **kwargs)
         return True
@@ -893,6 +915,22 @@ async def _safe_edit_message(query: CallbackQuery, text: str, **kwargs) -> bool:
             await query.answer("ℹ️ Already up to date.")
             return False
         raise
+    except RetryAfter as e:
+        retry_after = e.retry_after
+        logger.warning(f"Flood control triggered. Waiting {retry_after}s before retry...")
+        await asyncio.sleep(retry_after)
+        try:
+            await query.edit_message_text(text, **kwargs)
+            return True
+        except RetryAfter as e2:
+            logger.error(f"RetryAfter again after {retry_after}s, giving up: {e2}")
+            await query.answer("⏳ Too many requests. Please try again in a moment.", show_alert=True)
+            return False
+        except BadRequest as e2:
+            if "Message is not modified" in str(e2):
+                await query.answer("ℹ️ Already up to date.")
+                return False
+            raise
 
 
 async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str) -> None:
@@ -1055,6 +1093,38 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                 build_event_summary_text(flow_data, is_private=mode == "private"),
                 reply_markup=build_final_confirmation_markup(prefix=prefix),
             )
+
+    elif data and data.startswith(f"{prefix}_back_to_type"):
+        event_flow["stage"] = "type"
+        context.user_data[flow_key] = event_flow
+        await _safe_edit_message(query, 
+            "📋 *Event Type*\n\nChoose event type:",
+            reply_markup=build_compact_markup(
+                [
+                    ("Social", f"{prefix}_type_social"),
+                    ("Sports", f"{prefix}_type_sports"),
+                    ("Work", f"{prefix}_type_work"),
+                ],
+                columns=2,
+                footer=[("✏️ Edit Previous", f"{prefix}_edit_description")],
+            ),
+        )
+
+    elif data and data.startswith(f"{prefix}_back_to_time_window"):
+        event_flow["stage"] = "time_window"
+        context.user_data[flow_key] = event_flow
+        await _safe_edit_message(query, 
+            "⏰ *Time Window*\n\nChoose a window:",
+            reply_markup=build_time_window_markup(prefix=prefix),
+        )
+
+    elif data and data.startswith(f"{prefix}_back_to_transport"):
+        event_flow["stage"] = "transport"
+        context.user_data[flow_key] = event_flow
+        await _safe_edit_message(query, 
+            "🚗 *Transport Mode*\n\nPick one option:",
+            reply_markup=build_transport_markup(prefix=prefix),
+        )
 
     elif data and data.startswith(f"{prefix}_type_"):
         event_type = data.replace(f"{prefix}_type_", "")
@@ -1409,11 +1479,17 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
     if stage == "description":
         text = update.message.text
         if not text or not text.strip():
-            await update.message.reply_text("❌ Description cannot be empty. Please send a short description.")
+            await update.message.reply_text(
+                "❌ Description cannot be empty. Please send a short description.",
+                reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_type")]),
+            )
             return
         description = text.strip()
         if len(description) > 500:
-            await update.message.reply_text("❌ Description is too long. Keep it under 500 characters.")
+            await update.message.reply_text(
+                "❌ Description is too long. Keep it under 500 characters.",
+                reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_type")]),
+            )
             return
 
         flow_data["description"] = description
@@ -1440,12 +1516,18 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
     elif stage == "time_manual":
         text = update.message.text
         if text is None:
-            await update.message.reply_text("❌ Please send time as text in format: HH:MM")
+            await update.message.reply_text(
+                "❌ Please send time as text in format: HH:MM",
+                reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_time_window")]),
+            )
             return
 
         scheduled_date = flow_data.get("scheduled_date")
         if not isinstance(scheduled_date, str):
-            await update.message.reply_text("❌ Event date is missing. Please reselect date from calendar.")
+            await update.message.reply_text(
+                "❌ Event date is missing. Please reselect date from calendar.",
+                reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_time_window")]),
+            )
             return
 
         try:
@@ -1469,7 +1551,10 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
     elif stage == "invitees":
         text = update.message.text
         if text is None:
-            await update.message.reply_text("❌ Invalid input. Please enter comma-separated handles like @alice, @bob.")
+            await update.message.reply_text(
+                "❌ Invalid input. Please enter comma-separated handles like @alice, @bob.",
+                reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_transport")]),
+            )
             return
 
         try:
@@ -1502,7 +1587,10 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
     elif stage == "final":
         text = (update.message.text or "").strip()
         if not text:
-            await update.message.reply_text("❌ Send text modifications, or press Confirm/Cancel.")
+            await update.message.reply_text(
+                "❌ Send text modifications, or press Confirm/Cancel.",
+                reply_markup=build_final_confirmation_markup(prefix=prefix),
+            )
             return
 
         changed, changes, warning_text = await _apply_final_stage_patch(
@@ -1514,7 +1602,8 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         if not changed:
             await update.message.reply_text(
                 "⚠️ I could not apply any clear modification.\n"
-                "Try specific edits like: `set time to 2026-03-10 19:30`."
+                "Try specific edits like: `set time to 2026-03-10 19:30`.",
+                reply_markup=build_final_confirmation_markup(prefix=prefix),
             )
             return
 

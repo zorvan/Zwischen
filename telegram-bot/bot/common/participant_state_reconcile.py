@@ -8,6 +8,14 @@ from bot.common.event_access import get_event_organizer_telegram_id
 from bot.services import EventLifecycleService
 from db.models import Event, EventParticipant, ParticipantStatus
 
+# States that represent "downgrades" (moving backward in the lifecycle)
+# These transitions require organizer permission to prevent accidental state loss
+DOWNGRADE_TRANSITIONS = {
+    ("confirmed", "interested"),
+    ("confirmed", "proposed"),
+    ("interested", "proposed"),
+}
+
 
 async def reconcile_event_state_after_participant_change(
     *,
@@ -22,6 +30,10 @@ async def reconcile_event_state_after_participant_change(
 
     This keeps slash and callback flows aligned after unconfirm/cancel actions.
     If only the organizer remains, event goes back to proposed.
+    
+    Downgrade transitions (confirmed→interested, confirmed→proposed, 
+    interested→proposed) are only allowed when triggered by participant
+    departure (not by a manual organizer action).
     """
     event_result = await session.execute(select(Event).where(Event.event_id == event_id))
     event = event_result.scalar_one_or_none()
@@ -80,6 +92,17 @@ async def reconcile_event_state_after_participant_change(
 
     if target_state is None or target_state == event.state:
         return event
+
+    # Check if this is a downgrade transition
+    is_downgrade = (event.state, target_state) in DOWNGRADE_TRANSITIONS
+    
+    # Downgrade transitions are only allowed when triggered by participant
+    # departure (source indicates automatic reconciliation), not by manual
+    # organizer action. This prevents accidental state loss.
+    if is_downgrade and source not in {"cancel", "unconfirm", "system"}:
+        # Non-participant-departure downgrade: require organizer permission
+        if actor_telegram_user_id != organizer_id:
+            return event
 
     lifecycle_service = EventLifecycleService(bot, session)
     event, _ = await lifecycle_service.transition_with_lifecycle(
