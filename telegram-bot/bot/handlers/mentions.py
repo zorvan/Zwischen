@@ -19,6 +19,7 @@ from sqlalchemy import select
 
 from ai.llm import LLMClient
 from bot.commands import event_creation, request_confirmations, suggest_time
+from bot.common.callback_data import encode_callback
 from bot.common.scheduling import find_user_event_conflict
 from bot.services import ParticipantService, EventLifecycleService
 from bot.common.event_notifications import (
@@ -102,7 +103,7 @@ async def _offer_event_selection(
 ) -> None:
     """Query active events in this group and offer tap targets for disambiguation."""
     if not settings.db_url:
-        await message.reply_text("❌ Database configuration is unavailable.")
+        await message.reply_text("ℹ️ Database configuration is unavailable.")
         return
 
     async with get_session(settings.db_url) as session:
@@ -127,7 +128,7 @@ async def _offer_event_selection(
     action_label = {
         "join": "✅ Join",
         "confirm": "🎯 Confirm",
-        "cancel": "❌ Cancel",
+        "cancel": "↩️ Stepped Back",
         "lock": "🔒 Lock",
         "request_confirmations": "📣 Ask confirmations",
     }.get(action_type, action_type)
@@ -159,7 +160,7 @@ async def _send_group_events_list(
 ) -> None:
     """Post a compact /events-style list for callback flows."""
     if not settings.db_url:
-        await reply_to_message.reply_text("❌ Database configuration is unavailable.")
+        await reply_to_message.reply_text("ℹ️ Database configuration is unavailable.")
         return
     async with get_session(settings.db_url) as session:
         q = (
@@ -429,7 +430,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                         callback_data=f"mentionact_{pending_id}_approve",
                     ),
                     InlineKeyboardButton(
-                        "❌ Reject",
+                        "↩️ Not Now",
                         callback_data=f"mentionact_{pending_id}_reject",
                     ),
                 ]
@@ -483,7 +484,7 @@ async def handle_mention_callback(update: Update, context: ContextTypes.DEFAULT_
 
     if decision == "reject":
         pending_root.pop(pending_id, None)
-        await query.edit_message_text("❌ Action cancelled because one participant rejected it.")
+        await query.edit_message_text("ℹ️ Action declined because one participant stepped back.")
         return
 
     approved = set(int(x) for x in pending.get("approved_user_ids", []))
@@ -526,17 +527,17 @@ async def handle_disambiguation_callbacks(update: Update, context: ContextTypes.
         rest = data[7:]
         idx = rest.rfind("_")
         if idx <= 0:
-            await query.edit_message_text("❌ Invalid selection.")
+            await query.edit_message_text("ℹ️ Invalid selection.")
             return
         try:
             event_id = int(rest[:idx])
             code = rest[idx + 1 :]
         except ValueError:
-            await query.edit_message_text("❌ Invalid selection.")
+            await query.edit_message_text("ℹ️ Invalid selection.")
             return
         action_type = _PICK_CODE_TO_ACTION.get(code)
         if not action_type:
-            await query.edit_message_text("❌ Unknown action.")
+            await query.edit_message_text("ℹ️ Unknown action.")
             return
         action = {
             "action_type": action_type,
@@ -591,94 +592,10 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     data = query.data
     user = query.from_user
 
-    if data.startswith("event_modify_"):
-        event_id_str = data.replace("event_modify_", "")
-        try:
-            event_id = int(event_id_str)
-        except (TypeError, ValueError):
-            await query.edit_message_text("❌ Invalid event ID.")
-            return
-
-        if not settings.db_url:
-            await query.edit_message_text("❌ Database configuration is unavailable.")
-            return
-
-        async with get_session(settings.db_url) as session:
-            result = await session.execute(select(Event).where(Event.event_id == event_id))
-            event = result.scalar_one_or_none()
-            if not event:
-                await query.edit_message_text("❌ Event not found.")
-                return
-
-            admin_id = get_event_admin_telegram_id(event)
-
-        # Store event info for later use in processing modifications
-        modify_request = {
-            "event_id": event_id,
-            "event_description": event.description or "",
-            "event_scheduled_time": (event.scheduled_time.isoformat() if event and event.scheduled_time else None),
-            "admin_id": admin_id,
-            "requester_id": user.id if user else None,
-            "requester_username": user.username if user else None,
-        }
-        request_id = uuid4().hex[:8]
-        context.user_data[f"pending_modify_request_{request_id}"] = modify_request
-
-        # Show keyboard for user to choose modification method
-        keyboard = [
-            [
-                InlineKeyboardButton("✍️ Write your own", callback_data=f"modinput_{request_id}_write"),
-                InlineKeyboardButton("🤖 AI suggested", callback_data=f"modinput_{request_id}_ai"),
-            ],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"modinput_{request_id}_cancel")],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await query.edit_message_text(
-            "🔧 How would you like to modify the event?\n\n" "Choose a method to specify the changes you want to make.",
-            reply_markup=reply_markup,
-            parse_mode="Markdown",
-        )
-
-        return
-
-    if data.startswith("event_admin_"):
-        event_id_str = data.replace("event_admin_", "")
-        try:
-            event_id = int(event_id_str)
-        except (TypeError, ValueError):
-            await query.edit_message_text("❌ Invalid event ID.")
-            return
-
-        from bot.handlers import event_panel
-
-        await event_panel._handle_view(query, context, event_id)
-        return
-
-    if data.startswith("event_details_"):
-        event_id_str = data.replace("event_details_", "")
-        try:
-            event_id = int(event_id_str)
-        except (TypeError, ValueError):
-            await query.edit_message_text("❌ Invalid event ID.")
-            return
-        await _send_event_details(query.message, event_id, context)
-        return
-
-    if data.startswith("event_status_"):
-        event_id_str = data.replace("event_status_", "")
-        try:
-            event_id = int(event_id_str)
-        except (TypeError, ValueError):
-            await query.edit_message_text("❌ Invalid event ID.")
-            return
-        await _send_status(query.message, event_id, context)
-        return
-
     if data.startswith("modinput_"):
         parts = data.split("_")
         if len(parts) != 3:
-            await query.answer("❌ Invalid request format.")
+            await query.answer("ℹ️ Invalid request format.")
             return
 
         request_id = parts[1]
@@ -688,7 +605,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         modify_request = context.user_data.pop(pending_key, None)
 
         if not modify_request:
-            await query.edit_message_text("❌ This modification request has expired.")
+            await query.edit_message_text("ℹ️ This modification request has expired.")
             return
 
         if action == "cancel":
@@ -724,7 +641,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 result = await session.execute(select(Event).where(Event.event_id == event_id))
                 event = result.scalar_one_or_none()
                 if not event:
-                    await query.edit_message_text("❌ Event not found.")
+                    await query.edit_message_text("ℹ️ Event not found.")
                     return
 
                 llm = LLMClient()
@@ -787,7 +704,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
                 return
 
-        await query.edit_message_text("❌ Unknown modification action.")
+        await query.edit_message_text("ℹ️ Unknown modification action.")
         return
 
 
@@ -1009,7 +926,7 @@ async def _execute_inferred_action(
 async def _send_status(reply_message, event_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send event status text in mention flow."""
     if not settings.db_url:
-        await reply_message.reply_text("❌ Database configuration is unavailable.")
+        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
         return
     from sqlalchemy import func
     from db.models import Log, Constraint
@@ -1018,7 +935,7 @@ async def _send_status(reply_message, event_id: int, context: ContextTypes.DEFAU
         result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("❌ Event not found.")
+            await reply_message.reply_text("ℹ️ Event not found.")
             return
         log_count = int(
             (await session.execute(func.count(Log.log_id).select().where(Log.event_id == event_id))).scalar_one()
@@ -1038,7 +955,7 @@ async def _send_status(reply_message, event_id: int, context: ContextTypes.DEFAU
 async def _send_event_details(reply_message, event_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send event details in mention flow."""
     if not settings.db_url:
-        await reply_message.reply_text("❌ Database configuration is unavailable.")
+        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
         return
     from db.models import Log as LogModel, Constraint as ConstraintModel
 
@@ -1046,7 +963,7 @@ async def _send_event_details(reply_message, event_id: int, context: ContextType
         result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("❌ Event not found.")
+            await reply_message.reply_text("ℹ️ Event not found.")
             return
         logs = (await session.execute(select(LogModel).where(LogModel.event_id == event_id))).scalars().all()
         constraints = (
@@ -1071,13 +988,13 @@ async def _save_constraint_from_inferred(
     """Persist inferred constraint after approvals."""
     allowed = {"if_joins", "if_attends", "unless_joins"}
     if constraint_type not in allowed:
-        await reply_message.reply_text("❌ Inferred constraint type is not supported.")
+        await reply_message.reply_text("ℹ️ Inferred constraint type is not supported.")
         return
     if not target_username:
-        await reply_message.reply_text("❌ Inferred target user is missing.")
+        await reply_message.reply_text("ℹ️ Inferred target user is missing.")
         return
     if not settings.db_url:
-        await reply_message.reply_text("❌ Database configuration is unavailable.")
+        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
         return
 
     target_input = target_username if target_username.startswith("@") else f"@{target_username}"
@@ -1085,7 +1002,7 @@ async def _save_constraint_from_inferred(
     async with get_session(settings.db_url) as session:
         event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("❌ Event not found.")
+            await reply_message.reply_text("ℹ️ Event not found.")
             return
 
         source_user_id = await get_or_create_user_id(
@@ -1106,7 +1023,7 @@ async def _save_constraint_from_inferred(
                 )
             except Exception:
                 await reply_message.reply_text(
-                    f"❌ Target {target_input} not found in records and could not be resolved from Telegram API."
+                    f"ℹ️ Target {target_input} not found in records and could not be resolved from Telegram API."
                 )
                 return
 
@@ -1216,7 +1133,7 @@ async def _apply_participation_action(
 ) -> None:
     """Apply join/confirm/cancel using shared attendance functions."""
     if not settings.db_url:
-        await reply_message.reply_text("❌ Database configuration is unavailable.")
+        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
         return
 
     from bot.common.scheduling import find_user_event_conflict
@@ -1224,7 +1141,7 @@ async def _apply_participation_action(
     async with get_session(settings.db_url) as session:
         event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("❌ Event not found.")
+            await reply_message.reply_text("ℹ️ Event not found.")
             return
 
         user_id = await get_or_create_user_id(
@@ -1236,7 +1153,7 @@ async def _apply_participation_action(
 
         if action_type == "join":
             if event.state in {"locked", "completed"}:
-                await reply_message.reply_text(f"❌ Cannot join event {event_id} - it's {event.state}.")
+                await reply_message.reply_text(f"ℹ️ Cannot join event {event_id} - it's {event.state}.")
                 return
             conflict = await find_user_event_conflict(
                 session=session,
@@ -1247,7 +1164,7 @@ async def _apply_participation_action(
             )
             if conflict:
                 await reply_message.reply_text(
-                    "❌ You have a conflicting event.\n"
+                    "ℹ️ You have a conflicting event.\n"
                     f"Conflicting Event ID: {conflict.event_id}\n"
                     f"Time: {conflict.scheduled_time}\n"
                     f"Duration: {conflict.duration_minutes or 120} minutes"
@@ -1279,7 +1196,7 @@ async def _apply_participation_action(
 
         elif action_type == "confirm":
             if event.state in {"locked", "completed", "cancelled"}:
-                await reply_message.reply_text(f"❌ Cannot confirm event {event_id} - it's {event.state}.")
+                await reply_message.reply_text(f"ℹ️ Cannot confirm event {event_id} - it's {event.state}.")
                 return
 
             # Use ParticipantService for confirm operation
@@ -1307,7 +1224,7 @@ async def _apply_participation_action(
 
         elif action_type == "cancel":
             if event.state == "locked":
-                await reply_message.reply_text(f"❌ Cannot cancel event {event_id} - it's already locked.")
+                await reply_message.reply_text(f"ℹ️ Cannot step back from event {event_id} - it's already locked.")
                 return
 
             # Use ParticipantService for cancel operation
@@ -1319,7 +1236,7 @@ async def _apply_participation_action(
                     source="mention",
                 )
             except Exception as e:
-                await reply_message.reply_text(f"❌ Failed to cancel attendance: {str(e)}")
+                await reply_message.reply_text(f"ℹ️ Stepping back: {str(e)}")
                 return
 
             # Update event state if needed
@@ -1353,23 +1270,23 @@ async def _apply_participation_action(
     elif action_type == "confirm":
         await reply_message.reply_text(f"✅ Confirmed for event {event_id}.\nEvent state is now `confirmed`.")
     else:
-        await reply_message.reply_text(f"❌ Attendance cancelled for event {event_id}.")
+        await reply_message.reply_text(f"ℹ️ Stepped back from event {event_id}.")
 
 
 async def _apply_lock_action(reply_message, event_id: int) -> None:
     """Lock event using shared attendance functions."""
     if not settings.db_url:
-        await reply_message.reply_text("❌ Database configuration is unavailable.")
+        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
         return
 
     async with get_session(settings.db_url) as session:
         event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("❌ Event not found.")
+            await reply_message.reply_text("ℹ️ Event not found.")
             return
         if event.state != "confirmed":
             await reply_message.reply_text(
-                f"❌ Cannot lock event {event_id}. Current state: {event.state}. "
+                f"ℹ️ Cannot lock event {event_id}. Current state: {event.state}. "
                 "Lock is allowed only when state is `confirmed`."
             )
             return
@@ -1517,7 +1434,7 @@ async def _handle_organize_event_direct(
     Otherwise, starts the interactive event creation flow with pre-filled data from the draft.
     """
     if not settings.db_url:
-        await update.message.reply_text("❌ Database configuration is unavailable.")
+        await update.message.reply_text("ℹ️ Database configuration is unavailable.")
         return
 
     # Check if we have minimum required information
@@ -1663,7 +1580,7 @@ async def _handle_organize_event_direct(
         )
         if conflict:
             await update.message.reply_text(
-                "❌ Cannot create event: creator has a conflicting event.\n"
+                "ℹ️ Cannot create event: creator has a conflicting event.\n"
                 f"Conflicting Event ID: {conflict.event_id}\n"
                 f"Time: {conflict.scheduled_time}\n"
                 f"Duration: {conflict.duration_minutes or 120} minutes"
@@ -1830,9 +1747,7 @@ async def _handle_organize_event_direct(
                 logger.warning(f"Could not resolve @{username}: {e}")
 
         if explicit_tg_ids:
-            logger.info(
-                f"Event {event.event_id}: Adding {len(explicit_tg_ids)} explicit invitees to recipients"
-            )
+            logger.info(f"Event {event.event_id}: Adding {len(explicit_tg_ids)} explicit invitees to recipients")
 
         # Fallback: If group is empty and no invitees, warn
         if not group_members and not explicit_tg_ids:
@@ -1929,13 +1844,13 @@ async def _handle_organize_event_direct(
                 [
                     InlineKeyboardButton(
                         "View Event Details",
-                        callback_data=f"event_details_{event.event_id}",
+                        callback_data=encode_callback("det", event.event_id),
                     )
                 ],
                 [
                     InlineKeyboardButton(
                         "Manage Event",
-                        callback_data=f"event_admin_{event.event_id}",
+                        callback_data=encode_callback("view", event.event_id),
                     )
                 ],
             ]

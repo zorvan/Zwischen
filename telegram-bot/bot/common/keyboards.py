@@ -5,14 +5,15 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 def build_threshold_markup(
     back_callback: str | None = None,
+    prefix: str = "event",
 ) -> InlineKeyboardMarkup:
     """Build compact threshold choices keyboard."""
     options = [
-        ("2", "event_threshold_2"),
-        ("3", "event_threshold_3"),
-        ("5", "event_threshold_5"),
-        ("8", "event_threshold_8"),
-        ("13", "event_threshold_13"),
+        ("2", f"{prefix}_threshold_2"),
+        ("3", f"{prefix}_threshold_3"),
+        ("5", f"{prefix}_threshold_5"),
+        ("8", f"{prefix}_threshold_8"),
+        ("13", f"{prefix}_threshold_13"),
     ]
     keyboard: list[list[InlineKeyboardButton]] = []
     row: list[InlineKeyboardButton] = []
@@ -28,16 +29,17 @@ def build_threshold_markup(
 
 def build_min_participants_markup(
     back_callback: str | None = None,
+    prefix: str = "event",
 ) -> InlineKeyboardMarkup:
     """
     v3.2: Build min_participants (absolute floor) keyboard.
     """
     options = [
-        ("2", "event_min_2"),
-        ("3", "event_min_3"),
-        ("4", "event_min_4"),
-        ("5", "event_min_5"),
-        ("6", "event_min_6"),
+        ("2", f"{prefix}_min_2"),
+        ("3", f"{prefix}_min_3"),
+        ("4", f"{prefix}_min_4"),
+        ("5", f"{prefix}_min_5"),
+        ("6", f"{prefix}_min_6"),
     ]
     keyboard: list[list[InlineKeyboardButton]] = []
     row: list[InlineKeyboardButton] = []
@@ -54,6 +56,7 @@ def build_min_participants_markup(
 def build_target_participants_markup(
     current_min: int,
     back_callback: str | None = None,
+    prefix: str = "event",
 ) -> InlineKeyboardMarkup:
     """
     v3.2: Build target_participants (comfortable capacity) keyboard.
@@ -62,7 +65,7 @@ def build_target_participants_markup(
     options = []
     for val in range(current_min + 1, current_min + 7):
         label = str(val)
-        cb = f"event_target_{val}"
+        cb = f"{prefix}_target_{val}"
         options.append((label, cb))
 
     keyboard: list[list[InlineKeyboardButton]] = []

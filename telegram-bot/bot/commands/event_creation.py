@@ -337,13 +337,13 @@ def build_final_confirmation_markup(prefix: str = "event") -> InlineKeyboardMark
         keyboard = [
             [InlineKeyboardButton("✅ Confirm", callback_data=f"{prefix}_final_yes")],
             [InlineKeyboardButton("🛠 Modify", callback_data=f"{prefix}_final_edit")],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{prefix}_cancel_no")],
+            [InlineKeyboardButton("❌ Discard", callback_data=f"{prefix}_cancel_no")],
         ]
     else:
         keyboard = [
             [InlineKeyboardButton("✅ Confirm & Lock", callback_data=f"{prefix}_final_yes")],
             [InlineKeyboardButton("🛠 Modify", callback_data=f"{prefix}_final_edit")],
-            [InlineKeyboardButton("❌ Cancel", callback_data=f"{prefix}_cancel_no")],
+            [InlineKeyboardButton("❌ Discard", callback_data=f"{prefix}_cancel_no")],
         ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -671,7 +671,7 @@ async def start_event_flow(
     callback_query: CallbackQuery | None = None,
 ) -> None:
     """Initialize event creation flow for public/group or private events.
-    
+
     Accepts either an Update (from command handlers) or a CallbackQuery
     (from inline button handlers). When callback_query is provided, the
     message/chat/user are extracted from it directly.
@@ -689,13 +689,13 @@ async def start_event_flow(
         user = update.effective_user
     else:
         return
-    
+
     if not message or not chat:
         return
 
     chat_type = chat.type
     if mode == "public" and chat_type not in {"group", "supergroup"}:
-        await message.reply_text("❌ This command can only be used in a Telegram group.")
+        await message.reply_text("ℹ️ This command can only be used in a Telegram group.")
         return
 
     chat_id = chat.id
@@ -703,7 +703,7 @@ async def start_event_flow(
     telegram_user_id = user.id if user else None
 
     if not settings.db_url:
-        await message.reply_text("❌ Database configuration is unavailable.")
+        await message.reply_text("ℹ️ Database configuration is unavailable.")
         return
 
     if mode == "public":
@@ -735,7 +735,7 @@ async def start_event_flow(
                     await session.commit()
 
     if context.user_data is None:
-        await message.reply_text("❌ User session data is unavailable.")
+        await message.reply_text("ℹ️ User session data is unavailable.")
         return
 
     flow_key = "private_event_flow" if mode == "private" else "event_flow"
@@ -904,7 +904,7 @@ async def private_handle_callback(update: Update, context: ContextTypes.DEFAULT_
 
 async def _safe_edit_message(query: CallbackQuery, text: str, **kwargs) -> bool:
     """Safely edit message, returning False if content is unchanged.
-    
+
     Handles Telegram API rate limits (Flood Control) with retry logic.
     """
     try:
@@ -946,13 +946,13 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
     prefix = "private_event" if mode == "private" else "event"
 
     if context.user_data is None:
-        await _safe_edit_message(query, "❌ User session data is unavailable.")
+        await _safe_edit_message(query, "ℹ️ User session data is unavailable.")
         return
 
     event_flow_raw = context.user_data.get(flow_key)
     event_flow: dict[str, Any] = event_flow_raw if isinstance(event_flow_raw, dict) else {}
     if not event_flow:
-        await _safe_edit_message(query, "❌ Event setup session expired. Please run /organize_event again.")
+        await _safe_edit_message(query, "ℹ️ Event setup session expired. Please run /organize_event again.")
         return
     flow_data = event_flow.get("data")
     if not isinstance(flow_data, dict):
@@ -964,25 +964,95 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         scheduling_mode = str(flow_data.get("scheduling_mode", "fixed"))
 
         # Clear downstream data when going back
-        edit_order = ["description", "type", "date_preset", "time_window", "threshold", 
-                      "duration", "location", "budget", "transport", "invitees", "final"]
+        edit_order = [
+            "description",
+            "type",
+            "date_preset",
+            "time_window",
+            "threshold",
+            "duration",
+            "location",
+            "budget",
+            "transport",
+            "invitees",
+            "final",
+        ]
         if target in edit_order:
-            idx = edit_order.index(target)
-            for downstream_key in ["scheduled_date", "scheduled_time", "time_window", 
-                                   "min_participants", "target_participants", "duration_minutes",
-                                   "location_type", "budget_level", "transport_mode", 
-                                   "invitee_mode", "description", "event_type", "date_preset"]:
-                if edit_order.index(target) < edit_order.index("date_preset") and downstream_key in ["scheduled_date", "scheduled_time", "time_window", "min_participants", "target_participants", "duration_minutes", "location_type", "budget_level", "transport_mode", "invitee_mode"]:
+            for downstream_key in [
+                "scheduled_date",
+                "scheduled_time",
+                "time_window",
+                "min_participants",
+                "target_participants",
+                "duration_minutes",
+                "location_type",
+                "budget_level",
+                "transport_mode",
+                "invitee_mode",
+                "description",
+                "event_type",
+                "date_preset",
+            ]:
+                if edit_order.index(target) < edit_order.index("date_preset") and downstream_key in [
+                    "scheduled_date",
+                    "scheduled_time",
+                    "time_window",
+                    "min_participants",
+                    "target_participants",
+                    "duration_minutes",
+                    "location_type",
+                    "budget_level",
+                    "transport_mode",
+                    "invitee_mode",
+                ]:
                     flow_data.pop(downstream_key, None)
-                elif target == "date_preset" and downstream_key in ["scheduled_date", "scheduled_time", "time_window", "min_participants", "target_participants", "duration_minutes", "location_type", "budget_level", "transport_mode", "invitee_mode"]:
+                elif target == "date_preset" and downstream_key in [
+                    "scheduled_date",
+                    "scheduled_time",
+                    "time_window",
+                    "min_participants",
+                    "target_participants",
+                    "duration_minutes",
+                    "location_type",
+                    "budget_level",
+                    "transport_mode",
+                    "invitee_mode",
+                ]:
                     flow_data.pop(downstream_key, None)
-                elif target == "time_window" and downstream_key in ["min_participants", "target_participants", "duration_minutes", "location_type", "budget_level", "transport_mode", "invitee_mode"]:
+                elif target == "time_window" and downstream_key in [
+                    "min_participants",
+                    "target_participants",
+                    "duration_minutes",
+                    "location_type",
+                    "budget_level",
+                    "transport_mode",
+                    "invitee_mode",
+                ]:
                     flow_data.pop(downstream_key, None)
-                elif target == "threshold" and downstream_key in ["min_participants", "target_participants", "duration_minutes", "location_type", "budget_level", "transport_mode", "invitee_mode"]:
+                elif target == "threshold" and downstream_key in [
+                    "min_participants",
+                    "target_participants",
+                    "duration_minutes",
+                    "location_type",
+                    "budget_level",
+                    "transport_mode",
+                    "invitee_mode",
+                ]:
                     flow_data.pop(downstream_key, None)
-                elif target == "duration" and downstream_key in ["duration_minutes", "location_type", "budget_level", "transport_mode", "invitee_mode"]:
+                elif target == "duration" and downstream_key in [
+                    "duration_minutes",
+                    "location_type",
+                    "budget_level",
+                    "transport_mode",
+                    "invitee_mode",
+                ]:
                     flow_data.pop(downstream_key, None)
-                elif target == "location" and downstream_key in ["location_type", "budget_level", "transport_mode", "invitee_mode"]:
+                elif target == "location" and downstream_key in [
+                    "location_type",
+                    "budget_level",
+                    "transport_mode",
+                    "invitee_mode",
+                ]:
                     flow_data.pop(downstream_key, None)
                 elif target == "budget" and downstream_key in ["budget_level", "transport_mode", "invitee_mode"]:
                     flow_data.pop(downstream_key, None)
@@ -996,7 +1066,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         elif target == "type":
             event_flow["stage"] = "type"
             context.user_data[flow_key] = event_flow
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 "📋 *Event Type*\n\nChoose event type:",
                 reply_markup=build_compact_markup(
                     [
@@ -1013,21 +1084,24 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                 if mode == "public" and scheduling_mode == "flexible":
                     event_flow["stage"] = "threshold"
                     context.user_data[flow_key] = event_flow
-                    await _safe_edit_message(query, 
+                    await _safe_edit_message(
+                        query,
                         "Flexible mode skips fixed date selection.\n" "Set the minimum people needed:",
-                        reply_markup=build_threshold_markup(f"{prefix}_edit_type"),
+                        reply_markup=build_threshold_markup(f"{prefix}_edit_type", prefix=prefix),
                     )
                 else:
                     event_flow["stage"] = "date_preset"
                     context.user_data[flow_key] = event_flow
-                    await _safe_edit_message(query, 
+                    await _safe_edit_message(
+                        query,
                         "📅 *Quick Date Selection*\n\nChoose a date preset:",
                         reply_markup=build_date_preset_markup(prefix=prefix),
                     )
             else:
                 event_flow["stage"] = "date_preset"
                 context.user_data[flow_key] = event_flow
-                await _safe_edit_message(query, 
+                await _safe_edit_message(
+                    query,
                     "📅 *Quick Date Selection*\n\nChoose a date preset:",
                     reply_markup=build_date_preset_markup(prefix=prefix),
                 )
@@ -1035,7 +1109,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
             event_flow["stage"] = "time_window"
             context.user_data[flow_key] = event_flow
             selected_date = flow_data.get("scheduled_date", "N/A")
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 f"⏰ *Time Window*\n\nDate: {selected_date}\nChoose a window:",
                 reply_markup=build_time_window_markup(prefix=prefix),
             )
@@ -1047,49 +1122,56 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                 if not (mode == "public" and scheduling_mode == "flexible")
                 else f"{prefix}_edit_type"
             )
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 "👥 *Participation Minimum*\n\nSet the minimum people needed:",
-                reply_markup=build_threshold_markup(back_target),
+                reply_markup=build_threshold_markup(back_target, prefix=prefix),
             )
         elif target == "duration":
             event_flow["stage"] = "duration"
             context.user_data[flow_key] = event_flow
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 "⏳ *Duration*\n\nSelect event duration:",
                 reply_markup=build_duration_markup(prefix=prefix),
             )
         elif target == "location":
             event_flow["stage"] = "location"
             context.user_data[flow_key] = event_flow
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 "📍 *Location Type*\n\nPick one option:",
                 reply_markup=build_location_type_markup(prefix=prefix),
             )
         elif target == "budget":
             event_flow["stage"] = "budget"
             context.user_data[flow_key] = event_flow
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 "💳 *Budget*\n\nPick one option:",
                 reply_markup=build_budget_markup(prefix=prefix),
             )
         elif target == "transport":
             event_flow["stage"] = "transport"
             context.user_data[flow_key] = event_flow
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 "🚗 *Transport Mode*\n\nPick one option:",
                 reply_markup=build_transport_markup(prefix=prefix),
             )
         elif target == "invitees":
             event_flow["stage"] = "invitees"
             context.user_data[flow_key] = event_flow
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 "👥 *Invitees*\n\nChoose invite mode:",
                 reply_markup=build_invitee_mode_markup(prefix=prefix),
             )
         elif target == "final":
             event_flow["stage"] = "final"
             context.user_data[flow_key] = event_flow
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 build_event_summary_text(flow_data, is_private=mode == "private"),
                 reply_markup=build_final_confirmation_markup(prefix=prefix),
             )
@@ -1097,7 +1179,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
     elif data and data.startswith(f"{prefix}_back_to_type"):
         event_flow["stage"] = "type"
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             "📋 *Event Type*\n\nChoose event type:",
             reply_markup=build_compact_markup(
                 [
@@ -1113,7 +1196,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
     elif data and data.startswith(f"{prefix}_back_to_time_window"):
         event_flow["stage"] = "time_window"
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             "⏰ *Time Window*\n\nChoose a window:",
             reply_markup=build_time_window_markup(prefix=prefix),
         )
@@ -1121,7 +1205,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
     elif data and data.startswith(f"{prefix}_back_to_transport"):
         event_flow["stage"] = "transport"
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             "🚗 *Transport Mode*\n\nPick one option:",
             reply_markup=build_transport_markup(prefix=prefix),
         )
@@ -1134,18 +1219,20 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         if mode == "public" and scheduling_mode == "flexible":
             event_flow["stage"] = "threshold"
             context.user_data[flow_key] = event_flow
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 f"📅 *Event Type: {event_type}*\n\n"
                 "Flexible mode selected.\n"
                 "No fixed date/time now. Attendees can add availability slots later with:\n"
                 "/constraints <event_id> availability <YYYY-MM-DD HH:MM, ...>\n\n"
                 "Set the minimum people needed:",
-                reply_markup=build_threshold_markup(f"{prefix}_edit_type"),
+                reply_markup=build_threshold_markup(f"{prefix}_edit_type", prefix=prefix),
             )
         else:
             event_flow["stage"] = "date_preset"
             context.user_data[flow_key] = event_flow
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 f"📅 *Event Type: {event_type}*\n\nChoose a quick date preset:",
                 reply_markup=build_date_preset_markup(prefix=prefix),
             )
@@ -1157,15 +1244,17 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
             event_flow["stage"] = "date"
             context.user_data[flow_key] = event_flow
             now = datetime.now()
-            await _safe_edit_message(query, 
+            await _safe_edit_message(
+                query,
                 "📅 *Custom Date*\n\nSelect a date from the inline calendar:",
                 reply_markup=build_calendar_markup(now.year, now.month, prefix=prefix),
             )
         else:
             choices = resolve_date_preset(preset)
             if not choices:
-                await _safe_edit_message(query, 
-                    "❌ Could not resolve that date preset. Please try again.",
+                await _safe_edit_message(
+                    query,
+                    "ℹ️ Could not resolve that date preset. Please try again.",
                     reply_markup=build_date_preset_markup(prefix=prefix),
                 )
                 return
@@ -1174,7 +1263,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                 flow_data["scheduled_date"] = selected_date
                 event_flow["stage"] = "time_window"
                 context.user_data[flow_key] = event_flow
-                await _safe_edit_message(query, 
+                await _safe_edit_message(
+                    query,
                     f"📆 *Date selected: {selected_date}*\n\nChoose a time window:",
                     reply_markup=build_time_window_markup(prefix=prefix),
                 )
@@ -1182,7 +1272,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                 event_flow["stage"] = "date_options"
                 context.user_data[flow_key] = event_flow
                 label = DATE_PRESET_LABELS.get(preset, preset.title())
-                await _safe_edit_message(query, 
+                await _safe_edit_message(
+                    query,
                     f"📆 *{label}*\n\nPick a specific date:",
                     reply_markup=build_date_options_markup(choices, preset, prefix=prefix),
                 )
@@ -1192,13 +1283,14 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         try:
             picked = datetime.strptime(token, "%Y%m%d").date()
         except ValueError:
-            await _safe_edit_message(query, "❌ Invalid date option selected.")
+            await _safe_edit_message(query, "ℹ️ Invalid date option selected.")
             return
         selected_date = picked.strftime("%Y-%m-%d")
         flow_data["scheduled_date"] = selected_date
         event_flow["stage"] = "time_window"
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"📆 *Date selected: {selected_date}*\n\nChoose a time window:",
             reply_markup=build_time_window_markup(prefix=prefix),
         )
@@ -1209,13 +1301,14 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
     elif data and data.startswith(f"{prefix}_time_window_"):
         window = data.replace(f"{prefix}_time_window_", "")
         if window not in TIME_WINDOWS:
-            await _safe_edit_message(query, "❌ Unsupported time window.")
+            await _safe_edit_message(query, "ℹ️ Unsupported time window.")
             return
         flow_data["time_window"] = window
         event_flow["stage"] = "time_option"
         context.user_data[flow_key] = event_flow
         selected_date = flow_data.get("scheduled_date", "N/A")
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"⏰ *{window.title()} window*\n\nDate: {selected_date}\nPick a start time:",
             reply_markup=build_time_options_markup(window, prefix=prefix),
         )
@@ -1224,21 +1317,22 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         event_flow["stage"] = "time_manual"
         context.user_data[flow_key] = event_flow
         selected_date = flow_data.get("scheduled_date", "N/A")
-        await _safe_edit_message(query, 
-            f"⌨️ *Manual Time Entry*\n\nDate: {selected_date}\n" "Send time in format `HH:MM` (e.g., `18:30`)."
+        await _safe_edit_message(
+            query, f"⌨️ *Manual Time Entry*\n\nDate: {selected_date}\n" "Send time in format `HH:MM` (e.g., `18:30`)."
         )
 
     elif data and data.startswith(f"{prefix}_time_option_"):
         option = data.replace(f"{prefix}_time_option_", "")
         if len(option) != 4 or not option.isdigit():
-            await _safe_edit_message(query, "❌ Invalid time option.")
+            await _safe_edit_message(query, "ℹ️ Invalid time option.")
             return
         hour = int(option[:2])
         minute = int(option[2:])
         scheduled_date = flow_data.get("scheduled_date")
         if not isinstance(scheduled_date, str):
-            await _safe_edit_message(query, 
-                "❌ Event date is missing. Please pick date again.",
+            await _safe_edit_message(
+                query,
+                "ℹ️ Event date is missing. Please pick date again.",
                 reply_markup=build_date_preset_markup(prefix=prefix),
             )
             return
@@ -1249,15 +1343,16 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                 datetime.strptime(f"{hour:02d}:{minute:02d}", "%H:%M").time(),
             )
         except ValueError:
-            await _safe_edit_message(query, "❌ Failed to parse selected time.")
+            await _safe_edit_message(query, "ℹ️ Could not parse selected time.")
             return
         flow_data["scheduled_time"] = scheduled_time.isoformat(timespec="minutes")
         event_flow["stage"] = "min_participants"
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"⏱️ *Time: {scheduled_time.strftime('%Y-%m-%d %H:%M')}*\n\n"
             "What's the minimum number of people this needs to happen?",
-            reply_markup=build_min_participants_markup(f"{prefix}_edit_time_window"),
+            reply_markup=build_min_participants_markup(f"{prefix}_edit_time_window", prefix=prefix),
         )
 
     # v3.2: Handle min_participants selection
@@ -1270,10 +1365,11 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
 
         flow_data["target_participants"] = math.ceil(min_val * 1.5)
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"✅ *Minimum: {min_val}*\n\n"
             f"How many people can this comfortably fit? (Default: {flow_data['target_participants']})",
-            reply_markup=build_target_participants_markup(min_val, f"{prefix}_min_{min_val}"),
+            reply_markup=build_target_participants_markup(min_val, f"{prefix}_min_{min_val}", prefix=prefix),
         )
 
     # v3.2: Handle target_participants selection
@@ -1282,7 +1378,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         event_flow["stage"] = "duration"
         flow_data["target_participants"] = target_val
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"✅ *Capacity: {target_val}* (min: {flow_data.get('min_participants', '?')})\n\n"
             f"Select event duration:",
             reply_markup=build_duration_markup(prefix=prefix),
@@ -1295,7 +1392,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         flow_data["min_participants"] = threshold
         flow_data["target_participants"] = threshold
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"✅ *Minimum/Capacity: {threshold}*\n\nSelect event duration:",
             reply_markup=build_duration_markup(prefix=prefix),
         )
@@ -1305,7 +1403,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         event_flow["stage"] = "location"
         flow_data["duration_minutes"] = duration
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"⏳ *Duration: {duration} minutes*\n\nSelect location type:",
             reply_markup=build_location_type_markup(prefix=prefix),
         )
@@ -1315,7 +1414,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         flow_data["location_type"] = location_type
         event_flow["stage"] = "budget"
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"📍 *Location: {location_type.replace('_', ' ').title()}*\n\nSelect budget:",
             reply_markup=build_budget_markup(prefix=prefix),
         )
@@ -1325,7 +1425,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         flow_data["budget_level"] = budget_level
         event_flow["stage"] = "transport"
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"💳 *Budget: {budget_level.title()}*\n\nSelect transport mode:",
             reply_markup=build_transport_markup(prefix=prefix),
         )
@@ -1335,7 +1436,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         flow_data["transport_mode"] = transport_mode
         event_flow["stage"] = "invitees"
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"🚗 *Transport: {transport_mode.replace('_', ' ').title()}*\n\nChoose invite mode:",
             reply_markup=build_invitee_mode_markup(prefix=prefix),
         )
@@ -1345,7 +1447,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         flow_data["invitees"] = ["@all"]
         flow_data["invite_all_members"] = True
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             build_event_summary_text(flow_data, is_private=mode == "private"),
             reply_markup=build_final_confirmation_markup(prefix=prefix),
         )
@@ -1353,7 +1456,8 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
     elif data == f"{prefix}_invite_custom":
         event_flow["stage"] = "invitees"
         context.user_data[flow_key] = event_flow
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             "✍️ *Custom Invitees*\n\n"
             "Enter comma-separated handles.\n"
             "Example: @alice, @bob_builder\n"
@@ -1371,19 +1475,20 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         else:
             await finalize_event(query, context)
     elif data == f"{prefix}_final_edit":
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             "🛠 Send your modification in natural language.\n\n"
             "Examples:\n"
             "- Change time to 2026-03-10 19:30\n"
             "- Make duration 90 minutes\n"
             "- Increase the minimum to 5\n"
             "- Set location to outdoor and budget to low\n"
-            "- Add @alice and remove @bob"
+            "- Add @alice and remove @bob",
         )
 
     elif data and data.startswith(f"{prefix}_cancel_"):
         context.user_data.pop(flow_key, None)
-        await _safe_edit_message(query, "❌ Event creation cancelled.")
+        await _safe_edit_message(query, "ℹ️ Event creation stepped back.")
 
 
 async def _handle_calendar_callback(
@@ -1414,7 +1519,8 @@ async def _handle_calendar_callback(
             return
 
         event_type = str(flow_data.get("event_type", "N/A"))
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"📅 *Event Type: {event_type}*\n\nSelect a date from the inline calendar:",
             reply_markup=build_calendar_markup(year, month, prefix=prefix),
         )
@@ -1438,7 +1544,8 @@ async def _handle_calendar_callback(
         event_flow["stage"] = "time_window"
         context.user_data["event_flow" if prefix == "event" else "private_event_flow"] = event_flow
 
-        await _safe_edit_message(query, 
+        await _safe_edit_message(
+            query,
             f"📆 *Date selected: {selected_date}*\n\nChoose a time window:",
             reply_markup=build_time_window_markup(prefix=prefix),
         )
@@ -1463,6 +1570,7 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     flow_key = "private_event_flow" if mode == "private" else "event_flow"
+    prefix = "private_event" if mode == "private" else "event"
     event_flow_raw = context.user_data.get(flow_key)
     if not isinstance(event_flow_raw, dict) or not event_flow_raw:
         return
@@ -1480,14 +1588,14 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         text = update.message.text
         if not text or not text.strip():
             await update.message.reply_text(
-                "❌ Description cannot be empty. Please send a short description.",
+                "ℹ️ Description cannot be empty. Please send a short description.",
                 reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_type")]),
             )
             return
         description = text.strip()
         if len(description) > 500:
             await update.message.reply_text(
-                "❌ Description is too long. Keep it under 500 characters.",
+                "ℹ️ Description is too long. Keep it under 500 characters.",
                 reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_type")]),
             )
             return
@@ -1517,7 +1625,7 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         text = update.message.text
         if text is None:
             await update.message.reply_text(
-                "❌ Please send time as text in format: HH:MM",
+                "ℹ️ Please send time as text in format: HH:MM",
                 reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_time_window")]),
             )
             return
@@ -1525,7 +1633,7 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         scheduled_date = flow_data.get("scheduled_date")
         if not isinstance(scheduled_date, str):
             await update.message.reply_text(
-                "❌ Event date is missing. Please reselect date from calendar.",
+                "ℹ️ Event date is missing. Please reselect date from calendar.",
                 reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_time_window")]),
             )
             return
@@ -1541,18 +1649,16 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text(
                 f"⏱️ *Time: {scheduled_time.strftime('%Y-%m-%d %H:%M')}*\n\n"
                 "What is the minimum attendance threshold?",
-                reply_markup=build_threshold_markup(
-                    "event_edit_time_window" if mode == "public" else "private_event_edit_time_window"
-                ),
+                reply_markup=build_threshold_markup(f"{prefix}_edit_time_window", prefix=prefix),
             )
         except ValueError:
-            await update.message.reply_text("❌ Invalid time format. Please use: HH:MM")
+            await update.message.reply_text("ℹ️ Invalid time format. Please use: HH:MM")
 
     elif stage == "invitees":
         text = update.message.text
         if text is None:
             await update.message.reply_text(
-                "❌ Invalid input. Please enter comma-separated handles like @alice, @bob.",
+                "ℹ️ Invalid input. Please enter comma-separated handles like @alice, @bob.",
                 reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_transport")]),
             )
             return
@@ -1574,7 +1680,7 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         except ValueError:
             prefix = "private_event" if mode == "private" else "event"
             await update.message.reply_text(
-                "❌ Invalid handle list. Use comma-separated @handles.\n"
+                "ℹ️ Invalid handle list. Use comma-separated @handles.\n"
                 "Example: @alice, @bob_builder\n"
                 "Or use: @all",
                 reply_markup=build_compact_markup(
@@ -1588,7 +1694,7 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         text = (update.message.text or "").strip()
         if not text:
             await update.message.reply_text(
-                "❌ Send text modifications, or press Confirm/Cancel.",
+                "ℹ️ Send text modifications, or press Confirm/Discard.",
                 reply_markup=build_final_confirmation_markup(prefix=prefix),
             )
             return
@@ -1633,30 +1739,30 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
 async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE, _mode: str = "public") -> None:
     """Finalize and create the public/event in database."""
     if context.user_data is None:
-        await _safe_edit_message(query, "❌ User session data is unavailable.")
+        await _safe_edit_message(query, "ℹ️ User session data is unavailable.")
         return
 
     event_flow_raw = context.user_data.get("event_flow")
     if not isinstance(event_flow_raw, dict):
-        await _safe_edit_message(query, "❌ Event flow not found.")
+        await _safe_edit_message(query, "ℹ️ Event flow not found.")
         return
 
     event_flow: dict[str, Any] = event_flow_raw
     data_raw = event_flow.get("data")
     if not isinstance(data_raw, dict):
-        await _safe_edit_message(query, "❌ Event flow data is invalid.")
+        await _safe_edit_message(query, "ℹ️ Event flow data is invalid.")
         return
     data: dict[str, Any] = data_raw
 
     scheduled_time_raw = data.get("scheduled_time")
     scheduling_mode = str(data.get("scheduling_mode", "fixed"))
     if scheduling_mode != "flexible" and not isinstance(scheduled_time_raw, str):
-        await _safe_edit_message(query, "❌ Event time is missing.")
+        await _safe_edit_message(query, "ℹ️ Event time is missing.")
         return
 
     group_id = event_flow.get("group_id")
     if not isinstance(group_id, int):
-        await _safe_edit_message(query, "❌ Group context is missing.")
+        await _safe_edit_message(query, "ℹ️ Group context is missing.")
         return
 
     async with get_session(settings.db_url) as session:
@@ -1671,11 +1777,12 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
             duration_minutes=duration_minutes,
         )
         if conflict:
-            await _safe_edit_message(query, 
-                "❌ Creator has a conflicting event.\n"
+            await _safe_edit_message(
+                query,
+                "ℹ️ Creator has a conflicting event.\n"
                 f"Conflicting Event ID: {conflict.event_id}\n"
                 f"Time: {conflict.scheduled_time}\n"
-                f"Duration: {conflict.duration_minutes or 120} minutes"
+                f"Duration: {conflict.duration_minutes or 120} minutes",
             )
             return
 
@@ -1937,9 +2044,8 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
                     else:
                         dm_failed += 1
                         logger.warning(
-                            "[INVITATION_FLOW] DM failed (send_event_invitation_dm returned False) | event_id=%s recipient=%s",
-                            event.event_id,
-                            telegram_user_id,
+                            "[INVITATION_FLOW] DM failed (send_event_invitation_dm returned False) | "
+                            f"event_id={event.event_id} recipient={telegram_user_id}",
                         )
                 except Exception as e:
                     dm_failed += 1
@@ -1955,7 +2061,8 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
                 await asyncio.sleep(RATE_LIMIT_DELAY)
 
         logger.info(
-            "[INVITATION_FLOW] Distribution complete | event_id=%s sent=%d failed=%d skipped_no_bot=%d total_expected=%d",
+            "[INVITATION_FLOW] Distribution complete | event_id=%s sent=%d failed=%d "
+            "skipped_no_bot=%d total_expected=%d",
             event.event_id,
             dm_count,
             dm_failed,
@@ -1988,9 +2095,7 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
                         [
                             InlineKeyboardButton(
                                 "View & Join",
-                                callback_data=encode_callback(
-                                    "join", event.event_id, int(group.telegram_group_id)
-                                ),
+                                callback_data=encode_callback("join", event.event_id, int(group.telegram_group_id)),
                             )
                         ]
                     ]
@@ -2059,8 +2164,8 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
 
     # Send full details to admin via DM
     dm_keyboard = [
-        [InlineKeyboardButton("View Event Details", callback_data=f"event_details_{event.event_id}")],
-        [InlineKeyboardButton("Manage Event", callback_data=f"event_admin_{event.event_id}")],
+        [InlineKeyboardButton("View Event Details", callback_data=encode_callback("det", event.event_id))],
+        [InlineKeyboardButton("Manage Event", callback_data=encode_callback("view", event.event_id))],
     ]
     dm_reply_markup = InlineKeyboardMarkup(dm_keyboard)
 
@@ -2080,25 +2185,25 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
 async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Finalize and create the private event in database."""
     if context.user_data is None:
-        await _safe_edit_message(query, "❌ Session data unavailable.")
+        await _safe_edit_message(query, "ℹ️ Session data unavailable.")
         return
 
     event_flow_raw = context.user_data.get("private_event_flow")
     if not isinstance(event_flow_raw, dict):
-        await _safe_edit_message(query, "❌ Event flow not found.")
+        await _safe_edit_message(query, "ℹ️ Event flow not found.")
         return
 
     event_flow: dict[str, Any] = event_flow_raw
     data_raw = event_flow.get("data")
     if not isinstance(data_raw, dict):
-        await _safe_edit_message(query, "❌ Event flow data is invalid.")
+        await _safe_edit_message(query, "ℹ️ Event flow data is invalid.")
         return
     data: dict[str, Any] = data_raw
 
     scheduled_time_raw = data.get("scheduled_time")
     scheduling_mode = str(data.get("scheduling_mode", "fixed"))
     if scheduling_mode != "flexible" and not isinstance(scheduled_time_raw, str):
-        await _safe_edit_message(query, "❌ Event time is missing.")
+        await _safe_edit_message(query, "ℹ️ Event time is missing.")
         return
 
     creator_id = int(data.get("creator", query.from_user.id))
@@ -2116,18 +2221,19 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
                 duration_minutes=duration_minutes,
             )
             if conflict:
-                await _safe_edit_message(query, 
-                    "❌ Creator has a conflicting event.\n"
+                await _safe_edit_message(
+                    query,
+                    "ℹ️ Creator has a conflicting event.\n"
                     f"Conflicting Event ID: {conflict.event_id}\n"
                     f"Time: {conflict.scheduled_time}\n"
-                    f"Duration: {conflict.duration_minutes or 120} minutes"
+                    f"Duration: {conflict.duration_minutes or 120} minutes",
                 )
                 return
         except ImportError:
             pass
 
         event = Event(
-            group_id=0,
+            group_id=None,
             event_type=data.get("event_type", "general"),
             description=data.get("description"),
             organizer_telegram_user_id=creator_id,
@@ -2236,8 +2342,8 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
                     )
                     dm_failed += 1
         else:
-            await _safe_edit_message(query, 
-                "❌ For private events, you must specify invitees. Use @username (comma-separated)."
+            await _safe_edit_message(
+                query, "ℹ️ For private events, please specify invitees. Use @username (comma-separated)."
             )
             return
 
@@ -2272,7 +2378,7 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
     context.user_data.pop("private_event_flow", None)
 
     keyboard = [
-        [InlineKeyboardButton("View Event", callback_data=f"private_event_details_{event.event_id}")],
+        [InlineKeyboardButton("View Event", callback_data=encode_callback("det", event.event_id))],
     ]
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2287,7 +2393,8 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
     date_preset_text = format_date_preset(data.get("date_preset"))
     time_window_text = format_time_window(data.get("time_window"))
 
-    await _safe_edit_message(query, 
+    await _safe_edit_message(
+        query,
         f"✅ *Event Created!*\n\n"
         f"Event ID: {event.event_id}\n"
         f"Type: {_escape_md(data.get('event_type', 'Not specified'))}\n"

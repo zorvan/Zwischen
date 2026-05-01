@@ -614,9 +614,7 @@ async def _handle_enrichment_message(
                 )
                 await session.flush()
 
-                await update.message.reply_text(
-                    "✅ Time suggestion saved! The organizer will see your preferred time."
-                )
+                await update.message.reply_text("✅ Time suggestion saved! The organizer will see your preferred time.")
 
             await session.commit()
 
@@ -664,5 +662,3 @@ async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_
     except Exception as e:
         logger.exception("Error in handle_creation_message: %s", e)
         await update.message.reply_text("❌ Sorry, something went wrong. Please try /events again.")
-
-

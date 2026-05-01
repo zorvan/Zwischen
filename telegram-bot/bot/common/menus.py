@@ -2,6 +2,8 @@
 """Persistent inline keyboard menus for bot DMs."""
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from bot.common.callback_data import encode_callback
+
 
 def build_main_menu() -> InlineKeyboardMarkup:
     """Build the main menu shown when user starts bot or types /start."""
@@ -60,48 +62,48 @@ def build_event_detail_keyboard(
     """
     keyboard = []
 
-    # Primary actions based on user status
+   # Primary actions based on user status
     if user_status == "not_joined" or user_status is None:
         keyboard.append(
             [
-                InlineKeyboardButton("✅ Join Event", callback_data=f"event_join_{event_id}"),
+                InlineKeyboardButton("Join Event", callback_data=encode_callback("join", event_id)),
             ]
         )
     elif user_status == "joined":
         keyboard.append(
             [
-                InlineKeyboardButton("✅ Confirm", callback_data=f"event_confirm_{event_id}"),
-                InlineKeyboardButton("❌ Cancel", callback_data=f"event_cancel_{event_id}"),
+                InlineKeyboardButton("Confirm", callback_data=encode_callback("commit", event_id)),
+                InlineKeyboardButton("Step Back", callback_data=encode_callback("cancel", event_id)),
             ]
         )
     elif user_status == "confirmed":
         keyboard.append(
             [
-                InlineKeyboardButton("✅ Confirmed", callback_data="noop"),
-                InlineKeyboardButton("↩️ Uncommit", callback_data=f"event_unconfirm_{event_id}"),
+                InlineKeyboardButton("Confirmed", callback_data="noop"),
+                InlineKeyboardButton("Uncommit", callback_data=encode_callback("cancel", event_id)),
             ]
         )
 
     # Secondary actions
     keyboard.append(
         [
-            InlineKeyboardButton("📊 Status", callback_data=f"event_status_{event_id}"),
-            InlineKeyboardButton("📝 Details", callback_data=f"event_details_{event_id}"),
+            InlineKeyboardButton("Status", callback_data=encode_callback("det", event_id)),
+            InlineKeyboardButton("Details", callback_data=encode_callback("det", event_id)),
         ]
     )
 
     # Availability/Constraints
     keyboard.append(
         [
-            InlineKeyboardButton("📅 Set Availability", callback_data=f"event_constraints_{event_id}"),
+            InlineKeyboardButton("Set Availability", callback_data=encode_callback("constraint", event_id)),
         ]
     )
 
-    # Lock (only for organizers/admins in confirmed state)
+  # Lock (only for organizers/admins in confirmed state)
     if event_state == "confirmed":
         keyboard.append(
             [
-                InlineKeyboardButton("🔒 Lock Event", callback_data=f"event_lock_{event_id}"),
+                InlineKeyboardButton("Lock Event", callback_data=encode_callback("lock", event_id)),
             ]
         )
 

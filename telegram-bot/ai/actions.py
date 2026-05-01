@@ -75,14 +75,14 @@ ACTIONS: Dict[str, Dict[str, Any]] = {
 
 ACTION_HANDLERS: Dict[str, str] = {
     "view_events": "bot.commands.events",
-    "view_event_panel": "bot.handlers.event_flow",
-    "join_event": "bot.handlers.event_flow",
-    "relinquish_event": "bot.handlers.event_flow",
-    "commit_event": "bot.handlers.event_flow",
-    "lock_event": "bot.handlers.event_flow",
+    "view_event_panel": "bot.handlers.event_panel",
+    "join_event": "bot.handlers.event_panel",
+    "relinquish_event": "bot.handlers.event_panel",
+    "commit_event": "bot.handlers.event_panel",
+    "lock_event": "bot.handlers.event_panel",
     "create_event": "bot.commands.events",
-    "add_constraint": "bot.handlers.event_flow",
-    "suggest_time": "bot.handlers.event_flow",
+    "add_constraint": "bot.handlers.event_panel",
+    "suggest_time": "bot.handlers.event_panel",
     "opinion": "bot.handlers.mentions",
 }
 

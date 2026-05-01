@@ -41,23 +41,18 @@ def test_all():
         start,
         my_groups,
         profile,
-        organize_event,
-        join,
-        confirm,
         cancel,
-        constraints,
         suggest_time,
-        status,
         event_details,
     )
 
-    print("   ✅ 12 command handlers")
+    print("   ✅ command handlers")
 
     # Test handlers
     print("\n5. Testing handlers...")
-    from bot.handlers import event_flow, feedback
+    from bot.handlers import event_panel, feedback
 
-    print("   ✅ event_flow, feedback")
+    print("   ✅ event_panel, feedback")
 
     # Test utils
     print("\n6. Testing utils...")

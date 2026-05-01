@@ -178,17 +178,31 @@ def build_event_panel_actions(
     Returns:
         Dict mapping all known action names to True/False visibility flags
     """
-    available = set(get_available_actions(
-        user_status, event_state, is_organizer, confirmed_count, min_participants
-    ))
+    available = set(get_available_actions(user_status, event_state, is_organizer, confirmed_count, min_participants))
 
     # All known actions in the system
     all_actions = {
-        "view", "join", "commit", "relinquish", "enrich", "constraint",
-        "lock", "unlock", "complete", "back_to_list", "refresh",
-        "enrich_idea", "enrich_hashtag", "enrich_memory", "enrich_contributions",
-        "enrich_add_idea", "enrich_add_hashtag", "enrich_add_memory",
-        "enrich_add_constraint", "enrich_add_constraint_unless", "enrich_suggest_time",
+        "view",
+        "join",
+        "commit",
+        "relinquish",
+        "enrich",
+        "constraint",
+        "lock",
+        "unlock",
+        "complete",
+        "back_to_list",
+        "refresh",
+        "enrich_idea",
+        "enrich_hashtag",
+        "enrich_memory",
+        "enrich_contributions",
+        "enrich_add_idea",
+        "enrich_add_hashtag",
+        "enrich_add_memory",
+        "enrich_add_constraint",
+        "enrich_add_constraint_unless",
+        "enrich_suggest_time",
         "waitlist",
     }
 

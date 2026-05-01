@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, overload
+from typing import Any, cast, overload
 
 from .state_models import (
     ENRICHMENT_TTL,
@@ -31,10 +31,8 @@ from .state_models import (
     ENRICHMENT_ACTION_VALUES,
     EVENT_FLOW_STAGES,
     EventFlow,
-    EventFlowData,
     ModifyRequest,
     ModifyRequestText,
-    PrivateEventFlow,
 )
 
 
@@ -91,7 +89,7 @@ class StateStore:
             entry.touch()
             return entry.value
         if isinstance(entry, dict):
-            return entry  # Legacy untyped dict — still usable
+            return cast(EventFlow, entry)  # Legacy untyped dict
         return None
 
     def set_event_flow(self, flow: EventFlow, *, private: bool = False) -> None:
@@ -112,7 +110,9 @@ class StateStore:
         flow = self.get_event_flow()
         if flow is None:
             return False
-        flow["data"].update(updates)
+        data = flow["data"]
+        for k, v in updates.items():
+            data[k] = v  # type: ignore
         return True
 
     def update_event_flow_stage(self, stage: EVENT_FLOW_STAGES) -> bool:
@@ -201,7 +201,7 @@ class StateStore:
             entry.touch()
             return entry.value
         if isinstance(entry, dict):
-            return entry
+            return cast(ModifyRequest, entry)
         return None
 
     def pop_modify_request(self, request_id: str) -> ModifyRequest | None:
@@ -212,7 +212,7 @@ class StateStore:
             if entry.is_expired():
                 return None
             return entry.value
-        return entry if isinstance(entry, dict) else None
+        return cast(ModifyRequest | None, entry) if isinstance(entry, dict) else None
 
     def set_modify_request_text(self, request_id: str, text_data: ModifyRequestText) -> None:
         key = f"pending_mod_text_{request_id}"
@@ -225,7 +225,7 @@ class StateStore:
             if entry.is_expired():
                 return None
             return entry.value
-        return entry if isinstance(entry, dict) else None
+        return cast(ModifyRequestText | None, entry) if isinstance(entry, dict) else None
 
     # ------------------------------------------------------------------
     # Per-Event Locks

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""DEPRECATED: Use /events instead."""
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+"""Event details and status views for the v3.5 event panel."""
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from config.settings import settings
 from db.connection import get_session
@@ -13,66 +13,8 @@ from db.models import (
 )
 from bot.common.rbac import check_event_visibility_and_get_event
 from bot.common.event_presenters import format_event_details_message, format_user_display
-
-
-async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show event details when an ID is provided; otherwise redirect to /events."""
-    if not update.message:
-        return
-    if context.args:
-        try:
-            event_id = int(context.args[0])
-        except (TypeError, ValueError):
-            await update.message.reply_text("Usage: /event_details <event_id>")
-            return
-
-        class MessageQueryAdapter:
-            from_user = update.effective_user
-            message = update.message
-
-            async def answer(self, *args, **kwargs):
-                return None
-
-            async def edit_message_text(self, text, reply_markup=None, parse_mode=None):
-                await update.message.reply_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
-
-        await show_details(MessageQueryAdapter(), context, event_id)
-        return
-
-    keyboard = [[InlineKeyboardButton("📋 View Events", callback_data="menu_my_events")]]
-    await update.message.reply_text(
-        "Use /event_details <event_id> to open details, or /events to browse and manage your events.",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-    )
-
-
-async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Kept for legacy callback patterns (event_details_, event_status_, etc.)."""
-    query = update.callback_query
-    if not query:
-        return
-
-    await query.answer()
-
-    data = query.data
-
-    if data and data.startswith("event_details_"):
-        event_id = int(data.replace("event_details_", ""))
-        await show_details(query, context, event_id)
-    elif data and data.startswith("private_event_details_"):
-        event_id = int(data.replace("private_event_details_", ""))
-        await show_details(query, context, event_id)
-    elif data and data.startswith("event_status_"):
-        event_id = int(data.replace("event_status_", ""))
-        await _show_status(query, context, event_id)
-    elif data and data.startswith("event_logs_"):
-        event_id = int(data.replace("event_logs_", ""))
-        await _show_logs(query, event_id)
-    elif data and data.startswith("event_constraints_"):
-        event_id = int(data.replace("event_constraints_", ""))
-        await _show_constraints(query, event_id)
-    elif data and data.startswith("event_close_"):
-        await query.edit_message_text("✅ Event details closed.")
+from bot.services import ParticipantService
+from db.models import ParticipantStatus
 
 
 async def show_details(
@@ -104,11 +46,11 @@ async def show_details(
             reply_markup = await _build_details_markup(event, user_id, bot_username, session)
         elif group_id is not None:
             reply_markup = InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🔙 Back to Event", callback_data=f"ev:{event_id}:{group_id}:view")]]
+                [[InlineKeyboardButton("Back to Event", callback_data=f"ev:{event_id}:{group_id}:view")]]
             )
         else:
             reply_markup = InlineKeyboardMarkup(
-                [[InlineKeyboardButton("🔙 Back to Event", callback_data=f"ev:{event_id}:view")]]
+                [[InlineKeyboardButton("Back to Event", callback_data=f"ev:{event_id}:view")]]
             )
         await query.edit_message_text(
             await format_event_details_message(event_id, event, logs, constraints, context.bot),
@@ -118,7 +60,6 @@ async def show_details(
 
 async def _show_status(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
     from bot.common.event_presenters import format_status_message
-    from bot.services import ParticipantService
 
     user_id = query.from_user.id if query.from_user else None
     chat_id = getattr(getattr(query, "message", None), "chat_id", None)
@@ -168,9 +109,9 @@ async def _show_logs(query, event_id: int) -> None:
         )
         rows = result.all()
         if not rows:
-            await query.edit_message_text(f"ℹ️ Event {event_id} has no logs yet.")
+            await query.edit_message_text(f"Event {event_id} has no logs yet.")
             return
-        msg = f"📝 *Event {event_id} Logs*\n\n"
+        msg = f"Event {event_id} Logs\n\n"
         for log, user in rows[:10]:
             user_info = ""
             if user:
@@ -191,13 +132,13 @@ async def _show_logs(query, event_id: int) -> None:
             }.get(log.action, log.action)
             msg += f"- {action_text}{user_info} at {log.timestamp}\n"
         if len(rows) > 10:
-            msg += f"\n... and {len(rows) - 10} more logs"
-        keyboard = [[InlineKeyboardButton("Back", callback_data=f"event_details_{event_id}")]]
+            msg += f"... and {len(rows) - 10} more logs"
+        keyboard = [[InlineKeyboardButton("Back", callback_data=f"ev:{event_id}:det")]]
         try:
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception as e:
             if "Message is not modified" in str(e):
-                await query.answer("✓ Updated")
+                await query.answer("Updated")
             else:
                 raise
 
@@ -209,8 +150,7 @@ async def _show_constraints(query, event_id: int) -> None:
         constraints = result.scalars().all()
         if not constraints:
             await query.edit_message_text(
-                f"📅 *Event {event_id} Availability & Constraints*\n\n" f"No constraints or availability set yet.",
-                parse_mode="Markdown",
+                f"Event {event_id} Availability & Constraints\n\n" f"No constraints or availability set yet.",
             )
             return
         user_ids = set()
@@ -223,7 +163,7 @@ async def _show_constraints(query, event_id: int) -> None:
             result = await session.execute(select(User).where(User.user_id.in_(user_ids)))
             for user in result.scalars().all():
                 users[user.user_id] = user
-        msg = f"🔗 *Event {event_id} Constraints*\n\n"
+        msg = f"Event {event_id} Constraints\n\n"
         for c in constraints:
             user = users.get(c.user_id)
             user_display = (
@@ -258,12 +198,12 @@ async def _show_constraints(query, event_id: int) -> None:
                 msg += f"Join if {target_display} joins (confidence: {c.confidence})\n"
             else:
                 msg += f"{c.type}\n"
-        keyboard = [[InlineKeyboardButton("Back", callback_data=f"event_details_{event_id}")]]
+        keyboard = [[InlineKeyboardButton("Back", callback_data=f"ev:{event_id}:det")]]
         try:
             await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup(keyboard))
         except Exception as e:
             if "Message is not modified" in str(e):
-                await query.answer("✓ Updated")
+                await query.answer("Updated")
             else:
                 raise
 
@@ -279,17 +219,11 @@ async def _get_event_constraints(session, event_id: int) -> list:
 
 
 async def _get_event_log_count(session, event_id: int) -> int:
-    from sqlalchemy import func
-    from db.models import Log as LogModel
-
     result = await session.execute(select(func.count(LogModel.log_id)).where(LogModel.event_id == event_id))
     return result.scalar() or 0
 
 
 async def _get_event_constraint_count(session, event_id: int) -> int:
-    from sqlalchemy import func
-    from db.models import Constraint as ConstraintModel
-
     result = await session.execute(
         select(func.count(ConstraintModel.constraint_id)).where(ConstraintModel.event_id == event_id)
     )
@@ -297,15 +231,12 @@ async def _get_event_constraint_count(session, event_id: int) -> int:
 
 
 async def _build_status_markup(event, user_id, bot_username, session) -> list:
-    keyboard = [[InlineKeyboardButton("📋 Details", callback_data=f"event_details_{event.event_id}")]]
-    keyboard.append([InlineKeyboardButton("🔄 Refresh", callback_data=f"event_status_{event.event_id}")])
+    keyboard = [[InlineKeyboardButton("Details", callback_data=f"ev:{event.event_id}:det")]]
+    keyboard.append([InlineKeyboardButton("Refresh", callback_data=f"ev:{event.event_id}:refresh")])
     return keyboard
 
 
 async def _build_details_markup(event, user_id, bot_username, session) -> InlineKeyboardMarkup:
-    from bot.services import ParticipantService
-    from db.models import ParticipantStatus
-
     user_joined = False
     user_confirmed = False
     if user_id is not None:
@@ -319,35 +250,35 @@ async def _build_details_markup(event, user_id, bot_username, session) -> Inline
             user_joined = False
     first_row = []
     if not user_joined:
-        first_row = [InlineKeyboardButton("✅ Join", callback_data=f"event_join_{event.event_id}")]
+        first_row = [InlineKeyboardButton("Join", callback_data=f"ev:{event.event_id}:join")]
     elif user_confirmed:
         first_row = [
-            InlineKeyboardButton("✓ Confirmed", callback_data=f"event_confirm_{event.event_id}"),
-            InlineKeyboardButton("↩️ Uncommit", callback_data=f"event_unconfirm_{event.event_id}"),
+            InlineKeyboardButton("Confirmed", callback_data=f"ev:{event.event_id}:commit"),
+            InlineKeyboardButton("Uncommit", callback_data=f"ev:{event.event_id}:cancel"),
         ]
     else:
         first_row = [
-            InlineKeyboardButton("✅ Confirm", callback_data=f"event_confirm_{event.event_id}"),
-            InlineKeyboardButton("❌ Cancel", callback_data=f"event_cancel_{event.event_id}"),
+            InlineKeyboardButton("Confirm", callback_data=f"ev:{event.event_id}:commit"),
+            InlineKeyboardButton("Step Back", callback_data=f"ev:{event.event_id}:cancel"),
         ]
     keyboard = [
         first_row,
         [
-            InlineKeyboardButton("❌ Cancel", callback_data=f"event_cancel_{event.event_id}"),
-            InlineKeyboardButton("🔒 Lock", callback_data=f"event_lock_{event.event_id}"),
+            InlineKeyboardButton("Lock", callback_data=f"ev:{event.event_id}:lock"),
         ],
-        [InlineKeyboardButton("📝 View Logs", callback_data=f"event_logs_{event.event_id}")],
-        [InlineKeyboardButton("🔒 Manage Constraints", callback_data=f"event_constraints_{event.event_id}")],
-        [InlineKeyboardButton("🔄 Update", callback_data=f"event_details_{event.event_id}")],
-        [InlineKeyboardButton("🔙 Close", callback_data=f"event_close_{event.event_id}")],
+        [InlineKeyboardButton("View Logs", callback_data=f"ev:{event.event_id}:logs")],
+        [InlineKeyboardButton("Manage Constraints", callback_data=f"ev:{event.event_id}:constraint")],
+        [InlineKeyboardButton("Update", callback_data=f"ev:{event.event_id}:det")],
     ]
     if user_joined:
-        keyboard.insert(4, [InlineKeyboardButton("🛠 Modify", callback_data=f"event_modify_{event.event_id}")])
+        keyboard.append([InlineKeyboardButton("Modify", callback_data=f"ev:{event.event_id}:modify")])
     from bot.common.deeplinks import build_start_link
 
     avail_link = build_start_link(bot_username, f"avail_{event.event_id}")
     if avail_link:
-        keyboard.append([InlineKeyboardButton("📥 Set Availability in DM", url=avail_link)])
+        keyboard.append([InlineKeyboardButton("Set Availability in DM", url=avail_link)])
+    keyboard.append([InlineKeyboardButton("Step Back", callback_data=f"ev:{event.event_id}:cancel")])
+    keyboard.append([InlineKeyboardButton("Close", callback_data=f"ev:{event.event_id}:close")])
     return InlineKeyboardMarkup(keyboard)
 
 

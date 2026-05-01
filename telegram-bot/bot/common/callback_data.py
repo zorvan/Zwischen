@@ -50,6 +50,9 @@ CALLBACK_ACTIONS = {
     "refresh": "refresh",  # Refresh live card
     "det": "det",  # Event details (shorthand)
     "details": "det",  # Event details alias
+    "logs": "logs",  # View event logs
+    "close": "close",  # Close event details view
+    "modify": "modify",  # Modify event
 }
 
 

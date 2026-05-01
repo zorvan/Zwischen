@@ -73,7 +73,8 @@ class EventLifecycleService:
 
         if not transitioned:
             logger.info(
-                "[LIFECYCLE] State transition rejected | event_id=%s target_state=%s reason=transition_service_rejected",
+                "[LIFECYCLE] State transition rejected | event_id=%s target_state=%s "
+                "reason=transition_service_rejected",
                 event_id,
                 target_state,
             )
