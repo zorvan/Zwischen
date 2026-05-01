@@ -263,10 +263,7 @@ def main():
         (r"^event_(details|status|logs|constraints|close)_", event_details.handle_callback),
         (r"^event_modify_", mentions.handle_callback),
         (r"^event_admin_", mentions.handle_callback),
-        # v3.5: Creation flow scheduling and type handlers (must come before general event_)
-        (r"^event_scheduling_", menus.handle_scheduling_callback),
-        (r"^event_type_", menus.handle_event_type_callback),
-        # Event creation handlers (general, comes after specific ones)
+       # General event callback handler (catches event_join_, event_confirm_, event_type_, etc.)
         (r"^event_", event_creation.handle_callback),
         (r"^private_event_details_", event_details.handle_callback),
         (r"^private_event_", event_creation.private_handle_callback),
@@ -292,7 +289,7 @@ def main():
     # v3.5: Register creation flow message handler (runs first, checks for creation_step)
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, menus.handle_creation_message, block=False),
-        group=-9,  # Runs BEFORE group history handlers at -2
+        group=-9,  # Runs BEFORE other handlers to catch enrichment prompts
     )
 
     # Register text message handler for event creation flow

@@ -451,37 +451,43 @@ async def _handle_create_new_event(query, context: ContextTypes.DEFAULT_TYPE) ->
 
 async def _handle_create_specific(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle 'Plan something specific' - structured creation."""
+    from bot.commands.event_creation import start_event_flow
+
     # Store intent in context for the creation flow
     context.user_data["creation_intent"] = "specific"
 
-    await query.edit_message_text(
-        "🎯 *Planning something specific*\n\n"
-        "Great! Let's build this together.\n\n"
-        "What's the occasion? (e.g., 'hiking', 'dinner', 'meeting')\n\n"
-        "💡 *Type your answer or use /cancel to stop*",
-        parse_mode="Markdown",
+    # Get the event type from the message
+    event_type = query.message.text.strip() if query.message and query.message.text else ""
+    
+    # Start the unified event creation flow
+    await start_event_flow(
+        update=query.update_object,
+        context=context,
+        mode="public",
     )
-
-    # Set conversation state for the creation flow
-    context.user_data["creation_step"] = "awaiting_event_type"
+    
+    # Pre-fill the event type in the flow data
+    if context.user_data:
+        flow = context.user_data.get("event_flow")
+        if isinstance(flow, dict) and isinstance(flow.get("data"), dict):
+            flow["data"]["event_type"] = event_type if event_type else "social"
+            flow["data"]["description"] = f"Planning {event_type}" if event_type else ""
+            context.user_data["event_flow"] = flow
 
 
 async def _handle_create_flexible(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle 'Just exploring ideas' - flexible creation."""
+    from bot.commands.event_creation import start_event_flow
+
     # Store intent in context
     context.user_data["creation_intent"] = "flexible"
 
-    await query.edit_message_text(
-        "💭 *Exploring ideas together*\n\n"
-        "Perfect! Let's discover what might work.\n\n"
-        "Tell me what you're in the mood for, or what constraints you have.\n"
-        "(e.g., 'something outdoors this weekend', 'low-key evening with friends')\n\n"
-        "💭 *Be as vague or specific as you like*",
-        parse_mode="Markdown",
+    # Start the unified event creation flow
+    await start_event_flow(
+        update=query.update_object,
+        context=context,
+        mode="public",
     )
-
-    # Set conversation state
-    context.user_data["creation_step"] = "awaiting_flexible_input"
 
 
 # =============================================================================
@@ -594,11 +600,10 @@ async def _handle_enrichment_message(
 
 
 async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle text messages during memory-first creation flow.
+    """Handle text messages during enrichment prompts.
 
-    This handler processes user input when creation_step is set in user_data.
-    It bridges the menu-based creation flow to the event creation system.
-    Also handles enrichment prompts (idea, hashtag, memory, constraint, suggest_time).
+    This handler processes user input for enrichment prompts only.
+    The creation flow is now handled by event_creation.py.
     """
     if not update.message or not update.effective_user:
         return
@@ -607,238 +612,17 @@ async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_
     if context.user_data is None:
         context.user_data = {}
 
-    # Check if we're in a creation flow
-    creation_step = context.user_data.get("creation_step")
+    # Check if we're in an enrichment flow
     enrich_event_id = context.user_data.get("enrich_event_id")
     enrich_action = context.user_data.get("enrich_action")
 
-    # Check enrichment flow first (it takes priority over creation_step)
-    if enrich_event_id and enrich_action:
-        await _handle_enrichment_message(update, context, enrich_event_id, enrich_action)
-        return
-
-    if not creation_step:
-        return  # Not in creation flow, let other handlers process
+    if not enrich_event_id or not enrich_action:
+        return  # Not in enrichment flow, let other handlers process
 
     try:
-        user_id = update.effective_user.id
-        text = update.message.text or ""
-
-        if creation_step == "awaiting_event_type":
-            # User provided event type for specific creation
-            event_type = text.strip()
-            if not event_type:
-                await update.message.reply_text("❌ Please provide an event type (e.g., 'hiking', 'dinner').")
-                return
-
-            # Initialize the event flow in the format expected by event_creation.py
-            context.user_data["event_flow"] = {
-                "stage": "time",  # Skip description, go straight to scheduling
-                "data": {
-                    "event_type": event_type,
-                    "description": f"Planning {event_type}",
-                    "organizer_id": user_id,
-                },
-                "participants": [user_id],
-            }
-            context.user_data["creation_step"] = None  # Clear creation step
-
-            # Show scheduling options
-            keyboard = [
-                [InlineKeyboardButton("📅 Fixed Date/Time", callback_data="event_scheduling_fixed")],
-                [InlineKeyboardButton("🤷 Flexible (TBD)", callback_data="event_scheduling_flexible")],
-                [InlineKeyboardButton("🔙 Back", callback_data="events_back")],
-            ]
-            await update.message.reply_text(
-                f"✅ *Event type: {event_type}*\n\n" "When would you like to schedule it?",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown",
-            )
-
-        elif creation_step == "awaiting_flexible_input":
-            # User provided flexible input
-            user_input = text.strip()
-            if not user_input:
-                await update.message.reply_text("❌ Please tell me what you're looking for.")
-                return
-
-            # Initialize flexible event flow
-            context.user_data["event_flow"] = {
-                "stage": "type",
-                "data": {
-                    "flexible_input": user_input,
-                    "description": user_input,
-                    "organizer_id": user_id,
-                },
-                "participants": [user_id],
-            }
-            context.user_data["creation_step"] = None  # Clear creation step
-
-            # Show event type selection
-            await update.message.reply_text(
-                f"💭 *Got it: '{user_input}'*\n\n" "What type of event would best fit?",
-                reply_markup=InlineKeyboardMarkup(
-                    [
-                        [InlineKeyboardButton("🎉 Social", callback_data="event_type_social")],
-                        [InlineKeyboardButton("⚽ Sports/Activity", callback_data="event_type_sports")],
-                        [InlineKeyboardButton("💼 Work/Meeting", callback_data="event_type_work")],
-                        [InlineKeyboardButton("🍽️ Food/Drinks", callback_data="event_type_food")],
-                        [InlineKeyboardButton("🎭 Entertainment", callback_data="event_type_entertainment")],
-                        [InlineKeyboardButton("🔙 Back", callback_data="events_back")],
-                    ]
-                ),
-                parse_mode="Markdown",
-            )
-
+        await _handle_enrichment_message(update, context, enrich_event_id, enrich_action)
     except Exception as e:
         logger.exception("Error in handle_creation_message: %s", e)
         await update.message.reply_text("❌ Sorry, something went wrong. Please try /events again.")
 
 
-# =============================================================================
-# Scheduling Callback Handlers
-# =============================================================================
-
-
-async def handle_scheduling_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle scheduling option callbacks (fixed vs flexible).
-
-    Transitions to the full event creation flow from event_creation.py.
-    """
-    query = update.callback_query
-    if not query:
-        return
-
-    await query.answer()
-    data = query.data
-
-    # Get the collected data from our creation flow
-    event_flow_data = context.user_data.get("event_flow", {})
-    flow_data = event_flow_data.get("data", {})
-
-    if not flow_data:
-        logger.warning("No event_flow data in user_data")
-        await query.edit_message_text("❌ Session expired. Please start again with /events")
-        return
-
-    # Extract what we collected
-    event_type = flow_data.get("event_type", "General")
-    description = flow_data.get("description", f"Planning {event_type}")
-
-    # Get chat info
-    chat = query.message.chat if query.message else None
-    chat_id = chat.id if chat else None
-    chat_title = chat.title if chat else None
-
-    # Look up or create the group to get database group_id
-    db_group_id = None
-    if chat_id and settings.db_url:
-        try:
-            async with get_session(settings.db_url) as session:
-                result = await session.execute(select(Group).where(Group.telegram_group_id == chat_id))
-                group = result.scalar_one_or_none()
-
-                if not group:
-                    # Create group if it doesn't exist
-                    user_id = query.from_user.id if query.from_user else None
-                    group = Group(
-                        telegram_group_id=chat_id,
-                        group_name=chat_title or str(chat_id),
-                        member_list=[user_id] if user_id else [],
-                    )
-                    session.add(group)
-                    await session.commit()
-                    await session.refresh(group)
-
-                db_group_id = group.group_id
-        except Exception as e:
-            logger.warning("Failed to look up/create group: %s", e)
-
-    # Directly create the event flow structure that event_creation.py expects
-    # (don't call start_event_flow() as it sends a description prompt)
-    full_flow = {
-        "stage": "date_preset",
-        "data": {
-            "event_type": event_type,
-            "description": description,
-            "creator": query.from_user.id if query.from_user else None,
-            "date_preset": "custom",
-            "time_window": "evening",
-            "location_type": "cafe",
-            "budget_level": "medium",
-            "transport_mode": "any",
-            "planning_notes": [],
-            "scheduling_mode": "fixed" if data == "event_scheduling_fixed" else "flexible",
-        },
-    }
-
-    # Add group info if available (use database group_id, not telegram_group_id)
-    if db_group_id:
-        full_flow["group_id"] = db_group_id
-        full_flow["group_title"] = chat_title
-        full_flow["data"]["chat_id"] = chat_id
-        full_flow["data"]["chat_title"] = chat_title
-    elif chat_id:
-        # Fallback: store telegram_group_id for later lookup
-        full_flow["data"]["telegram_group_id"] = chat_id
-        full_flow["data"]["chat_title"] = chat_title
-
-    context.user_data["event_flow"] = full_flow
-
-    # Show date preset selection
-    from bot.commands.event_creation import build_date_preset_markup
-
-    await query.edit_message_text(
-        f"✅ *Event: {description}*\n\n"
-        f"Type: {event_type}\n"
-        f"Mode: {'Fixed date/time' if data == 'event_scheduling_fixed' else 'Flexible (TBD)'}\n\n"
-        "📅 *Choose a date preset:*",
-        reply_markup=build_date_preset_markup(prefix="event"),
-        parse_mode="Markdown",
-    )
-
-
-async def handle_event_type_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handle event type selection for flexible flow.
-
-    Updates the collected data and shows scheduling options.
-    """
-    query = update.callback_query
-    if not query:
-        return
-
-    await query.answer()
-    data = query.data
-
-    # Map callback to event type
-    type_map = {
-        "event_type_social": "Social",
-        "event_type_sports": "Sports/Activity",
-        "event_type_work": "Work/Meeting",
-        "event_type_food": "Food/Drinks",
-        "event_type_entertainment": "Entertainment",
-    }
-
-    event_type = type_map.get(data)
-    if not event_type:
-        logger.warning("Unknown event type callback: %s", data)
-        return
-
-    # Get our collected flow data
-    event_flow = context.user_data.get("event_flow")
-    if event_flow:
-        # Update the event type
-        event_flow["data"]["event_type"] = event_type
-        context.user_data["event_flow"] = event_flow
-
-        # Show scheduling options (same as specific flow)
-        keyboard = [
-            [InlineKeyboardButton("📅 Fixed Date/Time", callback_data="event_scheduling_fixed")],
-            [InlineKeyboardButton("🤷 Flexible (TBD)", callback_data="event_scheduling_flexible")],
-            [InlineKeyboardButton("🔙 Back", callback_data="events_back")],
-        ]
-        await query.edit_message_text(
-            f"✅ *Event type: {event_type}*\n\n" "When would you like to schedule it?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown",
-        )
