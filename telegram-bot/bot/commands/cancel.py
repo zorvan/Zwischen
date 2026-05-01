@@ -124,15 +124,3 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
 
     await query.answer()
-
-    data = query.data
-
-    if data and data.startswith("event_cancel_"):
-        event_id = int(data.replace("event_cancel_", ""))
-        # Create an update object from the callback query
-        callback_update = Update(update_id=update.update_id, callback_query=query)
-        context.args = [str(event_id)]
-        await handle(callback_update, context)
-        await query.edit_message_text(
-            f"❌ *Attendance cancelled for event {event_id}!*\n\n" "You can rejoin anytime using /join."
-        )

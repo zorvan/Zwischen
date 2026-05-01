@@ -44,13 +44,13 @@ def build_event_invitation_keyboard(
         join_callback = f"ev:{event_id}:{group_id}:join"
         cancel_callback = f"ev:{event_id}:{group_id}:cancel"
     else:
-        join_callback = f"event_join_{event_id}"
-        cancel_callback = f"event_cancel_{event_id}"
+        join_callback = f"ev:{event_id}:join"
+        cancel_callback = f"ev:{event_id}:cancel"
 
     rows.append(
         [
             InlineKeyboardButton("✅ Join", callback_data=join_callback),
-            InlineKeyboardButton("❌ Cancel", callback_data=cancel_callback),
+            InlineKeyboardButton("❌ Decline", callback_data=cancel_callback),
         ]
     )
 
@@ -86,7 +86,7 @@ def build_event_modification_keyboard(
         rows.append(
             [
                 InlineKeyboardButton("✅ Approve", callback_data=f"modreq_{request_id}_approve"),
-                InlineKeyboardButton("❌ Reject", callback_data=f"modreq_{request_id}_reject"),
+                InlineKeyboardButton("↩️ Not Now", callback_data=f"modreq_{request_id}_reject"),
             ]
         )
 
@@ -295,9 +295,9 @@ async def send_join_notification_dm(
         )
         return False
 
-    bot_username = context.bot.username
-
-    scheduled_time = format_scheduled_time(event.scheduled_time, include_flexible_note=True) if event.scheduled_time else "Time TBD"
+    scheduled_time = (
+        format_scheduled_time(event.scheduled_time, include_flexible_note=True) if event.scheduled_time else "Time TBD"
+    )
 
     event_type_emoji = {
         "sports": "🏃",
@@ -306,7 +306,10 @@ async def send_join_notification_dm(
     }.get(event.event_type, "🎯")
 
     try:
-        join_callback = f"ev:{event.event_id}:{group_id}:join" if group_id is not None else f"event_join_{event.event_id}"
+        if group_id is not None:
+            join_callback = f"ev:{event.event_id}:{group_id}:join"
+        else:
+            join_callback = f"ev:{event.event_id}:join"
 
         logger.info(
             "[NOTIFICATION] Sending join notification | event_id=%s recipient=%s joiner=%s",
@@ -324,9 +327,11 @@ async def send_join_notification_dm(
                 f"📅 {scheduled_time}\n"
                 f"👥 Tap to join:"
             ),
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("✅ Join", callback_data=join_callback)],
-            ]),
+            reply_markup=InlineKeyboardMarkup(
+                [
+                    [InlineKeyboardButton("✅ Join", callback_data=join_callback)],
+                ]
+            ),
             parse_mode="Markdown",
         )
         logger.info(

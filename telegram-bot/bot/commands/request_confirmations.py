@@ -10,6 +10,7 @@ from config.settings import settings
 from db.connection import get_session
 from db.models import Event, User
 from bot.services import ParticipantService
+from bot.common.callback_data import encode_callback
 
 
 def _format_user_label(user: User | None, telegram_user_id: int) -> str:
@@ -28,13 +29,13 @@ async def send_confirmation_request_message(
 ) -> None:
     """Send a group message asking participants to confirm via inline button."""
     if not settings.db_url:
-        await reply_message.reply_text("❌ Database configuration is unavailable.")
+        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
         return
 
     async with get_session(settings.db_url) as session:
         event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("❌ Event not found.")
+            await reply_message.reply_text("ℹ️ Event not found.")
             return
 
         # Get participants using ParticipantService
@@ -71,14 +72,14 @@ async def send_confirmation_request_message(
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✅ Confirm", callback_data=f"event_confirm_{event_id}"),
-                InlineKeyboardButton("↩️ Uncommit", callback_data=f"event_unconfirm_{event_id}"),
+                InlineKeyboardButton("Confirm", callback_data=encode_callback("commit", event_id)),
+                InlineKeyboardButton("Uncommit", callback_data=encode_callback("cancel", event_id)),
             ],
             [
-                InlineKeyboardButton("❌ Cancel", callback_data=f"event_cancel_{event_id}"),
-                InlineKeyboardButton("🔒 Lock", callback_data=f"event_lock_{event_id}"),
+                InlineKeyboardButton("Step Back", callback_data=encode_callback("cancel", event_id)),
+                InlineKeyboardButton("Lock", callback_data=encode_callback("lock", event_id)),
             ],
-            [InlineKeyboardButton("📊 Status", callback_data=f"event_details_{event_id}")],
+            [InlineKeyboardButton("Status", callback_data=encode_callback("det", event_id))],
         ]
     )
     await reply_message.reply_text(
@@ -92,12 +93,12 @@ async def send_confirmation_request_message(
         "Participants should click *Confirm* to commit attendance.",
         reply_markup=keyboard,
     )
-    # Send final confirmation DM to attendees.
+ # Send final confirmation DM to attendees.
     dm_keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("✅ Final Confirm", callback_data=f"event_confirm_{event_id}"),
-                InlineKeyboardButton("↩️ Uncommit", callback_data=f"event_unconfirm_{event_id}"),
+                InlineKeyboardButton("Final Confirm", callback_data=encode_callback("commit", event_id)),
+                InlineKeyboardButton("Uncommit", callback_data=encode_callback("cancel", event_id)),
             ]
         ]
     )
@@ -136,7 +137,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         event_id = int(event_id_raw)
     except ValueError:
-        await update.message.reply_text("❌ Event ID must be a number.")
+        await update.message.reply_text("ℹ️ Event ID must be a number.")
         return
 
     await send_confirmation_request_message(

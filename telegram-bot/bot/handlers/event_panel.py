@@ -13,12 +13,15 @@ Level 1: /events list -> Level 2: Event Panel -> Level 3: Sub-menus
 PRD v3.5 Section 4.3: Event Panel & Command Consolidation
 """
 import asyncio
+import uuid
 from typing import Optional, List
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, Update
 from telegram.ext import ContextTypes
+from sqlalchemy import select
 
-from bot.common.callback_data import encode_callback, decode_callback, CALLBACK_ACTIONS
+from bot.common.callback_data import encode_callback, CALLBACK_ACTIONS
 from bot.common.event_states import get_available_actions
+from bot.common.event_presenters import format_user_display
 from db.models import ParticipantStatus
 from bot.services.participant_service import ParticipantService
 from bot.services.event_enrichment_service import EventEnrichmentService
@@ -76,7 +79,9 @@ def build_main_panel_buttons(
     buttons.append(
         [
             InlineKeyboardButton(
-                "Details", callback_data=encode_callback(CALLBACK_ACTIONS["details"], event_id, group_id), style="primary"
+                "Details",
+                callback_data=encode_callback(CALLBACK_ACTIONS["details"], event_id, group_id),
+                style="primary",
             ),
         ]
     )
@@ -87,13 +92,17 @@ def build_main_panel_buttons(
         if "enrich" in available:
             row.append(
                 InlineKeyboardButton(
-                    "Enrich", callback_data=encode_callback(CALLBACK_ACTIONS["enrich"], event_id, group_id), style="primary"
+                    "Enrich",
+                    callback_data=encode_callback(CALLBACK_ACTIONS["enrich"], event_id, group_id),
+                    style="primary",
                 )
             )
         if "constraint" in available:
             row.append(
                 InlineKeyboardButton(
-                    "Constraint", callback_data=encode_callback(CALLBACK_ACTIONS["constraint"], event_id, group_id), style="primary"
+                    "Constraint",
+                    callback_data=encode_callback(CALLBACK_ACTIONS["constraint"], event_id, group_id),
+                    style="primary",
                 )
             )
         if row:
@@ -120,7 +129,9 @@ def build_main_panel_buttons(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    "Confirm", callback_data=encode_callback(CALLBACK_ACTIONS["commit"], event_id, group_id), style="success"
+                    "Confirm",
+                    callback_data=encode_callback(CALLBACK_ACTIONS["commit"], event_id, group_id),
+                    style="success",
                 ),
                 InlineKeyboardButton(
                     "Relinquish",
@@ -157,7 +168,9 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "Lock Event", callback_data=encode_callback(CALLBACK_ACTIONS["lock"], event_id, group_id), style="primary"
+                        "Lock Event",
+                        callback_data=encode_callback(CALLBACK_ACTIONS["lock"], event_id, group_id),
+                        style="primary",
                     ),
                 ]
             )
@@ -165,7 +178,9 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "Unlock Event", callback_data=encode_callback(CALLBACK_ACTIONS["unlock"], event_id, group_id), style="danger"
+                        "Unlock Event",
+                        callback_data=encode_callback(CALLBACK_ACTIONS["unlock"], event_id, group_id),
+                        style="danger",
                     ),
                 ]
             )
@@ -173,7 +188,9 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "Complete Event", callback_data=encode_callback(CALLBACK_ACTIONS["complete"], event_id, group_id), style="primary"
+                        "Complete Event",
+                        callback_data=encode_callback(CALLBACK_ACTIONS["complete"], event_id, group_id),
+                        style="primary",
                     ),
                 ]
             )
@@ -182,10 +199,14 @@ def build_main_panel_buttons(
     buttons.append(
         [
             InlineKeyboardButton(
-                "Back to Events", callback_data=encode_callback(CALLBACK_ACTIONS["back_to_list"], event_id, group_id), style="danger"
+                "Back to Events",
+                callback_data=encode_callback(CALLBACK_ACTIONS["back_to_list"], event_id, group_id),
+                style="danger",
             ),
             InlineKeyboardButton(
-                "Refresh", callback_data=encode_callback(CALLBACK_ACTIONS["refresh"], event_id, group_id), style="primary"
+                "Refresh",
+                callback_data=encode_callback(CALLBACK_ACTIONS["refresh"], event_id, group_id),
+                style="primary",
             ),
         ]
     )
@@ -212,15 +233,21 @@ def build_enrich_submenu(event_id: int, group_id: Optional[int] = None) -> List[
     return [
         [
             InlineKeyboardButton(
-                "Add Idea", callback_data=encode_callback(CALLBACK_ACTIONS["enrich_idea"], event_id, group_id), style="primary"
+                "Add Idea",
+                callback_data=encode_callback(CALLBACK_ACTIONS["enrich_idea"], event_id, group_id),
+                style="primary",
             ),
             InlineKeyboardButton(
-                "Add Hashtag", callback_data=encode_callback(CALLBACK_ACTIONS["enrich_hashtag"], event_id, group_id), style="primary"
+                "Add Hashtag",
+                callback_data=encode_callback(CALLBACK_ACTIONS["enrich_hashtag"], event_id, group_id),
+                style="primary",
             ),
         ],
         [
             InlineKeyboardButton(
-                "Add Memory", callback_data=encode_callback(CALLBACK_ACTIONS["enrich_memory"], event_id, group_id), style="primary"
+                "Add Memory",
+                callback_data=encode_callback(CALLBACK_ACTIONS["enrich_memory"], event_id, group_id),
+                style="primary",
             ),
             InlineKeyboardButton(
                 "View Contributions",
@@ -230,7 +257,9 @@ def build_enrich_submenu(event_id: int, group_id: Optional[int] = None) -> List[
         ],
         [
             InlineKeyboardButton(
-                "Back to Event", callback_data=encode_callback(CALLBACK_ACTIONS["back_to_panel"], event_id, group_id), style="danger"
+                "Back to Event",
+                callback_data=encode_callback(CALLBACK_ACTIONS["back_to_panel"], event_id, group_id),
+                style="danger",
             ),
         ],
     ]
@@ -261,7 +290,8 @@ def build_constraint_submenu(event_id: int, group_id: Optional[int] = None) -> L
         ],
         [
             InlineKeyboardButton(
-                "❌ Unless someone joins...", callback_data=encode_callback(CALLBACK_ACTIONS["constraint_add_unless"], event_id, group_id)
+                "❌ Unless someone joins...",
+                callback_data=encode_callback(CALLBACK_ACTIONS["constraint_add_unless"], event_id, group_id),
             ),
         ],
         [
@@ -300,6 +330,7 @@ async def route_event_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     import asyncio
     from bot.common.callback_data import decode_callback
     import logging
+
     logger = logging.getLogger("coord_bot.event_panel")
 
     query = update.callback_query
@@ -350,6 +381,9 @@ async def route_event_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         CALLBACK_ACTIONS["refresh"]: _handle_refresh,
         CALLBACK_ACTIONS["back_to_panel"]: _handle_view,
         CALLBACK_ACTIONS["back_to_list"]: _handle_back_to_list,
+        CALLBACK_ACTIONS["logs"]: _handle_logs,
+        CALLBACK_ACTIONS["close"]: _handle_close,
+        CALLBACK_ACTIONS["modify"]: handle_modify_event,
     }
 
     handler = handler_map.get(action)
@@ -552,10 +586,10 @@ async def _handle_join(
 ) -> None:
     """Handle join event action."""
     import logging
+
     logger = logging.getLogger("coord_bot.event_panel")
 
     from sqlalchemy import select
-    from db.models import EventParticipant
     from bot.services import ParticipantService
     from bot.common.rbac import check_event_visibility_and_get_event
 
@@ -647,7 +681,9 @@ async def _handle_join(
                 error_msg,
             )
             try:
-                await asyncio.wait_for(query.answer(f"❌ {error_msg or 'Event not found.'}", show_alert=True), timeout=5.0)
+                await asyncio.wait_for(
+                    query.answer(f"❌ {error_msg or 'Event not found.'}", show_alert=True), timeout=5.0
+                )
             except asyncio.TimeoutError:
                 pass
             return
@@ -706,6 +742,7 @@ async def _handle_join(
                 organizer_id = event.organizer_telegram_user_id
                 if telegram_user_id != organizer_id and event.state == "proposed":
                     from bot.services import EventLifecycleService
+
                     lifecycle_service = EventLifecycleService(bot, session)
                     try:
                         event, _ = await lifecycle_service.transition_with_lifecycle(
@@ -740,15 +777,13 @@ async def _handle_join(
                 from sqlalchemy import select as sa_select
                 from db.models import User
 
+                await session.execute(
+                    sa_select(User).where(User.telegram_user_id == event.organizer_telegram_user_id)
+                )
+
+                from bot.common.event_notifications import send_join_notification_dm
+
                 try:
-                    organizer_user_result = await session.execute(
-                        sa_select(User).where(User.telegram_user_id == event.organizer_telegram_user_id)
-                    )
-                    organizer_user = organizer_user_result.scalar_one_or_none()
-                    organizer_name = organizer_user.display_name or organizer_user.username or f"User #{event.organizer_telegram_user_id}" if organizer_user else "Organizer"
-
-                    from bot.common.event_notifications import send_join_notification_dm
-
                     logger.info(
                         "[JOIN_FLOW] Notifying organizer | event_id=%s user_id=%s organizer_id=%s",
                         event_id,
@@ -1374,6 +1409,119 @@ async def handle_suggest_time(
     store = get_state_store(query.from_user.id, context.user_data)
     store.set_enrichment_session(event_id, "suggest_time")
     await query.answer("Type your preferred time and send it!")
+
+
+async def _handle_logs(
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_id: int,
+    group_id: Optional[int] = None,
+) -> None:
+    """Display event logs."""
+    from db.models import Log as LogModel, User
+
+    db_url = settings.db_url or ""
+    async with get_session(db_url) as session:
+        result = await session.execute(
+            select(LogModel, User)
+            .join(User, LogModel.user_id == User.user_id, isouter=True)
+            .where(LogModel.event_id == event_id)
+            .order_by(LogModel.timestamp.desc())
+        )
+        rows = result.all()
+        if not rows:
+            await query.edit_message_text(f"Event {event_id} has no logs yet.")
+            return
+        msg = f"Event {event_id} Logs\n\n"
+        for log, user in rows[:20]:
+            user_info = ""
+            if user:
+                user_info = " by " + format_user_display(
+                    telegram_user_id=user.telegram_user_id,
+                    username=getattr(user, "username", None),
+                    display_name=getattr(user, "display_name", None),
+                    include_link=False,
+                )
+            action_text = {
+                "join": "joined",
+                "confirm": "confirmed",
+                "cancel": "cancelled",
+                "organize_event": "created the event",
+                "suggest_time": "suggested a time",
+                "nudge": "was nudged",
+                "constraint_update": "updated constraints",
+            }.get(log.action, log.action)
+            msg += f"- {action_text}{user_info} at {log.timestamp}\n"
+        if len(rows) > 20:
+            msg += f"... and {len(rows) - 20} more logs"
+        back_btn = InlineKeyboardButton(
+            "Back",
+            callback_data=encode_callback("det", event_id, group_id),
+        )
+        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[back_btn]]))
+
+
+async def _handle_close(
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_id: int,
+    group_id: Optional[int] = None,
+) -> None:
+    """Close event details view."""
+    await query.edit_message_text(f"Event details for #{event_id} closed.")
+
+
+async def handle_modify_event(
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_id: int,
+    group_id: Optional[int] = None,
+) -> None:
+    """Open the event modification dialog."""
+    from db.models import Event
+
+    user = query.from_user
+    if not settings.db_url:
+        await query.edit_message_text("Database configuration is unavailable.")
+        return
+
+    async with get_session(settings.db_url) as session:
+        result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event = result.scalar_one_or_none()
+        if not event:
+            await query.edit_message_text("Event not found.")
+            return
+
+        from bot.common.event_access import get_event_admin_telegram_id
+
+        admin_id = get_event_admin_telegram_id(event)
+
+        modify_request = {
+            "event_id": event_id,
+            "event_description": event.description or "",
+            "event_scheduled_time": (event.scheduled_time.isoformat() if event and event.scheduled_time else None),
+            "admin_id": admin_id,
+            "requester_id": user.id if user else None,
+            "requester_username": user.username if user else None,
+        }
+        request_id = uuid4().hex[:8]
+        context.user_data[f"pending_modify_request_{request_id}"] = modify_request
+
+        keyboard = [
+            [
+                InlineKeyboardButton("Write your own", callback_data=f"modinput_{request_id}_write"),
+                InlineKeyboardButton("AI suggested", callback_data=f"modinput_{request_id}_ai"),
+            ],
+            [InlineKeyboardButton("Discard", callback_data=f"modinput_{request_id}_cancel")],
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            "How would you like to modify the event?\n\n"
+            "Choose a method to specify the changes you want to make.",
+            reply_markup=reply_markup,
+            parse_mode="Markdown",
+        )
 
 
 # =============================================================================

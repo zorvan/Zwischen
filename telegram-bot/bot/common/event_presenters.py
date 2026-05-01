@@ -4,7 +4,6 @@ from typing import Any
 
 from sqlalchemy import select
 
-from bot.common.event_states import STATE_EXPLANATIONS
 from bot.common.event_formatters import (
     format_date_preset,
     format_time_window,

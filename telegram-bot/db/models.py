@@ -67,7 +67,7 @@ class Event(Base):
     __tablename__ = "events"
 
     event_id = Column(Integer, primary_key=True)
-    group_id = Column(Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), nullable=False)
+    group_id = Column(Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), nullable=True)
     event_type = Column(String(100), nullable=False)
     description = Column(Text)
     organizer_telegram_user_id = Column(BigInteger)

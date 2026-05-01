@@ -21,30 +21,23 @@ from bot.commands import (
     start,
     my_groups,
     profile,
-    organize_event,
     private_organize_event,
     event_creation,
-    join,
-    confirm,
     back,
     cancel,
-    lock,
     request_confirmations,
     modify_event,
-    constraints,
     suggest_time,
-    status,
     event_details,
     events,
     check_deadlines,
     memory,
     my_history,
     personal_attendance_mirror,
-    meaning_formation,
     about,
     preferences,
 )
-from bot.handlers import event_flow, event_panel, membership, mentions, menus, waitlist as waitlist_handlers
+from bot.handlers import event_panel, membership, mentions, menus, waitlist as waitlist_handlers
 from ai.llm import LLMClient
 from db.connection import check_db_connection, create_engine, init_db
 
@@ -58,9 +51,9 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = None
     update_type = type(update).__name__ if update else "None"
 
-    if update and hasattr(update, 'effective_user') and update.effective_user:
+    if update and hasattr(update, "effective_user") and update.effective_user:
         user_id = update.effective_user.id
-    if update and hasattr(update, 'effective_chat') and update.effective_chat:
+    if update and hasattr(update, "effective_chat") and update.effective_chat:
         chat_id = update.effective_chat.id
 
     # Log error with full context
@@ -209,22 +202,12 @@ def main():
         "my_groups": my_groups.handle,
         "profile": profile.handle,
         "how_am_i_doing": personal_attendance_mirror.handle,
-        "plan": meaning_formation.handle,
-        "organize_event": organize_event.handle,
-        "organize_event_flexible": organize_event.handle_flexible,
-        "join": join.handle,
-        "confirm": confirm.handle,
-        "interested": confirm.handle,
         "back": back.handle,
         "cancel": cancel.handle,
-        "lock": lock.handle,
         "request_confirmations": request_confirmations.handle,
         "modify_event": modify_event.handle,
-        "constraints": constraints.handle,
         "suggest_time": suggest_time.handle,
-        "status": status.handle,
         "events": events.handle,
-        "event_details": event_details.handle,
         "private_organize_event": private_organize_event.handle,
         "check_deadlines": check_deadlines.handle,
         # PRD v2: Memory layer commands
@@ -250,29 +233,53 @@ def main():
         # Menu handlers (must come before general patterns)
         (r"^menu_", menus.handle_menu_callback),
         (r"^noop$", menus.handle_menu_callback),
+        (r"^organize_", menus.handle_menu_callback),
         # v3.5: Events list and creation flow handlers
         (r"^events_", menus.handle_menu_callback),
         (r"^create_", menus.handle_menu_callback),
-        # Waitlist handlers (must come before general event_ patterns)
+        # Waitlist handlers
         (r"^waitlist_(join|accept|decline)_", waitlist_handlers.handle_menu_callback),
         (r"^extend_deadline_", waitlist_handlers.handle_menu_callback),
         (r"^view_waitlist_", waitlist_handlers.handle_menu_callback),
-        # Event flow handlers (more specific, must come before general event_)
-        (r"^event_(join|confirm|back|cancel|lock)_", event_flow.handle_event_flow),
-        (r"^event_unconfirm_", event_flow.handle_event_flow),  # Uncommit (separate from back)
-        (r"^event_(details|status|logs|constraints|close)_", event_details.handle_callback),
-        (r"^event_modify_", mentions.handle_callback),
-        (r"^event_admin_", mentions.handle_callback),
-       # General event callback handler (catches event_join_, event_confirm_, event_type_, etc.)
-        (r"^event_", event_creation.handle_callback),
-        (r"^private_event_details_", event_details.handle_callback),
-        (r"^private_event_", event_creation.private_handle_callback),
+        # Event creation flow callbacks (must come before general event_ pattern)
+        (r"^event_type_", event_creation.handle_callback),
+        (r"^event_duration_", event_creation.handle_callback),
+        (r"^event_edit_", event_creation.handle_callback),
+        (r"^event_date_", event_creation.handle_callback),
+        (r"^event_time_", event_creation.handle_callback),
+        (r"^event_invitees_", event_creation.handle_callback),
+        (r"^event_threshold_", event_creation.handle_callback),
+        (r"^event_transport_", event_creation.handle_callback),
+        (r"^event_budget_", event_creation.handle_callback),
+        (r"^event_location_", event_creation.handle_callback),
+        (r"^event_calendar_", event_creation.handle_callback),
+        (r"^event_time_option_", event_creation.handle_callback),
+        (r"^event_time_manual_", event_creation.handle_callback),
+        (r"^event_min_participants_", event_creation.handle_callback),
+        (r"^event_target_participants_", event_creation.handle_callback),
+        # Private event creation flow callbacks
+        (r"^private_event_type_", event_creation.private_handle_callback),
+        (r"^private_event_duration_", event_creation.private_handle_callback),
+        (r"^private_event_edit_", event_creation.private_handle_callback),
+        (r"^private_event_date_", event_creation.private_handle_callback),
+        (r"^private_event_time_", event_creation.private_handle_callback),
+        (r"^private_event_invitees_", event_creation.private_handle_callback),
+        (r"^private_event_threshold_", event_creation.private_handle_callback),
+        (r"^private_event_transport_", event_creation.private_handle_callback),
+        (r"^private_event_budget_", event_creation.private_handle_callback),
+        (r"^private_event_location_", event_creation.private_handle_callback),
+        (r"^private_event_calendar_", event_creation.private_handle_callback),
+        (r"^private_event_time_option_", event_creation.private_handle_callback),
+        (r"^private_event_time_manual_", event_creation.private_handle_callback),
+        (r"^private_event_min_participants_", event_creation.private_handle_callback),
+        (r"^private_event_target_participants_", event_creation.private_handle_callback),
+        # v3.5: Event panel callbacks (ev:{id}:action format)
+        (r"^ev:", event_panel.route_event_callback),
         (r"^mnpick_", mentions.handle_disambiguation_callbacks),
         (r"^mention_(start_organize|show_status|ask_help)$", mentions.handle_disambiguation_callbacks),
         # Modify input handlers
         (r"^modinput_", mentions.handle_callback),
         # Other handlers
-        (r"^constraint_nl_", constraints.handle_callback),
         (r"^mentionact_", mentions.handle_mention_callback),
         (r"^suggest_time_retry_", suggest_time.handle_callback),
         (r"^modreq_", modify_event.handle_modify_request_callback),
@@ -296,6 +303,10 @@ def main():
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, event_creation.handle_message),
         group=0,
+    )
+    application.add_handler(
+        MessageHandler(filters.TEXT & ~filters.COMMAND, private_organize_event.handle_message),
+        group=1,
     )
 
     # Register text message handler for pending modification requests

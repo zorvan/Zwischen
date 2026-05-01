@@ -30,8 +30,8 @@ async def reconcile_event_state_after_participant_change(
 
     This keeps slash and callback flows aligned after unconfirm/cancel actions.
     If only the organizer remains, event goes back to proposed.
-    
-    Downgrade transitions (confirmed→interested, confirmed→proposed, 
+
+    Downgrade transitions (confirmed→interested, confirmed→proposed,
     interested→proposed) are only allowed when triggered by participant
     departure (not by a manual organizer action).
     """
@@ -64,9 +64,7 @@ async def reconcile_event_state_after_participant_change(
         organizer_participant_result = await session.execute(
             select(EventParticipant.telegram_user_id).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.status.in_(
-                    [ParticipantStatus.joined, ParticipantStatus.confirmed]
-                ),
+                EventParticipant.status.in_([ParticipantStatus.joined, ParticipantStatus.confirmed]),
                 EventParticipant.telegram_user_id == organizer_id,
             )
         )
@@ -95,7 +93,7 @@ async def reconcile_event_state_after_participant_change(
 
     # Check if this is a downgrade transition
     is_downgrade = (event.state, target_state) in DOWNGRADE_TRANSITIONS
-    
+
     # Downgrade transitions are only allowed when triggered by participant
     # departure (source indicates automatic reconciliation), not by manual
     # organizer action. This prevents accidental state loss.
