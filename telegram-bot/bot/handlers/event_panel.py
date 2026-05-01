@@ -18,6 +18,7 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, 
 from telegram.ext import ContextTypes
 
 from bot.common.callback_data import encode_callback, decode_callback, CALLBACK_ACTIONS
+from bot.common.event_states import get_available_actions
 from db.models import ParticipantStatus
 from bot.services.participant_service import ParticipantService
 from bot.services.event_enrichment_service import EventEnrichmentService
@@ -44,11 +45,8 @@ def build_main_panel_buttons(
     """
     Build context-aware buttons for the event panel.
 
-    Button visibility depends on:
-    - User's current participation status
-    - Whether user is organizer
-    - Event state (proposed, interested, confirmed, locked)
-    - Whether minimum threshold is met
+    Button visibility is driven by get_available_actions() from event_states.py,
+    which is the single source of truth for which actions are available.
 
     Args:
         event_id: Event being viewed
@@ -63,8 +61,18 @@ def build_main_panel_buttons(
         2D array of InlineKeyboardButton (rows of buttons)
     """
     buttons = []
+    user_status_str = user_status.value if user_status else None
 
-    # Row 1: Details are always available from the panel.
+    # Get available actions from centralized state machine
+    available = get_available_actions(
+        user_status=user_status_str,
+        event_state=event_state,
+        is_organizer=is_organizer,
+        confirmed_count=confirmed_count,
+        min_participants=min_participants,
+    )
+
+    # Details button (always shown as first row)
     buttons.append(
         [
             InlineKeyboardButton(
@@ -73,22 +81,26 @@ def build_main_panel_buttons(
         ]
     )
 
-    # Row 2: Enrich & Constraint (available to all participants)
-    if user_status in [ParticipantStatus.joined, ParticipantStatus.confirmed]:
-        buttons.append(
-            [
+    # Enrich & Constraint (for joined/confirmed participants)
+    if "enrich" in available or "constraint" in available:
+        row = []
+        if "enrich" in available:
+            row.append(
                 InlineKeyboardButton(
                     "Enrich", callback_data=encode_callback(CALLBACK_ACTIONS["enrich"], event_id, group_id), style="primary"
-                ),
+                )
+            )
+        if "constraint" in available:
+            row.append(
                 InlineKeyboardButton(
                     "Constraint", callback_data=encode_callback(CALLBACK_ACTIONS["constraint"], event_id, group_id), style="primary"
-                ),
-            ]
-        )
+                )
+            )
+        if row:
+            buttons.append(row)
 
-    # Row 3: Primary action based on user status
-    if event_state == "locked":
-        # Locked events - no changes allowed
+    # Primary action row based on event state and user status
+    if "locked" in available or event_state == "locked":
         buttons.append(
             [
                 InlineKeyboardButton(
@@ -96,35 +108,39 @@ def build_main_panel_buttons(
                 ),
             ]
         )
-    elif user_status == ParticipantStatus.confirmed:
-        # User is confirmed - can relinquish
+    elif "join" in available:
         buttons.append(
             [
                 InlineKeyboardButton(
-                    "Confirmed",
-                    callback_data=encode_callback(CALLBACK_ACTIONS["relinquish"], event_id, group_id),
-                    style="success",
+                    "Join", callback_data=encode_callback(CALLBACK_ACTIONS["join"], event_id, group_id), style="success"
                 ),
             ]
         )
-    elif user_status == ParticipantStatus.joined:
-        # User is joined - can relinquish or commit if threshold met
-        if confirmed_count >= min_participants:
-            # Threshold met - show commit button
+    elif "commit" in available:
+        buttons.append(
+            [
+                InlineKeyboardButton(
+                    "Confirm", callback_data=encode_callback(CALLBACK_ACTIONS["commit"], event_id, group_id), style="success"
+                ),
+                InlineKeyboardButton(
+                    "Relinquish",
+                    callback_data=encode_callback(CALLBACK_ACTIONS["relinquish"], event_id, group_id),
+                    style="danger",
+                ),
+            ]
+        )
+    elif "relinquish" in available:
+        if user_status == ParticipantStatus.confirmed:
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "Commit", callback_data=encode_callback(CALLBACK_ACTIONS["commit"], event_id, group_id), style="success"
-                    ),
-                    InlineKeyboardButton(
-                        "Relinquish",
+                        "Confirmed",
                         callback_data=encode_callback(CALLBACK_ACTIONS["relinquish"], event_id, group_id),
-                        style="danger",
+                        style="success",
                     ),
                 ]
             )
         else:
-            # Need more people - just show relinquish
             buttons.append(
                 [
                     InlineKeyboardButton(
@@ -134,20 +150,10 @@ def build_main_panel_buttons(
                     ),
                 ]
             )
-    elif user_status is None:
-        # Not participating - show join button
-        buttons.append(
-            [
-                InlineKeyboardButton(
-                    "Join Event", callback_data=encode_callback(CALLBACK_ACTIONS["join"], event_id, group_id), style="success"
-                ),
-            ]
-        )
 
-    # Row 4: Organizer actions
+    # Organizer actions
     if is_organizer:
-        if event_state == "confirmed" and confirmed_count >= min_participants:
-            # Ready to lock
+        if "lock" in available:
             buttons.append(
                 [
                     InlineKeyboardButton(
@@ -155,8 +161,7 @@ def build_main_panel_buttons(
                     ),
                 ]
             )
-        elif event_state == "locked":
-            # Can unlock
+        if "unlock" in available:
             buttons.append(
                 [
                     InlineKeyboardButton(
@@ -164,8 +169,16 @@ def build_main_panel_buttons(
                     ),
                 ]
             )
+        if "complete" in available:
+            buttons.append(
+                [
+                    InlineKeyboardButton(
+                        "Complete Event", callback_data=encode_callback(CALLBACK_ACTIONS["complete"], event_id, group_id), style="primary"
+                    ),
+                ]
+            )
 
-    # Row 5: Navigation
+    # Navigation row
     buttons.append(
         [
             InlineKeyboardButton(
@@ -839,12 +852,24 @@ async def _handle_commit(
     group_id: Optional[int] = None,
 ) -> None:
     """Handle commit (confirm) event action."""
+    from sqlalchemy import select
+
+    from bot.common.event_access import get_event_organizer_telegram_id
+    from bot.services.event_lifecycle_service import EventLifecycleService
     from bot.services import ParticipantService
 
     db_url = settings.db_url or ""
     telegram_user_id = query.from_user.id
+    bot = context.bot
 
     async with get_session(db_url) as session:
+        event_result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event = event_result.scalar_one_or_none()
+
+        if not event:
+            await query.answer("❌ Event not found.", show_alert=True)
+            return
+
         participant_service = ParticipantService(session)
         participant = await participant_service.get_participant(event_id, telegram_user_id)
 
@@ -861,6 +886,25 @@ async def _handle_commit(
                 event_id=event_id,
                 telegram_user_id=telegram_user_id,
             )
+            await session.flush()
+
+            organizer_id = get_event_organizer_telegram_id(event)
+            confirmed_count = await participant_service.get_confirmed_count(event_id)
+            if telegram_user_id != organizer_id and event.state != "confirmed" and confirmed_count > 0:
+                lifecycle_service = EventLifecycleService(bot, session)
+                try:
+                    event, _ = await lifecycle_service.transition_with_lifecycle(
+                        event_id=event_id,
+                        target_state="confirmed",
+                        actor_telegram_user_id=telegram_user_id,
+                        source="callback",
+                        reason="Non-organizer participant confirmed attendance",
+                        expected_version=event.version,
+                    )
+                except Exception as e:
+                    await query.answer(f"❌ Error: {str(e)}", show_alert=True)
+                    return
+
             await session.commit()
 
             await query.answer("✅ You're committed!")
@@ -1134,8 +1178,10 @@ async def handle_add_idea_prompt(
         parse_mode="Markdown",
     )
 
-    context.user_data["enrich_event_id"] = event_id
-    context.user_data["enrich_action"] = "add_idea"
+    from bot.services.state_store import get_state_store
+
+    store = get_state_store(query.from_user.id, context.user_data)
+    store.set_enrichment_session(event_id, "add_idea")
     await query.answer("Type your idea and send it!")
 
 
@@ -1156,8 +1202,10 @@ async def handle_add_hashtag_prompt(
         parse_mode="Markdown",
     )
 
-    context.user_data["enrich_event_id"] = event_id
-    context.user_data["enrich_action"] = "add_hashtag"
+    from bot.services.state_store import get_state_store
+
+    store = get_state_store(query.from_user.id, context.user_data)
+    store.set_enrichment_session(event_id, "add_hashtag")
     await query.answer("Type your hashtag and send it!")
 
 
@@ -1177,8 +1225,10 @@ async def handle_add_memory_prompt(
         parse_mode="Markdown",
     )
 
-    context.user_data["enrich_event_id"] = event_id
-    context.user_data["enrich_action"] = "add_memory"
+    from bot.services.state_store import get_state_store
+
+    store = get_state_store(query.from_user.id, context.user_data)
+    store.set_enrichment_session(event_id, "add_memory")
     await query.answer("Type your memory and send it!")
 
 
@@ -1270,8 +1320,10 @@ async def handle_add_constraint_prompt(
         parse_mode="Markdown",
     )
 
-    context.user_data["enrich_event_id"] = event_id
-    context.user_data["enrich_action"] = "add_constraint"
+    from bot.services.state_store import get_state_store
+
+    store = get_state_store(query.from_user.id, context.user_data)
+    store.set_enrichment_session(event_id, "add_constraint")
     await query.answer("Type the username and send it!")
 
 
@@ -1292,8 +1344,10 @@ async def handle_add_constraint_unless_prompt(
         parse_mode="Markdown",
     )
 
-    context.user_data["enrich_event_id"] = event_id
-    context.user_data["enrich_action"] = "add_constraint_unless"
+    from bot.services.state_store import get_state_store
+
+    store = get_state_store(query.from_user.id, context.user_data)
+    store.set_enrichment_session(event_id, "add_constraint_unless")
     await query.answer("Type the username and send it!")
 
 
@@ -1315,8 +1369,10 @@ async def handle_suggest_time(
         ),
         parse_mode="Markdown",
     )
-    context.user_data["enrich_event_id"] = event_id
-    context.user_data["enrich_action"] = "suggest_time"
+    from bot.services.state_store import get_state_store
+
+    store = get_state_store(query.from_user.id, context.user_data)
+    store.set_enrichment_session(event_id, "suggest_time")
     await query.answer("Type your preferred time and send it!")
 
 

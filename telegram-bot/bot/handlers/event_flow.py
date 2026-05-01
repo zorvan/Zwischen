@@ -446,6 +446,12 @@ async def handle_confirm(query, context: ContextTypes.DEFAULT_TYPE, event_id: in
             source="callback",
         )
 
+        # Flush to persist the status change before counting confirmed participants.
+        # Without this, get_confirmed_count() queries the DB before the update is visible,
+        # causing the first confirmation to be missed and the event never transitions
+        # from "proposed"/"interested" to "confirmed".
+        await session.flush()
+
         # Check if we need to transition to confirmed state
         # Only non-organizer confirmations trigger the state change
         organizer_id = get_event_organizer_telegram_id(event)
