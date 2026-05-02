@@ -19,6 +19,8 @@ from sqlalchemy import select
 
 from db.models import EventParticipant
 
+from bot.common.i18n import t
+
 logger = logging.getLogger("coord_bot.callback_protection")
 
 
@@ -104,7 +106,9 @@ class CallbackProtectionService:
             return self.EXPIRY_EVENT_ACTIONS
         elif callback_type in {"details", "logs", "status", "constraints"}:
             return self.EXPIRY_NAVIGATION
-        elif callback_type.startswith("event_") or callback_type.startswith("private_event_"):
+        elif callback_type.startswith("event_") or callback_type.startswith(
+            "private_event_"
+        ):
             return self.EXPIRY_CREATION
         elif callback_type in {"modreq", "mentionact"}:
             return self.EXPIRY_MODIFICATION
@@ -135,11 +139,11 @@ class CallbackProtectionService:
         """
         parsed = self.parse_callback_id(callback_id)
         if not parsed:
-            return False, "Invalid callback format"
+            return False, t("callback_invalid_format", lang="en")
 
         if parsed["user_id"] != clicking_user_id:
             return False, (
-                f"This action was intended for User {parsed['user_id']}. " f"Please use your own invitation link."
+                t("callback_wrong_user", lang="en", user_id=parsed["user_id"])
             )
 
         return True, None
@@ -158,11 +162,11 @@ class CallbackProtectionService:
         # Parse and verify format
         parsed = self.parse_callback_id(callback_id)
         if not parsed:
-            return False, "Invalid callback format", None
+            return False, t("callback_invalid_format", lang="en"), None
 
         # Check expiry
         if self.is_expired(callback_id):
-            return False, "This invitation has expired. Please request a new one.", parsed
+            return False, t("callback_expired", lang="en"), parsed
 
         # Check ownership
         is_owner, error = await self.check_ownership(callback_id, clicking_user_id)
@@ -235,7 +239,9 @@ async def validate_event_callback(
     protection = CallbackProtectionService(session)
 
     # Validate callback format and expiry
-    is_valid, error, parsed = await protection.validate_callback(callback_data, clicking_user_id)
+    is_valid, error, parsed = await protection.validate_callback(
+        callback_data, clicking_user_id
+    )
 
     if not is_valid:
         return False, error
@@ -251,7 +257,7 @@ async def validate_event_callback(
         participant = result.scalar_one_or_none()
 
         if not participant:
-            return False, "You must join the event first"
+            return False, t("callback_must_join_first", lang="en")
 
     return True, None
 

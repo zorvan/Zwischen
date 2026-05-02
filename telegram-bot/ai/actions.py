@@ -148,12 +148,15 @@ def validate_constraint_type(value: str) -> str:
         ValidationError: If the constraint type is not valid
     """
     if not value or not isinstance(value, str):
-        raise ValidationError(f"Constraint type must be a non-empty string, got: {value!r}")
+        raise ValidationError(
+            f"Constraint type must be a non-empty string, got: {value!r}"
+        )
 
     normalized = value.strip().lower()
     if normalized not in VALID_CONSTRAINT_TYPES:
         raise ValidationError(
-            f"Unknown constraint type: {value!r}. " f"Valid types: {', '.join(sorted(VALID_CONSTRAINT_TYPES))}"
+            f"Unknown constraint type: {value!r}. "
+            f"Valid types: {', '.join(sorted(VALID_CONSTRAINT_TYPES))}"
         )
     return normalized
 
@@ -180,7 +183,8 @@ def validate_log_action(value: str) -> str:
     normalized = value.strip().lower()
     if normalized not in VALID_LOG_ACTIONS:
         raise ValidationError(
-            f"Unknown log action: {value!r}. " f"Valid actions: {', '.join(sorted(VALID_LOG_ACTIONS))}"
+            f"Unknown log action: {value!r}. "
+            f"Valid actions: {', '.join(sorted(VALID_LOG_ACTIONS))}"
         )
     return normalized
 

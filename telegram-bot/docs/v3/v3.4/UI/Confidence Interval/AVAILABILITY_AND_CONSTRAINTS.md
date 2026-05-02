@@ -14,7 +14,7 @@ Availability is stored as a constraint type in the `constraints` table:
 ```python
 class Constraint(Base):
     __tablename__ = "constraints"
-    
+
     constraint_id = Column(Integer, primary_key=True)
     user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
     target_user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=True)
@@ -25,7 +25,7 @@ class Constraint(Base):
 ```
 
 **Key points:**
-- Availability constraints use `type = "availability"` 
+- Availability constraints use `type = "availability"`
 - `user_id` represents the user expressing availability
 - `event_id` links to the specific event
 - The actual time slot is stored in `metadata_dict` of the `Log` table (see `bot/commands/event_details.py:817`)
@@ -36,7 +36,7 @@ The `Log` table stores the actual availability slot data in JSON metadata:
 ```python
 class Log(Base):
     __tablename__ = "logs"
-    
+
     log_id = Column(Integer, primary_key=True)
     event_id = Column(BigInteger, ForeignKey("events.event_id"))
     user_id = Column(BigInteger, ForeignKey("users.user_id"))
@@ -263,7 +263,7 @@ class Event(Base):
     scheduled_time = Column(DateTime)        # When event is scheduled
     commit_by = Column(DateTime)            # Deadline for commitment (lines 82-82)
     duration_minutes = Column(Integer, default=120)  # Event duration
-    
+
     # PRD v2: Explicit threshold fields
     min_participants = Column(Integer, default=2)      # Absolute minimum to run
     target_participants = Column(Integer, default=6)   # Desired count
@@ -336,10 +336,10 @@ def format_commit_by(commit_by, include_context: bool = True) -> str:
     """Format commit-by deadline for display."""
     if not commit_by:
         return "TBD"
-    
+
     now = datetime.utcnow()
     diff = commit_by - now
-    
+
     if diff.total_seconds() <= 0:
         return "⏳ Deadline passed"
     elif diff.total_seconds() < 3600:  # Less than 1 hour

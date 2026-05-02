@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, cast, overload
+from typing import Any, cast
 
 from .state_models import (
     ENRICHMENT_TTL,
@@ -158,7 +158,9 @@ class StateStore:
             return entry
         return None
 
-    def set_enrichment_session(self, event_id: int, action: ENRICHMENT_ACTION_VALUES) -> str:
+    def set_enrichment_session(
+        self, event_id: int, action: ENRICHMENT_ACTION_VALUES
+    ) -> str:
         """Create a new enrichment session, returning the session UUID."""
         session_id = uuid.uuid4().hex[:12]
         session: dict[str, Any] = {
@@ -214,7 +216,9 @@ class StateStore:
             return entry.value
         return cast(ModifyRequest | None, entry) if isinstance(entry, dict) else None
 
-    def set_modify_request_text(self, request_id: str, text_data: ModifyRequestText) -> None:
+    def set_modify_request_text(
+        self, request_id: str, text_data: ModifyRequestText
+    ) -> None:
         key = f"pending_mod_text_{request_id}"
         self._user_data[key] = _StateEntry(dict(text_data), MODIFY_REQUEST_TTL)
 
@@ -225,7 +229,9 @@ class StateStore:
             if entry.is_expired():
                 return None
             return entry.value
-        return cast(ModifyRequestText | None, entry) if isinstance(entry, dict) else None
+        return (
+            cast(ModifyRequestText | None, entry) if isinstance(entry, dict) else None
+        )
 
     # ------------------------------------------------------------------
     # Per-Event Locks
@@ -302,7 +308,9 @@ class StateStore:
 _store_for_user: dict[int, StateStore] = {}
 
 
-def get_state_store(user_id: int, user_data: dict[str, Any] | None = None) -> StateStore:
+def get_state_store(
+    user_id: int, user_data: dict[str, Any] | None = None
+) -> StateStore:
     """Get or create a StateStore for a user.
 
     Args:

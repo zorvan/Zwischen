@@ -25,6 +25,7 @@ from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
+from bot.common.i18n import t
 from db.models import Event, EventParticipant, ParticipantStatus, User
 from bot.common.materialization import get_time_framing_tier
 
@@ -59,7 +60,10 @@ class EventMaterializationService:
         message = f"{name} joined the {event.event_type}. 1 person in."
 
         await self._send_to_group(group_chat_id, message)
-        logger.info("Announced first join", extra={"event_id": event.event_id, "user": user.user_id})
+        logger.info(
+            "Announced first join",
+            extra={"event_id": event.event_id, "user": user.user_id},
+        )
 
     async def announce_join(
         self,
@@ -78,7 +82,9 @@ class EventMaterializationService:
         message = f"{name} joined the {event.event_type}. {confirmed_count} people in."
 
         await self._send_to_group(group_chat_id, message)
-        logger.info("Announced join", extra={"event_id": event.event_id, "user": user.user_id})
+        logger.info(
+            "Announced join", extra={"event_id": event.event_id, "user": user.user_id}
+        )
 
     async def announce_threshold_reached(
         self,
@@ -98,11 +104,15 @@ class EventMaterializationService:
 
         event_type = event.event_type
         if tier == "light":
-            message = f"The {event_type} is forming. {confirmed_count} people in so far."
+            message = (
+                f"The {event_type} is forming. {confirmed_count} people in so far."
+            )
         elif tier == "warm":
             message = f"The {event_type} is happening. {confirmed_count} people in."
         else:  # urgent, immediate
-            message = f"The {event_type} is happening. {confirmed_count} people confirmed."
+            message = (
+                f"The {event_type} is happening. {confirmed_count} people confirmed."
+            )
 
         # v3.2: Append memory hook if available
         if memory_hook:
@@ -110,7 +120,8 @@ class EventMaterializationService:
 
         await self._send_to_group(group_chat_id, message)
         logger.info(
-            "Announced threshold reached", extra={"event_id": event.event_id, "count": confirmed_count, "tier": tier}
+            "Announced threshold reached",
+            extra={"event_id": event.event_id, "count": confirmed_count, "tier": tier},
         )
 
     async def announce_event_locked(
@@ -133,7 +144,9 @@ class EventMaterializationService:
         for p in participants:
             if p.status in {ParticipantStatus.confirmed, ParticipantStatus.joined}:
                 user_result = await self.session.execute(
-                    sqlalchemy.select(User).where(User.telegram_user_id == p.telegram_user_id)
+                    sqlalchemy.select(User).where(
+                        User.telegram_user_id == p.telegram_user_id
+                    )
                 )
                 user = user_result.scalar_one_or_none()
                 if user:
@@ -141,14 +154,20 @@ class EventMaterializationService:
 
         names_str = ", ".join(names) if names else "TBD"
 
-        message = f"{event.event_type} is locked.\n" f"{time_str}.\n\n" f"Who's in: {names_str}"
+        message = (
+            f"{event.event_type} is locked.\n"
+            f"{time_str}.\n\n"
+            f"Who's in: {names_str}"
+        )
 
         # v3.2: Append memory hook if available
         if memory_hook:
             message += f'\n\nThe last time your group did something like this, someone said: "{memory_hook}".'
 
         await self._send_to_group(group_chat_id, message)
-        logger.info("Announced event locked", extra={"event_id": event.event_id, "tier": tier})
+        logger.info(
+            "Announced event locked", extra={"event_id": event.event_id, "tier": tier}
+        )
 
     async def announce_cancellation_private(
         self,
@@ -190,7 +209,11 @@ class EventMaterializationService:
         await self._send_dm(organizer_chat_id, message)
         logger.info(
             "Sent private cancellation notice",
-            extra={"event_id": event.event_id, "cancelled_user": user.user_id, "tier": tier},
+            extra={
+                "event_id": event.event_id,
+                "cancelled_user": user.user_id,
+                "tier": tier,
+            },
         )
 
     async def announce_cancellation_with_actions(
@@ -202,6 +225,7 @@ class EventMaterializationService:
         min_needed: int,
         waitlist_count: int,
         time_context: Optional[str] = None,
+        lang: str = "en",
     ) -> None:
         """
         v3.2: Cancellation DM with inline action buttons for organizer.
@@ -222,34 +246,46 @@ class EventMaterializationService:
         # Inline action buttons
         keyboard = [
             [
-                InlineKeyboardButton("⏳ Extend Deadline", callback_data=f"extend_deadline_{event.event_id}"),
+                InlineKeyboardButton(
+                    t("waitlist_extend_deadline", lang=lang),
+                    callback_data=f"extend_deadline_{event.event_id}",
+                ),
             ],
         ]
 
         if waitlist_count > 0:
             keyboard.append(
                 [
-                    InlineKeyboardButton("📋 View Waitlist", callback_data=f"view_waitlist_{event.event_id}"),
+                    InlineKeyboardButton(
+                        t("waitlist_view_waitlist", lang=lang),
+                        callback_data=f"view_waitlist_{event.event_id}",
+                    ),
                 ]
             )
 
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await self._send_dm_with_markup(organizer_chat_id, message, reply_markup)
-        logger.info("Sent cancellation-with-action DM", extra={"event_id": event.event_id})
+        logger.info(
+            "Sent cancellation-with-action DM", extra={"event_id": event.event_id}
+        )
 
     async def announce_event_completed(
         self,
         event: Event,
         participant_count: int,
         group_chat_id: int,
+        lang: str = "en",
     ) -> None:
         """
         Announce event completion.
-
-        "Event complete. N people joined."
         """
-        message = f"{event.event_type} complete. {participant_count} people joined."
+        message = t(
+            "materialization_event_complete",
+            lang=lang,
+            type=event.event_type,
+            count=participant_count,
+        )
 
         await self._send_to_group(group_chat_id, message)
         logger.info("Announced event completed", extra={"event_id": event.event_id})
@@ -264,10 +300,10 @@ class EventMaterializationService:
             return f"@{html.escape(user.username)}"
         return f"User #{user.telegram_user_id}"
 
-    def _format_event_time(self, event: Event) -> str:
+    def _format_event_time(self, event: Event, lang: str = "en") -> str:
         """Format event scheduled time for display."""
         if not event.scheduled_time:
-            return "Time TBD"
+            return t("format_scheduled_time_tbd", lang=lang)
 
         time_str = event.scheduled_time.strftime("%a %d %b, %H:%M")
         return time_str

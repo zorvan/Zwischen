@@ -8,6 +8,7 @@ from config.settings import settings
 from db.connection import get_session
 from db.models import Event, Group
 from bot.common.rbac import check_group_membership
+from bot.common.i18n import t, get_user_language
 
 
 async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -15,6 +16,11 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.effective_chat:
         return
 
+    user_lang = (
+        get_user_language(update.message.from_user)
+        if update.message.from_user
+        else "en"
+    )
     chat = update.effective_chat
     is_group_chat = chat.type in {"group", "supergroup"}
     db_url = settings.db_url or ""
@@ -37,11 +43,20 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         if not rows:
             # v3.5: Show Create button even when no events exist
             keyboard = [
-                [InlineKeyboardButton("➕ Create New Event", callback_data="events_create_new")],
-                [InlineKeyboardButton("🏠 Main Menu", callback_data="menu_main")],
+                [
+                    InlineKeyboardButton(
+                        t("events_create_new", lang=user_lang),
+                        callback_data="events_create_new",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        t("events_main_menu", lang=user_lang), callback_data="menu_main"
+                    )
+                ],
             ]
             await update.message.reply_text(
-                "ℹ️ No events found yet.\n\n" "💡 *Create your first event to get started!*",
+                t("events_no_events", lang=user_lang),
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown",
             )
@@ -64,11 +79,15 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
 
         if not rows:
             await update.message.reply_text(
-                "ℹ️ No events found in this group.\n\n" "You may not be a member yet. Contact a group admin."
+                t("events_no_events_in_group", lang=user_lang)
             )
             return
 
-        title = f"📋 *Recent Events in {chat.title or 'this group'}*" if is_group_chat else "📋 *Recent Events*"
+        title = (
+            t("events_title", lang=user_lang, group_name=chat.title or "this group")
+            if is_group_chat
+            else t("events_title_private", lang=user_lang)
+        )
 
         # Build message text with brief event info
         lines = [title, ""]
@@ -77,7 +96,11 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         keyboard = []
 
         for event, group in rows:
-            time_str = event.scheduled_time.strftime("%m-%d %H:%M") if event.scheduled_time else "TBD"
+            time_str = (
+                event.scheduled_time.strftime("%m-%d %H:%M")
+                if event.scheduled_time
+                else "TBD"
+            )
 
             # Three-word description for button text
             words = (event.description or "Event").split()[:3]
@@ -91,24 +114,35 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
             lines.append(f"• {short_desc_escaped} | {time_str} | {state_escaped}")
 
             # Add button for this event
-            keyboard.append([InlineKeyboardButton(f"📅 {short_desc}", callback_data=f"ev:{event.event_id}:view")])
+            keyboard.append(
+                [
+                    InlineKeyboardButton(
+                        f"📅 {short_desc}", callback_data=f"ev:{event.event_id}:view"
+                    )
+                ]
+            )
 
         # Add Create New Event button (v3.5: always visible)
         keyboard.append(
             [
-                InlineKeyboardButton("➕ Create New Event", callback_data="events_create_new"),
+                InlineKeyboardButton(
+                    t("events_create_new", lang=user_lang),
+                    callback_data="events_create_new",
+                ),
             ]
         )
 
         # Add back to menu button
         keyboard.append(
             [
-                InlineKeyboardButton("🏠 Main Menu", callback_data="menu_main"),
+                InlineKeyboardButton(
+                    t("events_main_menu", lang=user_lang), callback_data="menu_main"
+                ),
             ]
         )
 
         lines.append("")
-        lines.append("💡 *Tap any event above to view details, or create a new one*")
+        lines.append(t("events_tap_hint", lang=user_lang))
 
         await update.message.reply_text(
             "\n".join(lines),
@@ -117,7 +151,9 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         )
 
 
-async def handle_create_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_create_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle the 'Create New Event' button callback.
 
     v3.5: Memory-first creation flow - starts with collecting intent
@@ -127,22 +163,33 @@ async def handle_create_callback(update: Update, context: ContextTypes.DEFAULT_T
     if not query:
         return
 
+    user_lang = get_user_language(query.from_user) if query.from_user else "en"
     await query.answer()
 
     # Memory-first: Ask user what they want to do
     # This starts the creation flow by collecting intent
     keyboard = [
-        [InlineKeyboardButton("🎯 Plan something specific", callback_data="create_specific")],
-        [InlineKeyboardButton("💭 Just exploring ideas", callback_data="create_flexible")],
-        [InlineKeyboardButton("🔙 Back to Events", callback_data="events_back")],
+        [
+            InlineKeyboardButton(
+                t("menu_create_specific", lang=user_lang),
+                callback_data="create_specific",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu_create_flexible", lang=user_lang),
+                callback_data="create_flexible",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu_back_to_events", lang=user_lang), callback_data="events_back"
+            )
+        ],
     ]
 
     await query.edit_message_text(
-        "🌟 *Let's create something together*\n\n"
-        "What brings you here?\n\n"
-        "• *Plan something specific* — You have an idea in mind\n"
-        "• *Just exploring ideas* — Open to suggestions\n\n"
-        "💡 *Your intent shapes what we build*",
+        t("menu_create_new_event", lang=user_lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown",
     )

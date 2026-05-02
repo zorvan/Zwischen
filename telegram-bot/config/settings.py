@@ -22,7 +22,9 @@ class Settings:
         self.db_url: str | None = os.environ.get("DB_URL")
 
         # AI/LLM
-        self.ai_endpoint: str = os.environ.get("AI_ENDPOINT", "http://127.0.0.1:8080/v1/")
+        self.ai_endpoint: str = os.environ.get(
+            "AI_ENDPOINT", "http://127.0.0.1:8080/v1/"
+        )
         self.ai_model: str = os.environ.get("AI_MODEL", "qwen/qwen3-coder-next")
         self.ai_api_key: str = os.environ.get("AI_API_KEY", "dummy-key")
 
@@ -33,12 +35,20 @@ class Settings:
         self.json_logs: bool = os.environ.get("JSON_LOGS", "false").lower() == "true"
 
         # PRD v2: Feature flags
-        self.enable_materialization: bool = os.environ.get("ENABLE_MATERIALIZATION", "true").lower() == "true"
-        self.enable_memory_layer: bool = os.environ.get("ENABLE_MEMORY_LAYER", "true").lower() == "true"
+        self.enable_materialization: bool = (
+            os.environ.get("ENABLE_MATERIALIZATION", "true").lower() == "true"
+        )
+        self.enable_memory_layer: bool = (
+            os.environ.get("ENABLE_MEMORY_LAYER", "true").lower() == "true"
+        )
 
         # PRD v2: Production settings
-        self.environment: str = os.environ.get("ENVIRONMENT", "development")  # development, staging, production
-        self.enable_idempotency: bool = os.environ.get("ENABLE_IDEMPOTENCY", "false").lower() == "true"
+        self.environment: str = os.environ.get(
+            "ENVIRONMENT", "development"
+        )  # development, staging, production
+        self.enable_idempotency: bool = (
+            os.environ.get("ENABLE_IDEMPOTENCY", "false").lower() == "true"
+        )
         self.webhook_url: str | None = os.environ.get("WEBHOOK_URL")
         self.webhook_port: int = int(os.environ.get("WEBHOOK_PORT", "8443"))
         self.webhook_secret: str | None = os.environ.get("WEBHOOK_SECRET")

@@ -22,6 +22,7 @@ from sqlalchemy import select
 from bot.common.callback_data import encode_callback, CALLBACK_ACTIONS
 from bot.common.event_states import get_available_actions
 from bot.common.event_presenters import format_user_display
+from bot.common.i18n import t, get_user_language
 from db.models import ParticipantStatus
 from bot.services.participant_service import ParticipantService
 from bot.services.event_enrichment_service import EventEnrichmentService
@@ -44,6 +45,7 @@ def build_main_panel_buttons(
     confirmed_count: int = 0,
     min_participants: int = 2,
     group_id: Optional[int] = None,
+    user_lang: str = "en",
 ) -> List[List[InlineKeyboardButton]]:
     """
     Build context-aware buttons for the event panel.
@@ -79,8 +81,10 @@ def build_main_panel_buttons(
     buttons.append(
         [
             InlineKeyboardButton(
-                "Details",
-                callback_data=encode_callback(CALLBACK_ACTIONS["details"], event_id, group_id),
+                t("panel_details", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["details"], event_id, group_id
+                ),
                 style="primary",
             ),
         ]
@@ -92,16 +96,20 @@ def build_main_panel_buttons(
         if "enrich" in available:
             row.append(
                 InlineKeyboardButton(
-                    "Enrich",
-                    callback_data=encode_callback(CALLBACK_ACTIONS["enrich"], event_id, group_id),
+                    t("panel_enrich", lang=user_lang),
+                    callback_data=encode_callback(
+                        CALLBACK_ACTIONS["enrich"], event_id, group_id
+                    ),
                     style="primary",
                 )
             )
         if "constraint" in available:
             row.append(
                 InlineKeyboardButton(
-                    "Constraint",
-                    callback_data=encode_callback(CALLBACK_ACTIONS["constraint"], event_id, group_id),
+                    t("panel_constraint", lang=user_lang),
+                    callback_data=encode_callback(
+                        CALLBACK_ACTIONS["constraint"], event_id, group_id
+                    ),
                     style="primary",
                 )
             )
@@ -113,7 +121,9 @@ def build_main_panel_buttons(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    "Event Locked", callback_data=encode_callback("view", event_id, group_id), style="primary"
+                    t("panel_event_locked", lang=user_lang),
+                    callback_data=encode_callback("view", event_id, group_id),
+                    style="primary",
                 ),
             ]
         )
@@ -121,7 +131,11 @@ def build_main_panel_buttons(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    "Join", callback_data=encode_callback(CALLBACK_ACTIONS["join"], event_id, group_id), style="success"
+                    t("event_panel_join", lang=user_lang),
+                    callback_data=encode_callback(
+                        CALLBACK_ACTIONS["join"], event_id, group_id
+                    ),
+                    style="success",
                 ),
             ]
         )
@@ -129,13 +143,17 @@ def build_main_panel_buttons(
         buttons.append(
             [
                 InlineKeyboardButton(
-                    "Confirm",
-                    callback_data=encode_callback(CALLBACK_ACTIONS["commit"], event_id, group_id),
+                    t("event_panel_confirm", lang=user_lang),
+                    callback_data=encode_callback(
+                        CALLBACK_ACTIONS["commit"], event_id, group_id
+                    ),
                     style="success",
                 ),
                 InlineKeyboardButton(
-                    "Relinquish",
-                    callback_data=encode_callback(CALLBACK_ACTIONS["relinquish"], event_id, group_id),
+                    t("event_panel_relinquish", lang=user_lang),
+                    callback_data=encode_callback(
+                        CALLBACK_ACTIONS["relinquish"], event_id, group_id
+                    ),
                     style="danger",
                 ),
             ]
@@ -145,8 +163,10 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "Confirmed",
-                        callback_data=encode_callback(CALLBACK_ACTIONS["relinquish"], event_id, group_id),
+                        t("event_panel_confirmed", lang=user_lang),
+                        callback_data=encode_callback(
+                            CALLBACK_ACTIONS["relinquish"], event_id, group_id
+                        ),
                         style="success",
                     ),
                 ]
@@ -155,8 +175,10 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "Relinquish",
-                        callback_data=encode_callback(CALLBACK_ACTIONS["relinquish"], event_id, group_id),
+                        t("event_panel_relinquish", lang=user_lang),
+                        callback_data=encode_callback(
+                            CALLBACK_ACTIONS["relinquish"], event_id, group_id
+                        ),
                         style="danger",
                     ),
                 ]
@@ -168,8 +190,10 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "Lock Event",
-                        callback_data=encode_callback(CALLBACK_ACTIONS["lock"], event_id, group_id),
+                        t("event_panel_lock_event", lang=user_lang),
+                        callback_data=encode_callback(
+                            CALLBACK_ACTIONS["lock"], event_id, group_id
+                        ),
                         style="primary",
                     ),
                 ]
@@ -178,8 +202,10 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "Unlock Event",
-                        callback_data=encode_callback(CALLBACK_ACTIONS["unlock"], event_id, group_id),
+                        t("event_panel_unlock_event", lang=user_lang),
+                        callback_data=encode_callback(
+                            CALLBACK_ACTIONS["unlock"], event_id, group_id
+                        ),
                         style="danger",
                     ),
                 ]
@@ -188,8 +214,10 @@ def build_main_panel_buttons(
             buttons.append(
                 [
                     InlineKeyboardButton(
-                        "Complete Event",
-                        callback_data=encode_callback(CALLBACK_ACTIONS["complete"], event_id, group_id),
+                        t("event_panel_complete_event", lang=user_lang),
+                        callback_data=encode_callback(
+                            CALLBACK_ACTIONS["complete"], event_id, group_id
+                        ),
                         style="primary",
                     ),
                 ]
@@ -199,13 +227,17 @@ def build_main_panel_buttons(
     buttons.append(
         [
             InlineKeyboardButton(
-                "Back to Events",
-                callback_data=encode_callback(CALLBACK_ACTIONS["back_to_list"], event_id, group_id),
+                t("event_panel_back_to_events", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["back_to_list"], event_id, group_id
+                ),
                 style="danger",
             ),
             InlineKeyboardButton(
-                "Refresh",
-                callback_data=encode_callback(CALLBACK_ACTIONS["refresh"], event_id, group_id),
+                t("event_panel_refresh", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["refresh"], event_id, group_id
+                ),
                 style="primary",
             ),
         ]
@@ -214,7 +246,9 @@ def build_main_panel_buttons(
     return buttons
 
 
-def build_enrich_submenu(event_id: int, group_id: Optional[int] = None) -> List[List[InlineKeyboardButton]]:
+def build_enrich_submenu(
+    event_id: int, group_id: Optional[int] = None, user_lang: str = "en"
+) -> List[List[InlineKeyboardButton]]:
     """
     Build the Enrich sub-menu buttons.
 
@@ -233,39 +267,51 @@ def build_enrich_submenu(event_id: int, group_id: Optional[int] = None) -> List[
     return [
         [
             InlineKeyboardButton(
-                "Add Idea",
-                callback_data=encode_callback(CALLBACK_ACTIONS["enrich_idea"], event_id, group_id),
+                t("enrich_add_idea", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["enrich_idea"], event_id, group_id
+                ),
                 style="primary",
             ),
             InlineKeyboardButton(
-                "Add Hashtag",
-                callback_data=encode_callback(CALLBACK_ACTIONS["enrich_hashtag"], event_id, group_id),
-                style="primary",
-            ),
-        ],
-        [
-            InlineKeyboardButton(
-                "Add Memory",
-                callback_data=encode_callback(CALLBACK_ACTIONS["enrich_memory"], event_id, group_id),
-                style="primary",
-            ),
-            InlineKeyboardButton(
-                "View Contributions",
-                callback_data=encode_callback(CALLBACK_ACTIONS["enrich_view"], event_id, group_id),
+                t("enrich_add_hashtag", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["enrich_hashtag"], event_id, group_id
+                ),
                 style="primary",
             ),
         ],
         [
             InlineKeyboardButton(
-                "Back to Event",
-                callback_data=encode_callback(CALLBACK_ACTIONS["back_to_panel"], event_id, group_id),
+                t("enrich_add_memory", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["enrich_memory"], event_id, group_id
+                ),
+                style="primary",
+            ),
+            InlineKeyboardButton(
+                t("enrich_view_contributions_btn", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["enrich_view"], event_id, group_id
+                ),
+                style="primary",
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                t("enrich_back_to_panel", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["back_to_panel"], event_id, group_id
+                ),
                 style="danger",
             ),
         ],
     ]
 
 
-def build_constraint_submenu(event_id: int, group_id: Optional[int] = None) -> List[List[InlineKeyboardButton]]:
+def build_constraint_submenu(
+    event_id: int, group_id: Optional[int] = None, user_lang: str = "en"
+) -> List[List[InlineKeyboardButton]]:
     """
     Build the Constraint sub-menu buttons.
 
@@ -284,28 +330,40 @@ def build_constraint_submenu(event_id: int, group_id: Optional[int] = None) -> L
     return [
         [
             InlineKeyboardButton(
-                "✅ If someone joins...",
-                callback_data=encode_callback(CALLBACK_ACTIONS["constraint_add"], event_id, group_id),
+                t("constraint_if_someone_joins", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["constraint_add"], event_id, group_id
+                ),
             ),
         ],
         [
             InlineKeyboardButton(
-                "❌ Unless someone joins...",
-                callback_data=encode_callback(CALLBACK_ACTIONS["constraint_add_unless"], event_id, group_id),
+                t("constraint_unless_someone_joins", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["constraint_add_unless"], event_id, group_id
+                ),
             ),
         ],
         [
             InlineKeyboardButton(
-                "🕐 Suggest Time", callback_data=encode_callback(CALLBACK_ACTIONS["suggest_time"], event_id, group_id)
+                t("constraint_suggest_time", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["suggest_time"], event_id, group_id
+                ),
             ),
             InlineKeyboardButton(
-                "🤝 Negotiate Time",
-                callback_data=encode_callback(CALLBACK_ACTIONS["negotiate_time"], event_id, group_id),
+                t("constraint_negotiate_time", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["negotiate_time"], event_id, group_id
+                ),
             ),
         ],
         [
             InlineKeyboardButton(
-                "🔙 Back to Event", callback_data=encode_callback(CALLBACK_ACTIONS["back_to_panel"], event_id, group_id)
+                t("enrich_back_to_panel", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["back_to_panel"], event_id, group_id
+                ),
             ),
         ],
     ]
@@ -316,7 +374,9 @@ def build_constraint_submenu(event_id: int, group_id: Optional[int] = None) -> L
 # =============================================================================
 
 
-async def route_event_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def route_event_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """
     Route event panel callbacks to appropriate handlers.
 
@@ -337,6 +397,8 @@ async def route_event_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if not query:
         return
 
+    user_lang = get_user_language(query.from_user)
+
     logger.info("route_event_callback START: data=%r", query.data)
 
     # Answer the callback query immediately (with timeout to prevent hanging)
@@ -351,11 +413,16 @@ async def route_event_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     callback_data = query.data
     action, event_id, group_id = decode_callback(callback_data)
 
-    logger.info("route_event_callback decoded: action=%r, event_id=%r, group_id=%r", action, event_id, group_id)
+    logger.info(
+        "route_event_callback decoded: action=%r, event_id=%r, group_id=%r",
+        action,
+        event_id,
+        group_id,
+    )
 
     if action is None or event_id is None:
         # Invalid callback format
-        await query.edit_message_text("❌ Invalid callback. Please use /events to see your events.")
+        await query.edit_message_text(t("event_panel_invalid_callback", lang=user_lang))
         return
 
     # Route to appropriate handler
@@ -394,7 +461,9 @@ async def route_event_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         # Unknown action
         logger.info("route_event_callback unknown action: %r", action)
-        await query.edit_message_text(f"❓ Unknown action: {action}. Please use /events to see your events.")
+        await query.edit_message_text(
+            t("event_panel_unknown_action", lang=user_lang, action=action)
+        )
 
 
 # =============================================================================
@@ -417,18 +486,23 @@ async def _handle_view(
 
     db_url = settings.db_url or ""
     user_id = query.from_user.id if query.from_user else None
+    user_lang = get_user_language(query.from_user)
 
     async with get_session(db_url) as session:
         # Fetch event to get its group (needed for RBAC when callback has no group_id)
         from sqlalchemy.orm import selectinload
 
         event_result = await session.execute(
-            select(Event).options(selectinload(Event.group)).where(Event.event_id == event_id)
+            select(Event)
+            .options(selectinload(Event.group))
+            .where(Event.event_id == event_id)
         )
         event = event_result.scalar_one_or_none()
 
         if not event:
-            await query.edit_message_text("❌ Event not found.")
+            await query.edit_message_text(
+                t("event_panel_event_not_found", lang=user_lang)
+            )
             return
 
         # Determine the correct chat_id for RBAC:
@@ -442,15 +516,24 @@ async def _handle_view(
         else:
             rbac_chat_id = getattr(getattr(query, "message", None), "chat_id", None)
 
-        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
-            session,
-            event_id,
-            user_id,
-            telegram_chat_id=rbac_chat_id,
-            bot=context.bot,
+        is_visible, event, group, error_msg = (
+            await check_event_visibility_and_get_event(
+                session,
+                event_id,
+                user_id,
+                telegram_chat_id=rbac_chat_id,
+                bot=context.bot,
+            )
         )
         if not is_visible:
-            await query.edit_message_text(f"❌ {error_msg or 'Event not found.'}")
+            await query.edit_message_text(
+                t(
+                    "event_panel_event_not_visible",
+                    lang=user_lang,
+                    error_msg=error_msg
+                    or t("event_panel_event_not_found", lang=user_lang),
+                )
+            )
             return
 
         # Get user's participant status
@@ -459,14 +542,17 @@ async def _handle_view(
 
         # Check if user is organizer
         is_organizer = event.organizer_telegram_user_id == user_id or (
-            event.emergency_admin_telegram_user_id and event.emergency_admin_telegram_user_id == user_id
+            event.emergency_admin_telegram_user_id
+            and event.emergency_admin_telegram_user_id == user_id
         )
 
         # Get participant counts
         count_result = await session.execute(
             select(func.count(EventParticipant.telegram_user_id)).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.status.in_([ParticipantStatus.joined, ParticipantStatus.confirmed]),
+                EventParticipant.status.in_(
+                    [ParticipantStatus.joined, ParticipantStatus.confirmed]
+                ),
             )
         )
         participant_count = count_result.scalar() or 0
@@ -489,16 +575,18 @@ async def _handle_view(
         memory_service = EventMemoryService(context.bot, session)
         lineage_fragment = None
         if event.group_id:
-            lineage_fragment = await memory_service.get_lineage_door_fragment(event.group_id, event.event_type)
+            lineage_fragment = await memory_service.get_lineage_door_fragment(
+                event.group_id, event.event_type
+            )
 
         # Build display text
         state_display = {
-            "proposed": "forming",
-            "interested": "forming",
-            "confirmed": "happening",
-            "locked": "locked",
-            "completed": "done",
-            "cancelled": "cancelled",
+            "proposed": t("event_state_forming", lang=user_lang),
+            "interested": t("event_state_forming", lang=user_lang),
+            "confirmed": t("event_state_happening", lang=user_lang),
+            "locked": t("event_state_locked_display", lang=user_lang),
+            "completed": t("event_state_done", lang=user_lang),
+            "cancelled": t("event_state_cancelled_display", lang=user_lang),
         }.get(event.state, event.state)
 
         type_emoji = {
@@ -517,21 +605,32 @@ async def _handle_view(
         if event.scheduled_time:
             lines.append(f"📅 {event.scheduled_time.strftime('%a %d %b, %H:%M')}")
         else:
-            lines.append("📅 Time forming...")
+            lines.append(t("event_panel_time_forming", lang=user_lang))
 
         # State and deadline
-        lines.append(f"State: {state_display}")
+        lines.append(t("event_panel_state_label", lang=user_lang, state=state_display))
         if event.lock_deadline:
-            lines.append(f"⏳ Deadline: {event.lock_deadline.strftime('%a %d %b, %H:%M')}")
+            lines.append(
+                f"⏳ Deadline: {event.lock_deadline.strftime('%a %d %b, %H:%M')}"
+            )
 
         # Participant count
         min_p = event.min_participants or 2
-        lines.append(f"👥 {participant_count} / {min_p} needed")
+        lines.append(
+            t(
+                "event_panel_participants",
+                lang=user_lang,
+                count=participant_count,
+                needed=min_p,
+            )
+        )
         lines.append("")
 
         # Lineage fragment
         if lineage_fragment:
-            lines.append(f'↩ Last time: "{lineage_fragment}"')
+            lines.append(
+                t("event_panel_lineage", lang=user_lang, fragment=lineage_fragment)
+            )
             lines.append("")
 
         # Hashtags
@@ -561,7 +660,9 @@ async def _handle_view(
             )
         except Exception as e:
             if "Message is not modified" in str(e):
-                await query.answer("ℹ️ Already up to date.")
+                await query.answer(
+                    t("event_details_already_up_to_date", lang=user_lang)
+                )
             else:
                 raise
 
@@ -596,6 +697,7 @@ async def _handle_join(
     db_url = settings.db_url or ""
     telegram_user_id = query.from_user.id
     bot = context.bot
+    user_lang = get_user_language(query.from_user)
 
     logger.info(
         "[JOIN_FLOW] Started | event_id=%s user_id=%s group_id=%s",
@@ -609,14 +711,22 @@ async def _handle_join(
         from sqlalchemy.orm import selectinload
 
         event_result = await session.execute(
-            select(Event).options(selectinload(Event.group)).where(Event.event_id == event_id)
+            select(Event)
+            .options(selectinload(Event.group))
+            .where(Event.event_id == event_id)
         )
         event = event_result.scalar_one_or_none()
 
         if not event:
             logger.warning("[JOIN_FLOW] Event not found | event_id=%s", event_id)
             try:
-                await asyncio.wait_for(query.answer("❌ Event not found.", show_alert=True), timeout=5.0)
+                await asyncio.wait_for(
+                    query.answer(
+                        t("event_panel_event_not_found", lang=user_lang),
+                        show_alert=True,
+                    ),
+                    timeout=5.0,
+                )
             except asyncio.TimeoutError:
                 pass
             return
@@ -638,7 +748,12 @@ async def _handle_join(
             try:
                 await asyncio.wait_for(
                     query.answer(
-                        f"❌ Cannot join event {event_id}. Current state: {event.state}",
+                        t(
+                            "event_panel_join_terminal_state",
+                            lang=user_lang,
+                            event_id=event_id,
+                            state=event.state,
+                        ),
                         show_alert=True,
                     ),
                     timeout=5.0,
@@ -665,12 +780,14 @@ async def _handle_join(
             rbac_chat_id,
         )
 
-        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
-            session,
-            event_id,
-            telegram_user_id,
-            telegram_chat_id=rbac_chat_id,
-            bot=bot,
+        is_visible, event, group, error_msg = (
+            await check_event_visibility_and_get_event(
+                session,
+                event_id,
+                telegram_user_id,
+                telegram_chat_id=rbac_chat_id,
+                bot=bot,
+            )
         )
 
         if not is_visible:
@@ -682,16 +799,31 @@ async def _handle_join(
             )
             try:
                 await asyncio.wait_for(
-                    query.answer(f"❌ {error_msg or 'Event not found.'}", show_alert=True), timeout=5.0
+                    query.answer(
+                        t(
+                            "event_panel_join_not_visible",
+                            lang=user_lang,
+                            error_msg=error_msg
+                            or t("event_panel_event_not_found", lang=user_lang),
+                        ),
+                        show_alert=True,
+                    ),
+                    timeout=5.0,
                 )
             except asyncio.TimeoutError:
                 pass
             return
 
-        logger.info("[JOIN_FLOW] Visibility check passed | event_id=%s user_id=%s", event_id, telegram_user_id)
+        logger.info(
+            "[JOIN_FLOW] Visibility check passed | event_id=%s user_id=%s",
+            event_id,
+            telegram_user_id,
+        )
 
         participant_service = ParticipantService(session)
-        participant = await participant_service.get_participant(event_id, telegram_user_id)
+        participant = await participant_service.get_participant(
+            event_id, telegram_user_id
+        )
 
         if participant:
             logger.info(
@@ -700,9 +832,18 @@ async def _handle_join(
                 telegram_user_id,
                 participant.status.value if participant.status else None,
             )
-            if participant.status in [ParticipantStatus.joined, ParticipantStatus.confirmed]:
+            if participant.status in [
+                ParticipantStatus.joined,
+                ParticipantStatus.confirmed,
+            ]:
                 try:
-                    await asyncio.wait_for(query.answer("ℹ️ You're already joined.", show_alert=True), timeout=5.0)
+                    await asyncio.wait_for(
+                        query.answer(
+                            t("event_panel_join_already_joined", lang=user_lang),
+                            show_alert=True,
+                        ),
+                        timeout=5.0,
+                    )
                 except asyncio.TimeoutError:
                     pass
                 return
@@ -770,7 +911,10 @@ async def _handle_join(
                 logger.info("[JOIN_FLOW] Session committed | event_id=%s", event_id)
 
                 try:
-                    await asyncio.wait_for(query.answer("✅ You've joined the event!"), timeout=5.0)
+                    await asyncio.wait_for(
+                        query.answer(t("event_panel_join_success", lang=user_lang)),
+                        timeout=5.0,
+                    )
                 except asyncio.TimeoutError:
                     pass
 
@@ -778,7 +922,9 @@ async def _handle_join(
                 from db.models import User
 
                 await session.execute(
-                    sa_select(User).where(User.telegram_user_id == event.organizer_telegram_user_id)
+                    sa_select(User).where(
+                        User.telegram_user_id == event.organizer_telegram_user_id
+                    )
                 )
 
                 from bot.common.event_notifications import send_join_notification_dm
@@ -796,7 +942,9 @@ async def _handle_join(
                         context=context,
                         telegram_user_id=event.organizer_telegram_user_id,
                         event=event,
-                        joiner_name=query.from_user.full_name if query.from_user else "Someone",
+                        joiner_name=(
+                            query.from_user.full_name if query.from_user else "Someone"
+                        ),
                         group_id=rbac_chat_id,
                     )
 
@@ -815,11 +963,18 @@ async def _handle_join(
 
             else:
                 try:
-                    await asyncio.wait_for(query.answer("ℹ️ You're already joined."), timeout=5.0)
+                    await asyncio.wait_for(
+                        query.answer(
+                            t("event_panel_join_already_joined", lang=user_lang),
+                            timeout=5.0,
+                        )
+                    )
                 except asyncio.TimeoutError:
                     pass
 
-            logger.info("[JOIN_FLOW] Refreshing view after join | event_id=%s", event_id)
+            logger.info(
+                "[JOIN_FLOW] Refreshing view after join | event_id=%s", event_id
+            )
             await _handle_view(query, context, event_id, group_id=rbac_chat_id)
             logger.info("[JOIN_FLOW] Completed successfully | event_id=%s", event_id)
 
@@ -833,7 +988,13 @@ async def _handle_join(
                 exc_info=True,
             )
             try:
-                await asyncio.wait_for(query.answer(f"❌ Error: {str(e)}", show_alert=True), timeout=5.0)
+                await asyncio.wait_for(
+                    query.answer(
+                        t("error_generic", lang=user_lang, error=str(e)),
+                        show_alert=True,
+                    ),
+                    timeout=5.0,
+                )
             except asyncio.TimeoutError:
                 pass
 
@@ -849,18 +1010,23 @@ async def _handle_relinquish(
 
     db_url = settings.db_url or ""
     telegram_user_id = query.from_user.id
+    user_lang = get_user_language(query.from_user)
 
     async with get_session(db_url) as session:
         participant_service = ParticipantService(session)
-        participant = await participant_service.get_participant(event_id, telegram_user_id)
+        participant = await participant_service.get_participant(
+            event_id, telegram_user_id
+        )
 
         if not participant:
-            await query.answer("ℹ️ You're not joined to this event.", show_alert=True)
+            await query.answer(
+                t("event_panel_relinquish_not_joined", lang=user_lang), show_alert=True
+            )
             return
 
         if participant.status == ParticipantStatus.confirmed:
             await query.answer(
-                "You must uncommit before leaving. Tap 'You're Confirmed' to uncommit first.",
+                t("event_panel_relinquish_must_uncommit", lang=user_lang),
                 show_alert=True,
             )
             return
@@ -872,12 +1038,14 @@ async def _handle_relinquish(
             )
             await session.commit()
 
-            await query.answer("👋 You've left the event.")
+            await query.answer(t("event_panel_relinquish_success", lang=user_lang))
 
             await _handle_view(query, context, event_id, group_id=group_id)
 
         except Exception as e:
-            await query.answer(f"❌ Error: {str(e)}", show_alert=True)
+            await query.answer(
+                t("error_generic", lang=user_lang, error=str(e)), show_alert=True
+            )
 
 
 async def _handle_commit(
@@ -896,24 +1064,35 @@ async def _handle_commit(
     db_url = settings.db_url or ""
     telegram_user_id = query.from_user.id
     bot = context.bot
+    user_lang = get_user_language(query.from_user)
 
     async with get_session(db_url) as session:
-        event_result = await session.execute(select(Event).where(Event.event_id == event_id))
+        event_result = await session.execute(
+            select(Event).where(Event.event_id == event_id)
+        )
         event = event_result.scalar_one_or_none()
 
         if not event:
-            await query.answer("❌ Event not found.", show_alert=True)
+            await query.answer(
+                t("event_panel_commit_not_found", lang=user_lang), show_alert=True
+            )
             return
 
         participant_service = ParticipantService(session)
-        participant = await participant_service.get_participant(event_id, telegram_user_id)
+        participant = await participant_service.get_participant(
+            event_id, telegram_user_id
+        )
 
         if not participant:
-            await query.answer("❌ You must join the event before committing.", show_alert=True)
+            await query.answer(
+                t("event_panel_commit_must_join", lang=user_lang), show_alert=True
+            )
             return
 
         if participant.status == ParticipantStatus.confirmed:
-            await query.answer("ℹ️ You're already committed.", show_alert=True)
+            await query.answer(
+                t("event_panel_commit_already", lang=user_lang), show_alert=True
+            )
             return
 
         try:
@@ -925,7 +1104,11 @@ async def _handle_commit(
 
             organizer_id = get_event_organizer_telegram_id(event)
             confirmed_count = await participant_service.get_confirmed_count(event_id)
-            if telegram_user_id != organizer_id and event.state != "confirmed" and confirmed_count > 0:
+            if (
+                telegram_user_id != organizer_id
+                and event.state != "confirmed"
+                and confirmed_count > 0
+            ):
                 lifecycle_service = EventLifecycleService(bot, session)
                 try:
                     event, _ = await lifecycle_service.transition_with_lifecycle(
@@ -937,17 +1120,22 @@ async def _handle_commit(
                         expected_version=event.version,
                     )
                 except Exception as e:
-                    await query.answer(f"❌ Error: {str(e)}", show_alert=True)
+                    await query.answer(
+                        t("error_generic", lang=user_lang, error=str(e)),
+                        show_alert=True,
+                    )
                     return
 
             await session.commit()
 
-            await query.answer("✅ You're committed!")
+            await query.answer(t("event_panel_commit_success", lang=user_lang))
 
             await _handle_view(query, context, event_id, group_id=group_id)
 
         except Exception as e:
-            await query.answer(f"❌ Error: {str(e)}", show_alert=True)
+            await query.answer(
+                t("error_generic", lang=user_lang, error=str(e)), show_alert=True
+            )
 
 
 async def _handle_cancel(
@@ -975,18 +1163,23 @@ async def _handle_lock(
     telegram_user_id = query.from_user.id
     bot = context.bot
     db_url = settings.db_url or ""
+    user_lang = get_user_language(query.from_user)
 
     async with get_session(db_url) as session:
         # Fetch event to get its group for RBAC
         from sqlalchemy.orm import selectinload
 
         event_result = await session.execute(
-            select(Event).options(selectinload(Event.group)).where(Event.event_id == event_id)
+            select(Event)
+            .options(selectinload(Event.group))
+            .where(Event.event_id == event_id)
         )
         event = event_result.scalar_one_or_none()
 
         if not event:
-            await query.answer("❌ Event not found.", show_alert=True)
+            await query.answer(
+                t("event_panel_event_not_found", lang=user_lang), show_alert=True
+            )
             return
 
         # Determine the correct chat_id for RBAC
@@ -999,31 +1192,43 @@ async def _handle_lock(
 
         from bot.common.rbac import check_event_visibility_and_get_event
 
-        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
-            session,
-            event_id,
-            telegram_user_id,
-            telegram_chat_id=rbac_chat_id,
-            bot=bot,
+        is_visible, event, group, error_msg = (
+            await check_event_visibility_and_get_event(
+                session,
+                event_id,
+                telegram_user_id,
+                telegram_chat_id=rbac_chat_id,
+                bot=bot,
+            )
         )
 
         if not is_visible:
-            await query.edit_message_text(f"❌ {error_msg or 'Event not found.'}")
+            await query.edit_message_text(
+                t(
+                    "event_panel_event_not_visible",
+                    lang=user_lang,
+                    error_msg=error_msg
+                    or t("event_panel_event_not_found", lang=user_lang),
+                )
+            )
             return
 
         if event.state != "confirmed":
             await query.answer(
-                f"❌ Can only lock when state is 'confirmed'. Current: {event.state}",
+                t("event_panel_lock_not_confirmed", lang=user_lang, state=event.state),
                 show_alert=True,
             )
             return
 
         # Check organizer permission
         is_organizer = event.organizer_telegram_user_id == telegram_user_id or (
-            event.emergency_admin_telegram_user_id and event.emergency_admin_telegram_user_id == telegram_user_id
+            event.emergency_admin_telegram_user_id
+            and event.emergency_admin_telegram_user_id == telegram_user_id
         )
         if not is_organizer:
-            await query.answer("❌ Only the organizer can lock an event.", show_alert=True)
+            await query.answer(
+                t("event_panel_lock_not_organizer", lang=user_lang), show_alert=True
+            )
             return
 
         lifecycle_service = EventLifecycleService(bot, session)
@@ -1036,15 +1241,17 @@ async def _handle_lock(
                 reason="Lock via event panel",
                 expected_version=event.version,
             )
-        except Exception as e:
-            await query.answer(f"❌ Failed to lock event: {str(e)}", show_alert=True)
+        except Exception:
+            await query.answer(
+                t("error_db_unavailable", lang=user_lang), show_alert=True
+            )
             return
 
         participant_service = ParticipantService(session)
         await participant_service.finalize_commitments(event_id)
         await session.commit()
 
-        await query.answer("🔒 Event locked!")
+        await query.answer(t("event_panel_lock_success", lang=user_lang))
         await _handle_view(query, context, event_id, group_id=rbac_chat_id)
 
 
@@ -1062,16 +1269,21 @@ async def _handle_unlock(
     telegram_user_id = query.from_user.id
     bot = context.bot
     db_url = settings.db_url or ""
+    user_lang = get_user_language(query.from_user)
 
     async with get_session(db_url) as session:
         # Fetch event to get its group for RBAC
         event_result = await session.execute(
-            select(Event).options(selectinload(Event.group)).where(Event.event_id == event_id)
+            select(Event)
+            .options(selectinload(Event.group))
+            .where(Event.event_id == event_id)
         )
         event = event_result.scalar_one_or_none()
 
         if not event:
-            await query.answer("❌ Event not found.", show_alert=True)
+            await query.answer(
+                t("event_panel_event_not_found", lang=user_lang), show_alert=True
+            )
             return
 
         # Determine the correct chat_id for RBAC
@@ -1084,31 +1296,43 @@ async def _handle_unlock(
 
         from bot.common.rbac import check_event_visibility_and_get_event
 
-        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
-            session,
-            event_id,
-            telegram_user_id,
-            telegram_chat_id=rbac_chat_id,
-            bot=bot,
+        is_visible, event, group, error_msg = (
+            await check_event_visibility_and_get_event(
+                session,
+                event_id,
+                telegram_user_id,
+                telegram_chat_id=rbac_chat_id,
+                bot=bot,
+            )
         )
 
         if not is_visible:
-            await query.edit_message_text(f"❌ {error_msg or 'Event not found.'}")
+            await query.edit_message_text(
+                t(
+                    "event_panel_event_not_visible",
+                    lang=user_lang,
+                    error_msg=error_msg
+                    or t("event_panel_event_not_found", lang=user_lang),
+                )
+            )
             return
 
         if event.state != "locked":
             await query.answer(
-                f"❌ Can only unlock when state is 'locked'. Current: {event.state}",
+                t("event_panel_unlock_not_locked", lang=user_lang, state=event.state),
                 show_alert=True,
             )
             return
 
         # Check organizer permission
         is_organizer = event.organizer_telegram_user_id == telegram_user_id or (
-            event.emergency_admin_telegram_user_id and event.emergency_admin_telegram_user_id == telegram_user_id
+            event.emergency_admin_telegram_user_id
+            and event.emergency_admin_telegram_user_id == telegram_user_id
         )
         if not is_organizer:
-            await query.answer("❌ Only the organizer can unlock an event.", show_alert=True)
+            await query.answer(
+                t("event_panel_unlock_not_organizer", lang=user_lang), show_alert=True
+            )
             return
 
         lifecycle_service = EventLifecycleService(bot, session)
@@ -1121,12 +1345,14 @@ async def _handle_unlock(
                 reason="Unlock via event panel",
                 expected_version=event.version,
             )
-        except Exception as e:
-            await query.answer(f"❌ Failed to unlock event: {str(e)}", show_alert=True)
+        except Exception:
+            await query.answer(
+                t("error_db_unavailable", lang=user_lang), show_alert=True
+            )
             return
 
         await session.commit()
-        await query.answer("🔓 Event unlocked!")
+        await query.answer(t("event_panel_unlock_success", lang=user_lang))
         await _handle_view(query, context, event_id, group_id=rbac_chat_id)
 
 
@@ -1137,7 +1363,8 @@ async def _handle_refresh(
     group_id: Optional[int] = None,
 ) -> None:
     """Handle refresh action."""
-    await query.answer("🔄 Refreshing...")
+    user_lang = get_user_language(query.from_user) if query.from_user else "en"
+    await query.answer(t("event_panel_refresh", lang=user_lang))
     await _handle_view(query, context, event_id, group_id=group_id)
 
 
@@ -1177,6 +1404,7 @@ async def handle_enrich_menu(
     group_id: Optional[int] = None,
 ) -> None:
     """Show the Enrich sub-menu."""
+    user_lang = get_user_language(query.from_user)
     text = (
         f"💡 *Enrich Event #{event_id}*\n\n"
         "Add ideas, hashtags, or memories to make this event better.\n\n"
@@ -1187,7 +1415,7 @@ async def handle_enrich_menu(
         "when 2+ people add the same tag."
     )
 
-    buttons = build_enrich_submenu(event_id, group_id)
+    buttons = build_enrich_submenu(event_id, group_id, user_lang=user_lang)
 
     await query.edit_message_text(
         text=text,
@@ -1203,13 +1431,9 @@ async def handle_add_idea_prompt(
     group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add an idea."""
+    user_lang = get_user_language(query.from_user)
     await query.edit_message_text(
-        text=(
-            f"💡 *Add Idea to Event #{event_id}*\n\n"
-            "Reply with your idea (max 300 characters).\n\n"
-            "Example: 'Bring a portable speaker for music'\n\n"
-            "Your idea will be visible to the organizer."
-        ),
+        text=t("enrich_add_idea_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
 
@@ -1217,7 +1441,7 @@ async def handle_add_idea_prompt(
 
     store = get_state_store(query.from_user.id, context.user_data)
     store.set_enrichment_session(event_id, "add_idea")
-    await query.answer("Type your idea and send it!")
+    await query.answer(t("enrich_add_idea", lang=user_lang))
 
 
 async def handle_add_hashtag_prompt(
@@ -1227,13 +1451,9 @@ async def handle_add_hashtag_prompt(
     group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add a hashtag."""
+    user_lang = get_user_language(query.from_user)
     await query.edit_message_text(
-        text=(
-            f"#️⃣ *Add Hashtag to Event #{event_id}*\n\n"
-            "Reply with your hashtag (max 3 per event).\n\n"
-            "Examples: #hiking, #weekend, #birthday\n\n"
-            "Hashtags become public on the live card when 2+ people add the same tag."
-        ),
+        text=t("enrich_add_hashtag_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
 
@@ -1241,7 +1461,7 @@ async def handle_add_hashtag_prompt(
 
     store = get_state_store(query.from_user.id, context.user_data)
     store.set_enrichment_session(event_id, "add_hashtag")
-    await query.answer("Type your hashtag and send it!")
+    await query.answer(t("enrich_add_hashtag", lang=user_lang))
 
 
 async def handle_add_memory_prompt(
@@ -1251,12 +1471,9 @@ async def handle_add_memory_prompt(
     group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add a memory."""
+    user_lang = get_user_language(query.from_user)
     await query.edit_message_text(
-        text=(
-            f"📝 *Add Memory to Event #{event_id}*\n\n"
-            "Share a memory from a similar past event (max 200 words).\n\n"
-            "Memories are private until assembled into a mosaic when the event completes."
-        ),
+        text=t("enrich_add_memory_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
 
@@ -1264,7 +1481,7 @@ async def handle_add_memory_prompt(
 
     store = get_state_store(query.from_user.id, context.user_data)
     store.set_enrichment_session(event_id, "add_memory")
-    await query.answer("Type your memory and send it!")
+    await query.answer(t("enrich_add_memory", lang=user_lang))
 
 
 async def handle_view_contributions(
@@ -1274,6 +1491,7 @@ async def handle_view_contributions(
     group_id: Optional[int] = None,
 ) -> None:
     """Show user's contributions to this event."""
+    user_lang = get_user_language(query.from_user)
     db_url = settings.db_url or ""
 
     async with get_session(db_url) as session:
@@ -1286,17 +1504,24 @@ async def handle_view_contributions(
         )
 
     if not contributions:
-        text = "You haven't added any contributions to this event yet."
+        text = t("enrich_no_contributions", lang=user_lang)
     else:
-        text = "*Your Contributions:*\n\n"
+        text = t("enrich_view_contributions", lang=user_lang, contributions="")
         for c in contributions:
-            emoji = {"idea": "💡", "hashtag": "#️⃣", "memory": "📝"}.get(c.enrichment_type, "•")
-            text += f"{emoji} *{c.enrichment_type.capitalize()}*: {c.content[:50]}...\n\n"
+            emoji = {"idea": "💡", "hashtag": "#️⃣", "memory": "📝"}.get(
+                c.enrichment_type, "•"
+            )
+            text += (
+                f"{emoji} *{c.enrichment_type.capitalize()}*: {c.content[:50]}...\n\n"
+            )
 
     buttons = [
         [
             InlineKeyboardButton(
-                "🔙 Back to Enrich", callback_data=encode_callback(CALLBACK_ACTIONS["enrich"], event_id, group_id)
+                t("enrich_back_to_enrich_btn", lang=user_lang),
+                callback_data=encode_callback(
+                    CALLBACK_ACTIONS["enrich"], event_id, group_id
+                ),
             ),
         ]
     ]
@@ -1320,6 +1545,7 @@ async def handle_constraint_menu(
     group_id: Optional[int] = None,
 ) -> None:
     """Show the Constraint sub-menu."""
+    user_lang = get_user_language(query.from_user)
     text = (
         f"📅 *Constraints for Event #{event_id}*\n\n"
         "Set conditions for your participation:\n\n"
@@ -1329,7 +1555,7 @@ async def handle_constraint_menu(
         "Constraints help coordinate complex group decisions."
     )
 
-    buttons = build_constraint_submenu(event_id, group_id)
+    buttons = build_constraint_submenu(event_id, group_id, user_lang=user_lang)
 
     await query.edit_message_text(
         text=text,
@@ -1345,13 +1571,9 @@ async def handle_add_constraint_prompt(
     group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add a constraint."""
+    user_lang = get_user_language(query.from_user)
     await query.edit_message_text(
-        text=(
-            f"📅 *Add Constraint to Event #{event_id}*\n\n"
-            "Reply with the username of who you're waiting for.\n\n"
-            "Format: @username\n\n"
-            "Example: 'If @alice joins, I'll join too'"
-        ),
+        text=t("constraint_add_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
 
@@ -1359,7 +1581,7 @@ async def handle_add_constraint_prompt(
 
     store = get_state_store(query.from_user.id, context.user_data)
     store.set_enrichment_session(event_id, "add_constraint")
-    await query.answer("Type the username and send it!")
+    await query.answer(t("constraint_if_someone_joins", lang=user_lang))
 
 
 async def handle_add_constraint_unless_prompt(
@@ -1369,13 +1591,9 @@ async def handle_add_constraint_unless_prompt(
     group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add an 'unless' constraint."""
+    user_lang = get_user_language(query.from_user)
     await query.edit_message_text(
-        text=(
-            f"❌ *Add 'Unless' Constraint to Event #{event_id}*\n\n"
-            "Reply with the username of who you'd rather not attend.\n\n"
-            "Format: @username\n\n"
-            "Example: 'Unless @bob comes, I'm in'"
-        ),
+        text=t("constraint_add_unless_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
 
@@ -1383,7 +1601,7 @@ async def handle_add_constraint_unless_prompt(
 
     store = get_state_store(query.from_user.id, context.user_data)
     store.set_enrichment_session(event_id, "add_constraint_unless")
-    await query.answer("Type the username and send it!")
+    await query.answer(t("constraint_unless_someone_joins", lang=user_lang))
 
 
 async def handle_suggest_time(
@@ -1393,22 +1611,16 @@ async def handle_suggest_time(
     group_id: Optional[int] = None,
 ) -> None:
     """Handle suggest time action."""
+    user_lang = get_user_language(query.from_user)
     await query.edit_message_text(
-        text=(
-            f"🕐 *Suggest Time for Event #{event_id}*\n\n"
-            "Reply with your preferred time.\n\n"
-            "Examples:\n"
-            "- 'Saturday at 7pm'\n"
-            "- 'Sunday morning'\n"
-            "- 'Anytime after 5pm'"
-        ),
+        text=t("constraint_suggest_time_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
     from bot.services.state_store import get_state_store
 
     store = get_state_store(query.from_user.id, context.user_data)
     store.set_enrichment_session(event_id, "suggest_time")
-    await query.answer("Type your preferred time and send it!")
+    await query.answer(t("constraint_suggest_time", lang=user_lang))
 
 
 async def _handle_logs(
@@ -1421,6 +1633,7 @@ async def _handle_logs(
     from db.models import Log as LogModel, User
 
     db_url = settings.db_url or ""
+    user_lang = get_user_language(query.from_user)
     async with get_session(db_url) as session:
         result = await session.execute(
             select(LogModel, User)
@@ -1430,9 +1643,11 @@ async def _handle_logs(
         )
         rows = result.all()
         if not rows:
-            await query.edit_message_text(f"Event {event_id} has no logs yet.")
+            await query.edit_message_text(
+                t("event_logs_empty", lang=user_lang, event_id=event_id)
+            )
             return
-        msg = f"Event {event_id} Logs\n\n"
+        msg = t("event_logs_title", lang=user_lang, event_id=event_id) + "\n\n"
         for log, user in rows[:20]:
             user_info = ""
             if user:
@@ -1443,22 +1658,26 @@ async def _handle_logs(
                     include_link=False,
                 )
             action_text = {
-                "join": "joined",
-                "confirm": "confirmed",
-                "cancel": "cancelled",
-                "organize_event": "created the event",
-                "suggest_time": "suggested a time",
-                "nudge": "was nudged",
-                "constraint_update": "updated constraints",
+                "join": t("event_logs_action_join", lang=user_lang),
+                "confirm": t("event_logs_action_confirm", lang=user_lang),
+                "cancel": t("event_logs_action_cancel", lang=user_lang),
+                "organize_event": t("event_logs_action_organize_event", lang=user_lang),
+                "suggest_time": t("event_logs_action_suggest_time", lang=user_lang),
+                "nudge": t("event_logs_action_nudge", lang=user_lang),
+                "constraint_update": t(
+                    "event_logs_action_constraint_update", lang=user_lang
+                ),
             }.get(log.action, log.action)
             msg += f"- {action_text}{user_info} at {log.timestamp}\n"
         if len(rows) > 20:
-            msg += f"... and {len(rows) - 20} more logs"
+            msg += t("event_logs_more", lang=user_lang, count=len(rows) - 20)
         back_btn = InlineKeyboardButton(
-            "Back",
+            t("panel_back", lang=user_lang),
             callback_data=encode_callback("det", event_id, group_id),
         )
-        await query.edit_message_text(msg, reply_markup=InlineKeyboardMarkup([[back_btn]]))
+        await query.edit_message_text(
+            msg, reply_markup=InlineKeyboardMarkup([[back_btn]])
+        )
 
 
 async def _handle_close(
@@ -1468,7 +1687,10 @@ async def _handle_close(
     group_id: Optional[int] = None,
 ) -> None:
     """Close event details view."""
-    await query.edit_message_text(f"Event details for #{event_id} closed.")
+    user_lang = get_user_language(query.from_user) if query.from_user else "en"
+    await query.edit_message_text(
+        t("event_panel_close", lang=user_lang, event_id=event_id)
+    )
 
 
 async def handle_modify_event(
@@ -1481,15 +1703,18 @@ async def handle_modify_event(
     from db.models import Event
 
     user = query.from_user
+    user_lang = get_user_language(query.from_user)
     if not settings.db_url:
-        await query.edit_message_text("Database configuration is unavailable.")
+        await query.edit_message_text(t("error_db_unavailable", lang=user_lang))
         return
 
     async with get_session(settings.db_url) as session:
         result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
         if not event:
-            await query.edit_message_text("Event not found.")
+            await query.edit_message_text(
+                t("event_panel_event_not_found", lang=user_lang)
+            )
             return
 
         from bot.common.event_access import get_event_admin_telegram_id
@@ -1499,26 +1724,40 @@ async def handle_modify_event(
         modify_request = {
             "event_id": event_id,
             "event_description": event.description or "",
-            "event_scheduled_time": (event.scheduled_time.isoformat() if event and event.scheduled_time else None),
+            "event_scheduled_time": (
+                event.scheduled_time.isoformat()
+                if event and event.scheduled_time
+                else None
+            ),
             "admin_id": admin_id,
             "requester_id": user.id if user else None,
             "requester_username": user.username if user else None,
         }
-        request_id = uuid4().hex[:8]
+        request_id = uuid.uuid4().hex[:8]
         context.user_data[f"pending_modify_request_{request_id}"] = modify_request
 
         keyboard = [
             [
-                InlineKeyboardButton("Write your own", callback_data=f"modinput_{request_id}_write"),
-                InlineKeyboardButton("AI suggested", callback_data=f"modinput_{request_id}_ai"),
+                InlineKeyboardButton(
+                    t("modify_write_own", lang=user_lang),
+                    callback_data=f"modinput_{request_id}_write",
+                ),
+                InlineKeyboardButton(
+                    t("modify_ai_suggested", lang=user_lang),
+                    callback_data=f"modinput_{request_id}_ai",
+                ),
             ],
-            [InlineKeyboardButton("Discard", callback_data=f"modinput_{request_id}_cancel")],
+            [
+                InlineKeyboardButton(
+                    t("modify_discard", lang=user_lang),
+                    callback_data=f"modinput_{request_id}_cancel",
+                )
+            ],
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_text(
-            "How would you like to modify the event?\n\n"
-            "Choose a method to specify the changes you want to make.",
+            t("modify_choose_method", lang=user_lang),
             reply_markup=reply_markup,
             parse_mode="Markdown",
         )

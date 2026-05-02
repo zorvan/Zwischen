@@ -29,28 +29,28 @@ from config.settings import settings
 
 async def migrate_constraints():
     """Migrate existing availability constraints to new format."""
-    
+
     async with get_session(settings.db_url) as session:
         # Add new columns
         await session.execute(text("""
-            ALTER TABLE constraints 
+            ALTER TABLE constraints
             ADD COLUMN IF NOT EXISTS start_time TIMESTAMP,
             ADD COLUMN IF NOT EXISTS end_time TIMESTAMP,
             ADD COLUMN IF NOT EXISTS confidence INTEGER DEFAULT 100,
             ADD COLUMN IF NOT EXISTS metadata JSON
         """))
-        
+
         # Migrate existing availability constraints
         await session.execute(text("""
-            UPDATE constraints 
-            SET 
+            UPDATE constraints
+            SET
                 start_time = TO_TIMESTAMP(SUBSTRING(type FROM 12), 'YYYY-MM-DD HH24:MI'),
                 end_time = TO_TIMESTAMP(SUBSTRING(type FROM 12), 'YYYY-MM-DD HH24:MI') + INTERVAL '1 hour',
                 confidence = 100,
                 metadata = '{}'
             WHERE type LIKE 'available:%'
         """))
-        
+
         await session.commit()
         print("Migration completed successfully")
 
@@ -73,13 +73,13 @@ class Constraint(Base):
     target_user_id = Column(BigInteger, ForeignKey("users.user_id"), ondelete="SET NULL"))
     event_id = Column(BigInteger, ForeignKey("events.event_id"), nullable=False)
     type = Column(String(50), nullable=False)
-    
+
     # New fields for availability ranges
     start_time = Column(DateTime, nullable=True)  # Nullable for backward compatibility
     end_time = Column(DateTime, nullable=True)
     confidence = Column(Integer, default=100)  # 20-100 in steps of 10
     metadata = Column(JSON, default={})
-    
+
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
 ```
 
@@ -103,10 +103,10 @@ from db.connection import get_session
 
 class AvailabilityService:
     """Service for managing availability and generating recommendations."""
-    
+
     def __init__(self, llm_client: LLMClient):
         self.analyzer = AvailabilityAnalyzer(llm_client)
-    
+
     async def set_user_availability(
         self,
         user_id: int,
@@ -117,7 +117,7 @@ class AvailabilityService:
         metadata: Optional[Dict[str, Any]] = None
     ) -> Constraint:
         """Set user availability for an event."""
-        
+
         async with get_session(settings.db_url) as session:
             # Check if availability already exists
             existing = await session.execute(
@@ -128,7 +128,7 @@ class AvailabilityService:
                 )
             )
             existing_constraint = existing.scalar_one_or_none()
-            
+
             if existing_constraint:
                 # Update existing constraint
                 existing_constraint.start_time = start_time
@@ -148,55 +148,55 @@ class AvailabilityService:
                     metadata=metadata or {}
                 )
                 session.add(constraint)
-            
+
             await session.commit()
             return constraint
-    
+
     async def get_event_recommendations(
         self,
         event_id: int
     ) -> Dict[str, Any]:
         """Get LLM-powered recommendations for event timing."""
-        
+
         async with get_session(settings.db_url) as session:
             # Get event details
             event_result = await session.execute(
                 select(Event).where(Event.event_id == event_id)
             )
             event = event_result.scalar_one_or_none()
-            
+
             if not event:
                 return {"error": "Event not found"}
-            
+
             # Get user availabilities
             availabilities = await self._get_event_availabilities(session, event_id)
-            
+
             if not availabilities:
                 return {"error": "No availability data found"}
-            
+
             # Generate recommendations
             analysis = await self.analyzer.analyze_and_recommend(
                 event, availabilities, session
             )
-            
+
             return self._format_analysis_response(analysis)
-    
+
     async def _get_event_availabilities(
         self,
         session: AsyncSession,
         event_id: int
     ) -> List[UserAvailability]:
         """Get all user availabilities for an event."""
-        
+
         result = await session.execute(
             select(Constraint).where(
                 Constraint.event_id == event_id,
                 Constraint.type == "availability_range"
             )
         )
-        
+
         constraints = result.scalars().all()
-        
+
         availabilities = []
         for constraint in constraints:
             if constraint.start_time and constraint.end_time:
@@ -208,12 +208,12 @@ class AvailabilityService:
                     metadata=constraint.metadata or {}
                 )
                 availabilities.append(availability)
-        
+
         return availabilities
-    
+
     def _format_analysis_response(self, analysis) -> Dict[str, Any]:
         """Format analysis response for API/UI consumption."""
-        
+
         return {
             "event_id": analysis.event_id,
             "recommendations": [
@@ -250,7 +250,7 @@ async def _show_enhanced_availability_options(
     query, context: ContextTypes.DEFAULT_TYPE, event_id: int
 ) -> None:
     """Show enhanced availability options with confidence levels."""
-    
+
     keyboard = [
         [
             InlineKeyboardButton(
@@ -271,7 +271,7 @@ async def _show_enhanced_availability_options(
             InlineKeyboardButton("Back", callback_data=f"event_details_{event_id}")
         ]
     ]
-    
+
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
         "Availability Options\n\n"
@@ -284,34 +284,34 @@ async def _show_recommendations(
     query, context: ContextTypes.DEFAULT_TYPE, event_id: int
 ) -> None:
     """Show LLM-generated time slot recommendations."""
-    
+
     try:
         recommendations = await availability_service.get_event_recommendations(event_id)
-        
+
         if "error" in recommendations:
             await query.edit_message_text(f"Error: {recommendations['error']}")
             return
-        
+
         # Format recommendations for display
         message = "AI-Powered Time Recommendations:\n\n"
-        
+
         for i, rec in enumerate(recommendations["recommendations"][:3], 1):
             start_dt = datetime.fromisoformat(rec["start_time"])
             message += f"{i}. {start_dt.strftime('%a, %b %d %H:%M')}\n"
             message += f"   Confidence: {rec['confidence_score']}%\n"
             message += f"   Coverage: {rec['participant_coverage']*100:.0f}% participants\n"
             message += f"   {rec['reasoning']}\n\n"
-        
+
         message += recommendations.get("analysis_summary", "")
-        
+
         keyboard = [
             [InlineKeyboardButton("Set Availability", callback_data=f"avail_range_{event_id}")],
             [InlineKeyboardButton("Back", callback_data=f"avail_{event_id}")]
         ]
-        
+
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(message, reply_markup=reply_markup)
-        
+
     except Exception as e:
         logger.error(f"Error getting recommendations: {e}")
         await query.edit_message_text("Error generating recommendations.")
@@ -320,10 +320,10 @@ async def _handle_time_range_selection(
     query, context: ContextTypes.DEFAULT_TYPE, event_id: int
 ) -> None:
     """Handle time range selection with confidence."""
-    
+
     # Show date selection
     keyboard = []
-    
+
     # Add common date options
     today = datetime.now(timezone.utc).date()
     for i in range(7):
@@ -333,13 +333,13 @@ async def _handle_time_range_selection(
             date_str = f"Today ({date_str})"
         elif i == 1:
             date_str = f"Tomorrow ({date_str})"
-        
+
         keyboard.append([
             InlineKeyboardButton(date_str, callback_data=f"avail_date_{event_id}_{i}")
         ])
-    
+
     keyboard.append([InlineKeyboardButton("Back", callback_data=f"avail_{event_id}")])
-    
+
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
         "Select date for availability:",
@@ -350,11 +350,11 @@ async def _handle_time_selection(
     query, context: ContextTypes.DEFAULT_TYPE, event_id: int, day_offset: int
 ) -> None:
     """Handle time selection for chosen date."""
-    
+
     # Store selected date in context
     selected_date = datetime.now(timezone.utc).date() + timedelta(days=day_offset)
     context.user_data["availability_date"] = selected_date.isoformat()
-    
+
     # Show time range options
     keyboard = [
         [InlineKeyboardButton("Morning (6AM-12PM)", callback_data=f"avail_time_{event_id}_morning")],
@@ -363,7 +363,7 @@ async def _handle_time_selection(
         [InlineKeyboardButton("Custom Time", callback_data=f"avail_time_{event_id}_custom")],
         [InlineKeyboardButton("Back", callback_data=f"avail_{event_id}")]
     ]
-    
+
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
         f"Select time range for {selected_date.strftime('%A, %B %d')}:",
@@ -374,10 +374,10 @@ async def _handle_confidence_selection(
     query, context: ContextTypes.DEFAULT_TYPE, event_id: int, time_range: str
 ) -> None:
     """Handle confidence level selection."""
-    
+
     # Store time range in context
     context.user_data["availability_time_range"] = time_range
-    
+
     # Show confidence options
     keyboard = [
         [
@@ -397,7 +397,7 @@ async def _handle_confidence_selection(
         ],
         [InlineKeyboardButton("Back", callback_data=f"avail_{event_id}")]
     ]
-    
+
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
         "Set your confidence level:\n\n"
@@ -412,20 +412,20 @@ async def _save_enhanced_availability(
     query, context: ContextTypes.DEFAULT_TYPE, event_id: int, confidence: int
 ) -> None:
     """Save availability with time range and confidence."""
-    
+
     try:
         # Get user info
         user_id = query.from_user.id
         date_str = context.user_data.get("availability_date")
         time_range = context.user_data.get("availability_time_range")
-        
+
         if not date_str or not time_range:
             await query.edit_message_text("Missing date or time selection.")
             return
-        
+
         # Parse date and time range
         selected_date = datetime.fromisoformat(date_str).date()
-        
+
         # Convert time range to actual times
         if time_range == "morning":
             start_time = datetime.combine(selected_date, datetime.min.time()).replace(hour=6)
@@ -439,11 +439,11 @@ async def _save_enhanced_availability(
         else:
             await query.edit_message_text("Custom time selection not implemented yet.")
             return
-        
+
         # Convert to UTC
         start_time = start_time.replace(tzinfo=timezone.utc)
         end_time = end_time.replace(tzinfo=timezone.utc)
-        
+
         # Save availability
         constraint = await availability_service.set_user_availability(
             user_id=user_id,
@@ -453,18 +453,18 @@ async def _save_enhanced_availability(
             confidence=confidence,
             metadata={"time_range": time_range, "source": "telegram_bot"}
         )
-        
+
         # Clear context
         context.user_data.pop("availability_date", None)
         context.user_data.pop("availability_time_range", None)
-        
+
         await query.edit_message_text(
             f"Availability saved successfully!\n\n"
             f"Time: {start_time.strftime('%a, %b %d %H:%M')} - {end_time.strftime('%H:%M')}\n"
             f"Confidence: {confidence}%\n"
             f"ID: {constraint.constraint_id}"
         )
-        
+
     except Exception as e:
         logger.error(f"Error saving availability: {e}")
         await query.edit_message_text("Error saving availability. Please try again.")
@@ -547,7 +547,7 @@ from bot.services.availability_service import AvailabilityService
 @pytest.mark.asyncio
 async def test_availability_analyzer_basic():
     """Test basic availability analysis functionality."""
-    
+
     # Mock LLM client
     llm_client = AsyncMock()
     llm_client.generate.return_value = {
@@ -563,9 +563,9 @@ async def test_availability_analyzer_basic():
         ],
         "analysis_summary": "Evening slot recommended"
     }
-    
+
     analyzer = AvailabilityAnalyzer(llm_client)
-    
+
     # Create test data
     user_availabilities = [
         UserAvailability(
@@ -581,20 +581,20 @@ async def test_availability_analyzer_basic():
             confidence=80
         )
     ]
-    
+
     # Create mock event
     event = MagicMock()
     event.event_id = 123
     event.event_type = "social"
     event.duration_minutes = 120
     event.description = "Test event"
-    
+
     # Mock session
     session = AsyncMock()
-    
+
     # Run analysis
     result = await analyzer.analyze_and_recommend(event, user_availabilities, session)
-    
+
     # Verify results
     assert len(result.recommendations) == 1
     assert result.recommendations[0].confidence_score == 85
@@ -603,9 +603,9 @@ async def test_availability_analyzer_basic():
 @pytest.mark.asyncio
 async def test_confidence_calculation():
     """Test confidence calculation algorithms."""
-    
+
     analyzer = AvailabilityAnalyzer(AsyncMock())
-    
+
     user_availabilities = [
         UserAvailability(
             user_id=1,
@@ -620,14 +620,14 @@ async def test_confidence_calculation():
             confidence=70
         )
     ]
-    
+
     # Test overlapping time slot
     confidence = analyzer._calculate_time_slot_confidence(
         user_availabilities,
         datetime(2026, 4, 18, 19, 0, tzinfo=timezone.utc),
         datetime(2026, 4, 18, 20, 0, tzinfo=timezone.utc)
     )
-    
+
     # Should be weighted average with modifiers
     assert confidence > 70
     assert confidence <= 100

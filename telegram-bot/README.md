@@ -869,8 +869,8 @@ For production, use webhooks instead of polling. See [QUICKSTART.md](docs/v2/QUI
 Error: could not connect to server
 ```
 
-→ Check PostgreSQL is running: `docker-compose ps` or `systemctl status postgresql`  
-→ Verify credentials in `.env`  
+→ Check PostgreSQL is running: `docker-compose ps` or `systemctl status postgresql`
+→ Verify credentials in `.env`
 → Ensure `DB_URL` uses an async driver prefix: `postgresql+asyncpg://` on Python `<3.14` or `postgresql+psycopg://` on Python `>=3.14`
 
 **LLM unavailable:**
@@ -879,8 +879,8 @@ Error: could not connect to server
 Warning: Startup LLM check: LLM unavailable
 ```
 
-→ Check AI endpoint is accessible  
-→ Verify `AI_ENDPOINT` and `AI_API_KEY` in `.env`  
+→ Check AI endpoint is accessible
+→ Verify `AI_ENDPOINT` and `AI_API_KEY` in `.env`
 → AI features gracefully degrade if unavailable
 
 See [QUICKSTART.md](docs/v2/QUICKSTART.md) for more troubleshooting tips.

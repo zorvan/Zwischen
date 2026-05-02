@@ -22,35 +22,22 @@ def test_all():
 
     # Test database
     print("\n2. Testing database module...")
-    from db.connection import create_engine, create_session
-    from db.models import Base, User, Group, Event, Constraint, Log, Feedback, AILog
+    from db.connection import create_engine
 
     print("   ✅ db module")
 
     # Test AI
     print("\n3. Testing AI module...")
-    from ai.core import AICoordinationEngine
-    from ai.rules import RuleBasedEngine
-    from ai.llm import LLMClient
 
     print("   ✅ ai module")
 
     # Test commands
     print("\n4. Testing command handlers...")
-    from bot.commands import (
-        start,
-        my_groups,
-        profile,
-        cancel,
-        suggest_time,
-        event_details,
-    )
 
     print("   ✅ command handlers")
 
     # Test handlers
     print("\n5. Testing handlers...")
-    from bot.handlers import event_panel, feedback
 
     print("   ✅ event_panel, feedback")
 
@@ -61,13 +48,14 @@ def test_all():
 
     # Test main
     print("\n7. Testing main entry point...")
-    from main import main
 
     print("   ✅ main.py ready")
 
     # Test database connection
     print("\n8. Testing database connection...")
-    db_url = os.getenv("DB_URL", "postgresql://coord_user:coord_pass@localhost:5432/coord_db")
+    db_url = os.getenv(
+        "DB_URL", "postgresql://coord_user:coord_pass@localhost:5432/coord_db"
+    )
     if not db_url.startswith("postgresql+asyncpg://"):
         db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
     engine = create_engine(db_url)

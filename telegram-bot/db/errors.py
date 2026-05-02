@@ -29,10 +29,16 @@ class DatabaseOperationError(DatabaseError):
     pass
 
 
-def log_database_error(operation: str, error: Exception, context: dict | None = None) -> None:
+def log_database_error(
+    operation: str, error: Exception, context: dict | None = None
+) -> None:
     """Log database error with context information."""
     logger.error(
-        "Database %s failed: %s", operation, type(error).__name__, exc_info=True, extra={"context": context or {}}
+        "Database %s failed: %s",
+        operation,
+        type(error).__name__,
+        exc_info=True,
+        extra={"context": context or {}},
     )
 
 
@@ -53,12 +59,17 @@ async def handle_database_error(
         error,
         {
             "update_id": update.update_id if update else None,
-            "chat_id": update.effective_chat.id if update and update.effective_chat else None,
+            "chat_id": (
+                update.effective_chat.id if update and update.effective_chat else None
+            ),
         },
     )
 
     if not user_message:
-        user_message = "❌ A database error occurred while processing your request. " "Please try again later."
+        user_message = (
+            "❌ A database error occurred while processing your request. "
+            "Please try again later."
+        )
 
     if update and update.effective_message:
         try:

@@ -106,8 +106,12 @@ class EventDraftFromContext(BaseModel):
     invite_all_members: bool = True
     invitees: List[str] = Field(default_factory=list)
     planning_notes: List[str] = Field(default_factory=list)
-    date_preset: Optional[Literal["today", "tomorrow", "weekend", "nextweek", "custom"]] = None
-    time_window: Optional[Literal["early-morning", "morning", "afternoon", "evening", "night"]] = None
+    date_preset: Optional[
+        Literal["today", "tomorrow", "weekend", "nextweek", "custom"]
+    ] = None
+    time_window: Optional[
+        Literal["early-morning", "morning", "afternoon", "evening", "night"]
+    ] = None
     location_type: Optional[Literal["home", "outdoor", "cafe", "office", "gym"]] = None
     budget_level: Optional[Literal["free", "low", "medium", "high"]] = None
     transport_mode: Optional[Literal["walk", "public_transit", "drive", "any"]] = None

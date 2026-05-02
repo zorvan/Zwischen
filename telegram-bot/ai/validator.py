@@ -22,7 +22,9 @@ class ValidationResult:
     recovery_prompt: Optional[str] = None
 
 
-def validate_action_result(result: Dict[str, Any], registry: Dict[str, Any]) -> ValidationResult:
+def validate_action_result(
+    result: Dict[str, Any], registry: Dict[str, Any]
+) -> ValidationResult:
     """
     Validate LLM action inference result against the action registry.
 
@@ -41,17 +43,23 @@ def validate_action_result(result: Dict[str, Any], registry: Dict[str, Any]) -> 
     # Check result is a dict
     if not isinstance(result, dict):
         return ValidationResult(
-            valid=False, reason=f"Result is not a dict, got: {type(result).__name__}", recoverable=False
+            valid=False,
+            reason=f"Result is not a dict, got: {type(result).__name__}",
+            recoverable=False,
         )
 
     # Extract action name
     action = result.get("action")
     if not action:
-        return ValidationResult(valid=False, reason="Missing 'action' field in result", recoverable=False)
+        return ValidationResult(
+            valid=False, reason="Missing 'action' field in result", recoverable=False
+        )
 
     # Check action exists in registry
     if action not in registry:
-        return ValidationResult(valid=False, reason=f"Unknown action: {action!r}", recoverable=False)
+        return ValidationResult(
+            valid=False, reason=f"Unknown action: {action!r}", recoverable=False
+        )
 
     # Get action definition
     action_def = registry[action]
@@ -64,7 +72,9 @@ def validate_action_result(result: Dict[str, Any], registry: Dict[str, Any]) -> 
 
     if not isinstance(params, dict):
         return ValidationResult(
-            valid=False, reason=f"'params' must be a dict, got: {type(params).__name__}", recoverable=False
+            valid=False,
+            reason=f"'params' must be a dict, got: {type(params).__name__}",
+            recoverable=False,
         )
 
     # Check all required params are present and non-empty

@@ -28,7 +28,9 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if not user_groups:
         await update.message.reply_text(
-            "📋 *Your Groups*\n\n" "• No groups yet.\n\n" "Run /organize_event in a group once to register it."
+            "📋 *Your Groups*\n\n"
+            "• No groups yet.\n\n"
+            "Run /organize_event in a group once to register it."
         )
         return
 

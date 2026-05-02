@@ -44,10 +44,8 @@ from bot.common.event_presenters import (
 from config.settings import settings
 from db.connection import get_session
 from db.models import Constraint, Event, Group, Log, User
-from bot.common.event_access import (
-    get_event_admin_telegram_id,
-)
 from db.users import get_or_create_user_id, get_user_id_by_username
+from bot.common.i18n import t, get_user_language
 
 logger = logging.getLogger("coord_bot.mentions")
 
@@ -66,7 +64,13 @@ MENTION_PATTERN = re.compile(r"@([A-Za-z0-9_]{5,32})")
 
 def _escape_for_markdown(text: str) -> str:
     """Escape Telegram Markdown v1 metacharacters in user-controlled text."""
-    return text.replace("[", "\\[").replace("]", "\\]").replace("_", "\\_").replace("*", "\\*").replace("`", "\\`")
+    return (
+        text.replace("[", "\\[")
+        .replace("]", "\\]")
+        .replace("_", "\\_")
+        .replace("*", "\\*")
+        .replace("`", "\\`")
+    )
 
 
 EVENT_ID_PATTERNS = (
@@ -102,8 +106,9 @@ async def _offer_event_selection(
     chat_id: int,
 ) -> None:
     """Query active events in this group and offer tap targets for disambiguation."""
+    user_lang = get_user_language(message.effective_user)
     if not settings.db_url:
-        await message.reply_text("ℹ️ Database configuration is unavailable.")
+        await message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
 
     async with get_session(settings.db_url) as session:
@@ -120,17 +125,16 @@ async def _offer_event_selection(
         events = result.scalars().all()
 
     if not events:
-        await message.reply_text(
-            "No active events in this group yet. Mention me to create one, " "or use /organize_event."
-        )
+        await message.reply_text(t("mention_no_active_events", lang=user_lang))
         return
 
     action_label = {
-        "join": "✅ Join",
-        "confirm": "🎯 Confirm",
-        "cancel": "↩️ Stepped Back",
-        "lock": "🔒 Lock",
-        "request_confirmations": "📣 Ask confirmations",
+        "join": "✅ " + t("mention_action_join", lang=user_lang),
+        "confirm": "🎯 " + t("mention_action_confirm", lang=user_lang),
+        "cancel": "↩️ " + t("mention_action_cancel", lang=user_lang),
+        "lock": "🔒 " + t("mention_action_lock", lang=user_lang),
+        "request_confirmations": "📣 "
+        + t("mention_action_request_confirmations", lang=user_lang),
     }.get(action_type, action_type)
     code = _ACTION_TO_PICK_CODE.get(action_type, "j")
     buttons = []
@@ -147,7 +151,7 @@ async def _offer_event_selection(
             ]
         )
     await message.reply_text(
-        f"Which event should I **{action_type}** for you?",
+        t("mention_event_selection", lang=user_lang, action_type=action_type),
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode="Markdown",
     )
@@ -159,8 +163,9 @@ async def _send_group_events_list(
     reply_to_message,
 ) -> None:
     """Post a compact /events-style list for callback flows."""
+    user_lang = get_user_language(reply_to_message.effective_user)
     if not settings.db_url:
-        await reply_to_message.reply_text("ℹ️ Database configuration is unavailable.")
+        await reply_to_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
     async with get_session(settings.db_url) as session:
         q = (
@@ -173,16 +178,20 @@ async def _send_group_events_list(
         result = await session.execute(q)
         rows = result.all()
     if not rows:
-        await reply_to_message.reply_text("ℹ️ No events found in this group.")
+        await reply_to_message.reply_text(
+            t("mention_no_events_in_group", lang=user_lang)
+        )
         return
-    lines: list[str] = ["📋 *Recent events in this group*", ""]
+    lines: list[str] = [t("mention_event_list", lang=user_lang), ""]
     for event, group in rows:
         group_name = (
             group.group_name
             if group and group.group_name
-            else str(group.telegram_group_id) if group else "Unknown Group"
+            else t("mention_unknown_group", lang=user_lang)
         )
-        description = (event.description or "No description").strip()
+        description = (
+            event.description or t("event_presenter_no_description", lang=user_lang)
+        ).strip()
         if len(description) > 80:
             description = f"{description[:77]}..."
         lines.append(f"• ID `{event.event_id}` | {event.event_type} | {event.state}")
@@ -194,7 +203,9 @@ async def _send_group_events_list(
     await reply_to_message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
-async def record_group_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def record_group_history(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Record rolling chat history for each group."""
     message = update.effective_message
     chat = update.effective_chat
@@ -244,6 +255,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if stage in {"description", "time", "invitees", "final"}:
             return
 
+    user_lang = get_user_language(user)
     bot_username = (context.bot.username or "").lower()
     has_bot_mention = bool(bot_username and f"@{bot_username}" in text.lower())
     is_reply_to_bot = _is_reply_to_bot_message(message, context)
@@ -253,7 +265,9 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     parent_text = ""
     history = context.bot_data.get("chat_history", {}).get(chat.id, [])
     if is_reply_to_bot:
-        parent_text = (message.reply_to_message.text or message.reply_to_message.caption or "").strip()
+        parent_text = (
+            message.reply_to_message.text or message.reply_to_message.caption or ""
+        ).strip()
         if parent_text:
             history = [
                 *history,
@@ -279,12 +293,16 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await llm.close()
 
     action_type = str(action.get("action_type", "opinion")).strip().lower()
-    logger.debug(f"Mention inference: action_type={action_type}, event_id={action.get('event_id')}, text={text[:100]}")
+    logger.debug(
+        f"Mention inference: action_type={action_type}, event_id={action.get('event_id')}, text={text[:100]}"
+    )
 
     # Handle organize_event actions (these don't need event_id - they CREATE events)
     if action_type in {"organize_event", "organize_event_flexible"}:
         mode = "flexible" if action_type == "organize_event_flexible" else "public"
-        scheduling_mode = "flexible" if action_type == "organize_event_flexible" else "fixed"
+        scheduling_mode = (
+            "flexible" if action_type == "organize_event_flexible" else "fixed"
+        )
         llm = LLMClient()
         try:
             draft = await llm.infer_event_draft_from_context(
@@ -333,31 +351,33 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 [
                     [
                         InlineKeyboardButton(
-                            "🗓 Create an event from this",
+                            t("mention_opinion_create_event", lang=user_lang),
                             callback_data="mention_start_organize",
                         )
                     ],
                     [
                         InlineKeyboardButton(
-                            "📋 See current events",
+                            t("mention_opinion_show_events", lang=user_lang),
                             callback_data="mention_show_status",
                         )
                     ],
                     [
                         InlineKeyboardButton(
-                            "❓ How to ask",
+                            t("mention_opinion_help", lang=user_lang),
                             callback_data="mention_ask_help",
                         )
                     ],
                 ]
             )
             await message.reply_text(
-                f"🤖 {response}\n\n" "_Want me to turn this into an event, or see what’s already planned?_",
+                t("mention_opinion_response", lang=user_lang, response=response),
                 reply_markup=keyboard,
                 parse_mode="Markdown",
             )
         else:
-            await message.reply_text(f"🤖 {response}")
+            await message.reply_text(
+                t("mention_opinion_response_plain", lang=user_lang, response=response)
+            )
         return
 
     # For actions that need an event_id, check if we have one
@@ -371,7 +391,10 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     } and not action.get("event_id"):
         # Check if the message might be about organizing a new event
         lowered_text = text.lower()
-        if any(kw in lowered_text for kw in ["organize", "organise", "create", "plan", "new event"]):
+        if any(
+            kw in lowered_text
+            for kw in ["organize", "organise", "create", "plan", "new event"]
+        ):
             # User might be trying to organize - start that flow instead
             mode = "flexible" if "flexible" in lowered_text else "public"
             scheduling_mode = "flexible" if "flexible" in lowered_text else "fixed"
@@ -437,10 +460,12 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             ]
         )
         await message.reply_text(
-            "🤖 *AI inferred an action from mention*\n\n"
-            f"Action: {action_type}\n"
-            f"Target Event: {action.get('event_id', 'N/A')}\n"
-            "Waiting approvals from mentioned participants before execution.",
+            t(
+                "mention_action_inferred",
+                lang=user_lang,
+                action=action_type,
+                event_id=action.get("event_id", "N/A"),
+            ),
             reply_markup=keyboard,
         )
         return
@@ -455,12 +480,16 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     )
 
 
-async def handle_mention_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_mention_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Process approval callbacks for inferred mention actions."""
     query = update.callback_query
     if not query or not query.data:
         return
     await query.answer()
+
+    user_lang = get_user_language(query.from_user)
 
     parts = query.data.split("_")
     if len(parts) != 3 or parts[0] != "mentionact":
@@ -470,34 +499,41 @@ async def handle_mention_callback(update: Update, context: ContextTypes.DEFAULT_
     pending_root = context.bot_data.get("pending_mention_actions", {})
     pending = pending_root.get(pending_id)
     if not pending:
-        await query.edit_message_text("⚠️ This approval request has expired.")
+        await query.edit_message_text(t("mention_approval_expired", lang=user_lang))
         return
 
     required = set(int(x) for x in pending.get("required_user_ids", []))
     clicker = query.from_user.id
     if clicker not in required:
         await query.answer(
-            "Only participants mentioned in the request can approve/reject.",
+            t("mention_approval_only_mentioned", lang=user_lang),
             show_alert=True,
         )
         return
 
     if decision == "reject":
         pending_root.pop(pending_id, None)
-        await query.edit_message_text("ℹ️ Action declined because one participant stepped back.")
+        await query.edit_message_text(t("mention_approval_declined", lang=user_lang))
         return
 
     approved = set(int(x) for x in pending.get("approved_user_ids", []))
     approved.add(clicker)
     pending["approved_user_ids"] = sorted(approved)
     if approved != required:
-        await query.edit_message_text(f"⏳ Approval recorded.\nApprovals: {len(approved)}/{len(required)}")
+        await query.edit_message_text(
+            t(
+                "mention_approval_recorded",
+                lang=user_lang,
+                approved=len(approved),
+                total=len(required),
+            )
+        )
         return
 
     pending_root.pop(pending_id, None)
     action = pending.get("action", {})
     requester_id = int(pending.get("requester_id"))
-    await query.edit_message_text("✅ All approvals received. Executing action...")
+    await query.edit_message_text(t("mention_approval_all_received", lang=user_lang))
     message = query.message
     if not message:
         return
@@ -511,7 +547,9 @@ async def handle_mention_callback(update: Update, context: ContextTypes.DEFAULT_
     )
 
 
-async def handle_disambiguation_callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_disambiguation_callbacks(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Inline actions from opinion disambiguation and event pick lists."""
     query = update.callback_query
     if not query or not query.data:
@@ -520,6 +558,7 @@ async def handle_disambiguation_callbacks(update: Update, context: ContextTypes.
 
     data = query.data
     user = query.from_user
+    user_lang = get_user_language(user)
     if not user:
         return
 
@@ -527,17 +566,21 @@ async def handle_disambiguation_callbacks(update: Update, context: ContextTypes.
         rest = data[7:]
         idx = rest.rfind("_")
         if idx <= 0:
-            await query.edit_message_text("ℹ️ Invalid selection.")
+            await query.edit_message_text(
+                t("mention_invalid_selection", lang=user_lang)
+            )
             return
         try:
             event_id = int(rest[:idx])
             code = rest[idx + 1 :]
         except ValueError:
-            await query.edit_message_text("ℹ️ Invalid selection.")
+            await query.edit_message_text(
+                t("mention_invalid_selection", lang=user_lang)
+            )
             return
         action_type = _PICK_CODE_TO_ACTION.get(code)
         if not action_type:
-            await query.edit_message_text("ℹ️ Unknown action.")
+            await query.edit_message_text(t("mention_unknown_action", lang=user_lang))
             return
         action = {
             "action_type": action_type,
@@ -547,7 +590,7 @@ async def handle_disambiguation_callbacks(update: Update, context: ContextTypes.
             "assistant_response": "",
         }
         try:
-            await query.edit_message_text("⏳ Working…")
+            await query.edit_message_text(t("mention_working", lang=user_lang))
         except Exception:
             pass
         if not query.message:
@@ -573,10 +616,7 @@ async def handle_disambiguation_callbacks(update: Update, context: ContextTypes.
 
     if data == "mention_ask_help":
         await query.edit_message_text(
-            "❓ *Tips*\n"
-            "• Mention me with a clear ask.\n"
-            "• When I list events, tap a row to pick one.\n"
-            "• Use /organize_event to start a structured setup.",
+            t("mention_help_tips", lang=user_lang),
             parse_mode="Markdown",
         )
         return
@@ -591,11 +631,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     data = query.data
     user = query.from_user
+    user_lang = get_user_language(user)
 
     if data.startswith("modinput_"):
         parts = data.split("_")
         if len(parts) != 3:
-            await query.answer("ℹ️ Invalid request format.")
+            await query.answer(t("mention_invalid_request", lang=user_lang))
             return
 
         request_id = parts[1]
@@ -605,11 +646,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         modify_request = context.user_data.pop(pending_key, None)
 
         if not modify_request:
-            await query.edit_message_text("ℹ️ This modification request has expired.")
+            await query.edit_message_text(
+                t("mention_modification_expired", lang=user_lang)
+            )
             return
 
         if action == "cancel":
-            await query.edit_message_text("✅ Modification request cancelled.")
+            await query.edit_message_text(
+                t("mention_modification_cancelled", lang=user_lang)
+            )
             return
 
         event_id = modify_request.get("event_id")
@@ -618,12 +663,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if action == "write":
             # Ask user to provide modification text
             await query.edit_message_text(
-                "✏️ *Please type your modification request below:*\n\n"
-                "Describe the changes you want to make. Examples:\n"
-                "- Change time to March 8, 2026 at 18:00\n"
-                "- Increase minimum to 4 and capacity to 10\n"
-                "- Move location to gym\n\n"
-                "Type 'cancel' to abort.",
+                t("mention_modification_write_prompt", lang=user_lang),
                 parse_mode="Markdown",
             )
             # Store pending modification for processing
@@ -638,10 +678,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if action == "ai":
             # Use AI to suggest modifications
             async with get_session(settings.db_url) as session:
-                result = await session.execute(select(Event).where(Event.event_id == event_id))
+                result = await session.execute(
+                    select(Event).where(Event.event_id == event_id)
+                )
                 event = result.scalar_one_or_none()
                 if not event:
-                    await query.edit_message_text("ℹ️ Event not found.")
+                    await query.edit_message_text(
+                        t("mention_constraint_event_not_found", lang=user_lang)
+                    )
                     return
 
                 llm = LLMClient()
@@ -650,11 +694,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                         "description": event.description or "",
                         "event_type": event.event_type,
                         "scheduled_time": (
-                            event.scheduled_time.isoformat() if event and event.scheduled_time else None
+                            event.scheduled_time.isoformat()
+                            if event and event.scheduled_time
+                            else None
                         ),
                         "duration_minutes": int(event.duration_minutes or 120),
                         "min_participants": int(event.min_participants or 2),
-                        "target_participants": int(event.target_participants or event.min_participants or 2),
+                        "target_participants": int(
+                            event.target_participants or event.min_participants or 2
+                        ),
                     }
                     ai_prompt = (
                         "Please suggest improvements to this event. "
@@ -677,7 +725,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 if patch.get("clear_time"):
                     change_parts.append("Clear scheduled time (set to TBD)")
                 if patch.get("duration_minutes"):
-                    change_parts.append(f"Duration: {patch['duration_minutes']} minutes")
+                    change_parts.append(
+                        f"Duration: {patch['duration_minutes']} minutes"
+                    )
                 if patch.get("min_participants"):
                     change_parts.append(f"Minimum: {patch['min_participants']}")
                 if patch.get("target_participants"):
@@ -704,11 +754,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
                 return
 
-        await query.edit_message_text("ℹ️ Unknown modification action.")
+        await query.edit_message_text(
+            t("mention_unknown_modification_action", lang=user_lang)
+        )
         return
 
 
-async def handle_modify_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_modify_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle text messages for modification requests."""
     message = update.effective_message
     if not message or not message.text:
@@ -724,7 +778,14 @@ async def handle_modify_message(update: Update, context: ContextTypes.DEFAULT_TY
     pending_data = context.user_data.pop(pending_keys[0])
 
     if text.lower() == "cancel":
-        await message.reply_text("✅ Modification request cancelled.")
+        await message.reply_text(
+            t(
+                "mention_modification_cancelled",
+                lang=(
+                    get_user_language(message.from_user) if message.from_user else "en"
+                ),
+            )
+        )
         return
 
     change_text = text
@@ -756,6 +817,7 @@ async def _submit_modify_request_via_message(
     requester_username: str | None,
 ) -> None:
     """Helper to submit modification request via message."""
+    user_lang = get_user_language(update.effective_user)
     pending_key = f"modreq_{request_id}"
     context.bot_data.setdefault("pending_modify_requests", {})[pending_key] = {
         "event_id": event_id,
@@ -767,10 +829,12 @@ async def _submit_modify_request_via_message(
     }
 
     await update.message.reply_text(
-        f"📩 *Modify request submitted for admin approval*\n\n"
-        f"Event ID: {event_id}\n"
-        f"Changes: {change_text}\n\n"
-        f"Waiting for admin approval...",
+        t(
+            "mention_modification_submitted",
+            lang=user_lang,
+            event_id=event_id,
+            changes=change_text,
+        ),
         parse_mode="Markdown",
     )
 
@@ -790,7 +854,9 @@ async def _submit_modify_request_via_message(
     )
 
     if not adminDM_sent:
-        logger.warning(f"Could not send modification request DM to admin {admin_id} for event {event_id}")
+        logger.warning(
+            f"Could not send modification request DM to admin {admin_id} for event {event_id}"
+        )
 
 
 async def _submit_modify_request_via_callback(
@@ -804,11 +870,14 @@ async def _submit_modify_request_via_callback(
     requester_username: str | None,
 ) -> None:
     """Helper to submit modification request via callback."""
+    user_lang = get_user_language(update.callback_query.from_user)
     await update.callback_query.edit_message_text(
-        f"📩 *Modify request submitted for admin approval*\n\n"
-        f"Event ID: {event_id}\n"
-        f"Changes: {change_text}\n\n"
-        f"Waiting for admin approval...",
+        t(
+            "mention_modification_submitted",
+            lang=user_lang,
+            event_id=event_id,
+            changes=change_text,
+        ),
         parse_mode="Markdown",
     )
 
@@ -828,12 +897,18 @@ async def _submit_modify_request_via_callback(
     )
 
     if not adminDM_sent:
-        logger.warning(f"Could not send modification request DM to admin {admin_id} for event {event_id}")
+        logger.warning(
+            f"Could not send modification request DM to admin {admin_id} for event {event_id}"
+        )
 
 
 async def _resolve_mentioned_participants(text: str, bot_username: str) -> list[int]:
     """Resolve non-bot @mentions to known internal user IDs."""
-    mentioned = {username.lower() for username in MENTION_PATTERN.findall(text) if username.lower() != bot_username}
+    mentioned = {
+        username.lower()
+        for username in MENTION_PATTERN.findall(text)
+        if username.lower() != bot_username
+    }
     if not mentioned:
         return []
     if not settings.db_url:
@@ -860,6 +935,7 @@ async def _execute_inferred_action(
     reply_message,
 ) -> None:
     """Execute inferred action if supported."""
+    user_lang = get_user_language(reply_message.effective_user)
     action_type = str(action.get("action_type", "")).strip().lower()
     event_id_raw = action.get("event_id")
     try:
@@ -919,14 +995,17 @@ async def _execute_inferred_action(
 
     response = str(action.get("assistant_response", "")).strip()
     if not response:
-        response = "I inferred an unsupported action. Try a direct command."
+        response = t("mention_inferred_unsupported", lang=user_lang)
     await reply_message.reply_text(f"🤖 {response}")
 
 
-async def _send_status(reply_message, event_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _send_status(
+    reply_message, event_id: int, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Send event status text in mention flow."""
+    user_lang = get_user_language(reply_message.effective_user)
     if not settings.db_url:
-        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
+        await reply_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
     from sqlalchemy import func
     from db.models import Log, Constraint
@@ -935,27 +1014,40 @@ async def _send_status(reply_message, event_id: int, context: ContextTypes.DEFAU
         result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("ℹ️ Event not found.")
+            await reply_message.reply_text(
+                t("mention_constraint_event_not_found", lang=user_lang)
+            )
             return
         log_count = int(
-            (await session.execute(func.count(Log.log_id).select().where(Log.event_id == event_id))).scalar_one()
+            (
+                await session.execute(
+                    func.count(Log.log_id).select().where(Log.event_id == event_id)
+                )
+            ).scalar_one()
         )
         constraint_count = int(
             (
                 await session.execute(
-                    func.count(Constraint.constraint_id).select().where(Constraint.event_id == event_id)
+                    func.count(Constraint.constraint_id)
+                    .select()
+                    .where(Constraint.event_id == event_id)
                 )
             ).scalar_one()
         )
     await reply_message.reply_text(
-        await format_status_message(event_id, event, log_count, constraint_count, context.bot)
+        await format_status_message(
+            event_id, event, log_count, constraint_count, context.bot
+        )
     )
 
 
-async def _send_event_details(reply_message, event_id: int, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _send_event_details(
+    reply_message, event_id: int, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Send event details in mention flow."""
+    user_lang = get_user_language(reply_message.effective_user)
     if not settings.db_url:
-        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
+        await reply_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
     from db.models import Log as LogModel, Constraint as ConstraintModel
 
@@ -963,14 +1055,32 @@ async def _send_event_details(reply_message, event_id: int, context: ContextType
         result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("ℹ️ Event not found.")
+            await reply_message.reply_text(
+                t("mention_constraint_event_not_found", lang=user_lang)
+            )
             return
-        logs = (await session.execute(select(LogModel).where(LogModel.event_id == event_id))).scalars().all()
+        logs = (
+            (
+                await session.execute(
+                    select(LogModel).where(LogModel.event_id == event_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
         constraints = (
-            (await session.execute(select(ConstraintModel).where(ConstraintModel.event_id == event_id))).scalars().all()
+            (
+                await session.execute(
+                    select(ConstraintModel).where(ConstraintModel.event_id == event_id)
+                )
+            )
+            .scalars()
+            .all()
         )
     await reply_message.reply_text(
-        await format_event_details_message(event_id, event, list(logs), list(constraints), context.bot)
+        await format_event_details_message(
+            event_id, event, list(logs), list(constraints), context.bot
+        )
     )
 
 
@@ -986,23 +1096,34 @@ async def _save_constraint_from_inferred(
     summary: str,
 ) -> None:
     """Persist inferred constraint after approvals."""
+    user_lang = get_user_language(reply_message.effective_user)
     allowed = {"if_joins", "if_attends", "unless_joins"}
     if constraint_type not in allowed:
-        await reply_message.reply_text("ℹ️ Inferred constraint type is not supported.")
+        await reply_message.reply_text(
+            t("mention_constraint_unsupported", lang=user_lang)
+        )
         return
     if not target_username:
-        await reply_message.reply_text("ℹ️ Inferred target user is missing.")
+        await reply_message.reply_text(
+            t("mention_constraint_target_missing", lang=user_lang)
+        )
         return
     if not settings.db_url:
-        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
+        await reply_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
 
-    target_input = target_username if target_username.startswith("@") else f"@{target_username}"
+    target_input = (
+        target_username if target_username.startswith("@") else f"@{target_username}"
+    )
 
     async with get_session(settings.db_url) as session:
-        event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
+        event = (
+            await session.execute(select(Event).where(Event.event_id == event_id))
+        ).scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("ℹ️ Event not found.")
+            await reply_message.reply_text(
+                t("mention_constraint_event_not_found", lang=user_lang)
+            )
             return
 
         source_user_id = await get_or_create_user_id(
@@ -1023,7 +1144,11 @@ async def _save_constraint_from_inferred(
                 )
             except Exception:
                 await reply_message.reply_text(
-                    f"ℹ️ Target {target_input} not found in records and could not be resolved from Telegram API."
+                    t(
+                        "mention_constraint_target_resolution_failed",
+                        lang=user_lang,
+                        target=target_input,
+                    )
                 )
                 return
 
@@ -1039,11 +1164,14 @@ async def _save_constraint_from_inferred(
         await session.commit()
 
     await reply_message.reply_text(
-        "✅ Constraint saved from mention inference.\n"
-        f"Event: {event_id}\n"
-        f"Target: {target_input}\n"
-        f"Type: {constraint_type}\n"
-        f"Summary: {summary or 'N/A'}"
+        t(
+            "mention_constraint_saved",
+            lang=user_lang,
+            event_id=event_id,
+            target=target_input,
+            type=constraint_type,
+            summary=summary or "N/A",
+        )
     )
 
 
@@ -1132,16 +1260,21 @@ async def _apply_participation_action(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     """Apply join/confirm/cancel using shared attendance functions."""
+    user_lang = get_user_language(reply_message.effective_user)
     if not settings.db_url:
-        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
+        await reply_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
 
     from bot.common.scheduling import find_user_event_conflict
 
     async with get_session(settings.db_url) as session:
-        event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
+        event = (
+            await session.execute(select(Event).where(Event.event_id == event_id))
+        ).scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("ℹ️ Event not found.")
+            await reply_message.reply_text(
+                t("mention_constraint_event_not_found", lang=user_lang)
+            )
             return
 
         user_id = await get_or_create_user_id(
@@ -1153,7 +1286,15 @@ async def _apply_participation_action(
 
         if action_type == "join":
             if event.state in {"locked", "completed"}:
-                await reply_message.reply_text(f"ℹ️ Cannot join event {event_id} - it's {event.state}.")
+                await reply_message.reply_text(
+                    t(
+                        "error_terminal_state",
+                        lang=user_lang,
+                        action=t("mention_action_join", lang=user_lang).lower(),
+                        event_id=event_id,
+                        state=event.state,
+                    )
+                )
                 return
             conflict = await find_user_event_conflict(
                 session=session,
@@ -1164,10 +1305,13 @@ async def _apply_participation_action(
             )
             if conflict:
                 await reply_message.reply_text(
-                    "ℹ️ You have a conflicting event.\n"
-                    f"Conflicting Event ID: {conflict.event_id}\n"
-                    f"Time: {conflict.scheduled_time}\n"
-                    f"Duration: {conflict.duration_minutes or 120} minutes"
+                    t(
+                        "error_conflict",
+                        lang=user_lang,
+                        event_id=conflict.event_id,
+                        time=conflict.scheduled_time,
+                        duration=conflict.duration_minutes or 120,
+                    )
                 )
                 return
 
@@ -1192,11 +1336,21 @@ async def _apply_participation_action(
                         reason="Participant joined via mention",
                     )
                 except Exception as e:
-                    logger.error(f"Failed to transition event {event_id} to interested: {e}")
+                    logger.error(
+                        f"Failed to transition event {event_id} to interested: {e}"
+                    )
 
         elif action_type == "confirm":
             if event.state in {"locked", "completed", "cancelled"}:
-                await reply_message.reply_text(f"ℹ️ Cannot confirm event {event_id} - it's {event.state}.")
+                await reply_message.reply_text(
+                    t(
+                        "error_terminal_state",
+                        lang=user_lang,
+                        action=t("mention_action_confirm", lang=user_lang).lower(),
+                        event_id=event_id,
+                        state=event.state,
+                    )
+                )
                 return
 
             # Use ParticipantService for confirm operation
@@ -1220,11 +1374,20 @@ async def _apply_participation_action(
                         reason="Participant confirmed via mention",
                     )
                 except Exception as e:
-                    logger.error(f"Failed to transition event {event_id} to confirmed: {e}")
+                    logger.error(
+                        f"Failed to transition event {event_id} to confirmed: {e}"
+                    )
 
         elif action_type == "cancel":
             if event.state == "locked":
-                await reply_message.reply_text(f"ℹ️ Cannot step back from event {event_id} - it's already locked.")
+                await reply_message.reply_text(
+                    t(
+                        "error_locked_state",
+                        lang=user_lang,
+                        action=t("mention_action_cancel", lang=user_lang).lower(),
+                        event_id=event_id,
+                    )
+                )
                 return
 
             # Use ParticipantService for cancel operation
@@ -1241,7 +1404,10 @@ async def _apply_participation_action(
 
             # Update event state if needed
             confirmed_count = await participant_service.get_confirmed_count(event_id)
-            if event.state not in {"locked", "completed", "cancelled"} and confirmed_count == 0:
+            if (
+                event.state not in {"locked", "completed", "cancelled"}
+                and confirmed_count == 0
+            ):
                 new_state = "interested" if confirmed_count > 0 else "proposed"
                 lifecycle_service = EventLifecycleService(context.bot, session)
                 try:
@@ -1253,7 +1419,9 @@ async def _apply_participation_action(
                         reason="Last participant cancelled",
                     )
                 except Exception as e:
-                    logger.error(f"Failed to transition event {event_id} to {new_state}: {e}")
+                    logger.error(
+                        f"Failed to transition event {event_id} to {new_state}: {e}"
+                    )
 
         session.add(
             Log(
@@ -1266,28 +1434,44 @@ async def _apply_participation_action(
         await session.commit()
 
     if action_type == "join":
-        await reply_message.reply_text(f"✅ Joined event {event_id}.\nUse /confirm {event_id} to commit attendance.")
+        await reply_message.reply_text(
+            t("mention_participation_join", lang=user_lang, event_id=event_id)
+        )
     elif action_type == "confirm":
-        await reply_message.reply_text(f"✅ Confirmed for event {event_id}.\nEvent state is now `confirmed`.")
+        await reply_message.reply_text(
+            t("mention_participation_confirm", lang=user_lang, event_id=event_id)
+        )
     else:
-        await reply_message.reply_text(f"ℹ️ Stepped back from event {event_id}.")
+        await reply_message.reply_text(
+            t("mention_participation_cancel", lang=user_lang, event_id=event_id)
+        )
 
 
 async def _apply_lock_action(reply_message, event_id: int) -> None:
     """Lock event using shared attendance functions."""
+    user_lang = get_user_language(reply_message.effective_user)
     if not settings.db_url:
-        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
+        await reply_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
 
     async with get_session(settings.db_url) as session:
-        event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
+        event = (
+            await session.execute(select(Event).where(Event.event_id == event_id))
+        ).scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("ℹ️ Event not found.")
+            await reply_message.reply_text(
+                t("mention_constraint_event_not_found", lang=user_lang)
+            )
             return
         if event.state != "confirmed":
             await reply_message.reply_text(
-                f"ℹ️ Cannot lock event {event_id}. Current state: {event.state}. "
-                "Lock is allowed only when state is `confirmed`."
+                t(
+                    "error_not_confirmed_state",
+                    lang=user_lang,
+                    action="lock",
+                    state="confirmed",
+                    current=event.state,
+                )
             )
             return
 
@@ -1299,7 +1483,14 @@ async def _apply_lock_action(reply_message, event_id: int) -> None:
         event.locked_at = datetime.utcnow()
         await session.commit()
 
-    await reply_message.reply_text(f"🔒 Event {event_id} locked successfully at {datetime.utcnow().isoformat()}.")
+    await reply_message.reply_text(
+        t(
+            "mention_lock_success",
+            lang=user_lang,
+            event_id=event_id,
+            time=datetime.utcnow().isoformat(),
+        )
+    )
 
 
 async def _start_interactive_event_flow(
@@ -1345,7 +1536,9 @@ async def _start_interactive_event_flow(
             flow_data["event_type"] = event_type
     if draft.get("min_participants"):
         try:
-            flow_data["min_participants"] = max(1, int(draft.get("min_participants", 3)))
+            flow_data["min_participants"] = max(
+                1, int(draft.get("min_participants", 3))
+            )
         except (TypeError, ValueError):
             pass
     if draft.get("target_participants"):
@@ -1358,7 +1551,9 @@ async def _start_interactive_event_flow(
             pass
     if draft.get("duration_minutes"):
         try:
-            flow_data["duration_minutes"] = max(30, int(draft.get("duration_minutes", 120)))
+            flow_data["duration_minutes"] = max(
+                30, int(draft.get("duration_minutes", 120))
+            )
         except (TypeError, ValueError):
             pass
     if draft.get("scheduled_time") and isinstance(draft.get("scheduled_time"), str):
@@ -1392,13 +1587,14 @@ async def _start_interactive_event_flow(
     if draft.get("planning_notes"):
         notes = draft.get("planning_notes", [])
         flow_data["planning_notes"] = (
-            [str(x).strip()[:300] for x in notes if str(x).strip()] if isinstance(notes, list) else []
+            [str(x).strip()[:300] for x in notes if str(x).strip()]
+            if isinstance(notes, list)
+            else []
         )
 
     context.user_data[flow_key] = event_flow
 
     # Notify user about the inferred values and continue the flow
-    inferred_msg = "🤖 I've inferred some details from your message:\n\n"
     inferred_items = []
     if flow_data.get("description"):
         inferred_items.append(f"• Description: {flow_data['description']}")
@@ -1409,14 +1605,16 @@ async def _start_interactive_event_flow(
     if flow_data.get("location_type"):
         inferred_items.append(f"• Location: {flow_data['location_type']}")
 
+    user_lang = get_user_language(update.effective_user)
     if inferred_items:
-        inferred_msg += "\n".join(inferred_items)
-        inferred_msg += "\n\nI'll guide you through the remaining details to set up the event."
+        inferred_msg = t(
+            "creation_inferred_details",
+            lang=user_lang,
+            details="\n".join(inferred_items),
+        )
         await update.message.reply_text(inferred_msg)
     else:
-        await update.message.reply_text(
-            "🤖 Let me help you organize an event!\n\n" "I'll guide you through the setup process."
-        )
+        await update.message.reply_text(t("creation_inferred_none", lang=user_lang))
 
 
 async def _handle_organize_event_direct(
@@ -1433,8 +1631,9 @@ async def _handle_organize_event_direct(
     If the draft has sufficient information (at minimum a description), creates the event directly.
     Otherwise, starts the interactive event creation flow with pre-filled data from the draft.
     """
+    user_lang = get_user_language(update.effective_user)
     if not settings.db_url:
-        await update.message.reply_text("ℹ️ Database configuration is unavailable.")
+        await update.message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
 
     # Check if we have minimum required information
@@ -1526,7 +1725,10 @@ async def _handle_organize_event_direct(
     date_preset_raw = draft.get("date_preset")
     if date_preset_raw is not None:
         date_preset = str(date_preset_raw).strip().lower()
-        if date_preset not in event_creation.DATE_PRESET_LABELS and date_preset != "custom":
+        if (
+            date_preset not in event_creation.DATE_PRESET_LABELS
+            and date_preset != "custom"
+        ):
             date_preset = None  # Let the system infer from scheduled_time
     else:
         date_preset = None
@@ -1541,12 +1743,18 @@ async def _handle_organize_event_direct(
         time_window = None
 
     notes = draft.get("planning_notes", [])
-    planning_notes = [str(x).strip()[:300] for x in notes if str(x).strip()] if isinstance(notes, list) else []
+    planning_notes = (
+        [str(x).strip()[:300] for x in notes if str(x).strip()]
+        if isinstance(notes, list)
+        else []
+    )
 
     creator_id = user.id if user else None
 
     async with get_session(settings.db_url) as session:
-        result = await session.execute(select(Group).where(Group.telegram_group_id == chat.id))
+        result = await session.execute(
+            select(Group).where(Group.telegram_group_id == chat.id)
+        )
         group = result.scalar_one_or_none()
 
         if not group:
@@ -1569,7 +1777,11 @@ async def _handle_organize_event_direct(
             commit_by = event_creation.compute_commit_by_time(scheduled_time)
 
         collapse_raw = draft.get("collapse_at")
-        collapse_iso = str(collapse_raw).strip() if collapse_raw is not None and str(collapse_raw).strip() else None
+        collapse_iso = (
+            str(collapse_raw).strip()
+            if collapse_raw is not None and str(collapse_raw).strip()
+            else None
+        )
         collapse_at_dt = _derive_collapse_at(scheduled_time, collapse_iso)
 
         conflict = await find_user_event_conflict(
@@ -1580,10 +1792,13 @@ async def _handle_organize_event_direct(
         )
         if conflict:
             await update.message.reply_text(
-                "ℹ️ Cannot create event: creator has a conflicting event.\n"
-                f"Conflicting Event ID: {conflict.event_id}\n"
-                f"Time: {conflict.scheduled_time}\n"
-                f"Duration: {conflict.duration_minutes or 120} minutes"
+                t(
+                    "error_conflict",
+                    lang=user_lang,
+                    event_id=conflict.event_id,
+                    time=conflict.scheduled_time,
+                    duration=conflict.duration_minutes or 120,
+                )
             )
             return
 
@@ -1628,7 +1843,9 @@ async def _handle_organize_event_direct(
         if isinstance(inferred_constraints, list):
             # Get the creator's internal user_id
             creator_user = (
-                await session.execute(select(User).where(User.telegram_user_id == creator_id))
+                await session.execute(
+                    select(User).where(User.telegram_user_id == creator_id)
+                )
             ).scalar_one_or_none()
             creator_internal_user_id = None
             if creator_user:
@@ -1680,14 +1897,20 @@ async def _handle_organize_event_direct(
                 constraints_saved += 1
             if constraints_saved:
                 await session.commit()
-                logger.info(f"Saved {constraints_saved} inferred constraints for event {event.event_id}")
+                logger.info(
+                    f"Saved {constraints_saved} inferred constraints for event {event.event_id}"
+                )
 
             # Bug 2 fix: Fetch organizer info in outer session (no nested session)
             organizer_user = (
-                await session.execute(select(User).where(User.telegram_user_id == creator_id))
+                await session.execute(
+                    select(User).where(User.telegram_user_id == creator_id)
+                )
             ).scalar_one_or_none()
             organizer_username = organizer_user.username if organizer_user else None
-            organizer_display_name = organizer_user.display_name if organizer_user else None
+            organizer_display_name = (
+                organizer_user.display_name if organizer_user else None
+            )
 
         group_members = group.member_list or []
 
@@ -1725,7 +1948,9 @@ async def _handle_organize_event_direct(
             for member_id in group_members:
                 if member_id is not None and member_id != creator_id:
                     recipient_telegram_ids.add(int(member_id))
-            logger.info(f"Public event {event.event_id}: Adding {len(group_members)} cached members to recipients")
+            logger.info(
+                f"Public event {event.event_id}: Adding {len(group_members)} cached members to recipients"
+            )
 
         # Source 2: Explicit invitees (always added, regardless of invite_all)
         explicit_tg_ids: set[int] = set()
@@ -1736,18 +1961,24 @@ async def _handle_organize_event_direct(
             try:
                 user_id = await get_user_id_by_username(session, username)
                 if user_id:
-                    result = await session.execute(select(User).where(User.user_id == int(user_id)))
+                    result = await session.execute(
+                        select(User).where(User.user_id == int(user_id))
+                    )
                     invitee_user = result.scalar_one_or_none()
                     if invitee_user and invitee_user.telegram_user_id:
                         telegram_id = int(invitee_user.telegram_user_id)
-                        if telegram_id != creator_id:  # Bug 3: consistently exclude creator
+                        if (
+                            telegram_id != creator_id
+                        ):  # Bug 3: consistently exclude creator
                             explicit_tg_ids.add(telegram_id)
                             recipient_telegram_ids.add(telegram_id)
             except Exception as e:
                 logger.warning(f"Could not resolve @{username}: {e}")
 
         if explicit_tg_ids:
-            logger.info(f"Event {event.event_id}: Adding {len(explicit_tg_ids)} explicit invitees to recipients")
+            logger.info(
+                f"Event {event.event_id}: Adding {len(explicit_tg_ids)} explicit invitees to recipients"
+            )
 
         # Fallback: If group is empty and no invitees, warn
         if not group_members and not explicit_tg_ids:
@@ -1765,7 +1996,9 @@ async def _handle_organize_event_direct(
         # Send invitations with rate limiting (Bug 6: prevent Telegram API rate limit hits)
         dm_count = 0
         dm_failed = 0
-        RATE_LIMIT_DELAY = 0.1  # 100ms between sends (~10 msg/sec, well under 30/sec limit)
+        RATE_LIMIT_DELAY = (
+            0.1  # 100ms between sends (~10 msg/sec, well under 30/sec limit)
+        )
 
         for telegram_user_id in recipient_telegram_ids:
             try:
@@ -1776,7 +2009,9 @@ async def _handle_organize_event_direct(
                     int(event.event_id),
                     group_id=group.telegram_group_id if group else None,
                 )
-                logger.info(f"DM sent to user {telegram_user_id} for event {event.event_id}")
+                logger.info(
+                    f"DM sent to user {telegram_user_id} for event {event.event_id}"
+                )
                 dm_count += 1
             except Exception as e:
                 logger.error(
@@ -1786,12 +2021,16 @@ async def _handle_organize_event_direct(
                 dm_failed += 1
             await asyncio.sleep(RATE_LIMIT_DELAY)
 
-        logger.info(f"Event {event.event_id} DM distribution complete: {dm_count} sent, {dm_failed} failed")
+        logger.info(
+            f"Event {event.event_id} DM distribution complete: {dm_count} sent, {dm_failed} failed"
+        )
 
         # Prepare display texts for admin summary using human-readable formatters
         scheduled_time_display = format_scheduled_time(scheduled_time_raw)
         commit_by_text = format_commit_by(commit_by)
-        invitees_summary = "all group members" if invite_all else f"{len(invitees_filtered)} users"
+        invitees_summary = (
+            "all group members" if invite_all else f"{len(invitees_filtered)} users"
+        )
         location_text = format_location_type(location_type)
         budget_text = format_budget_level(budget_level)
         transport_text = format_transport_mode(transport_mode)
@@ -1803,7 +2042,9 @@ async def _handle_organize_event_direct(
 
         if creator_id:
             # Send full details to admin via DM (Bug 3: always send admin DM separately)
-            scheduled_time_display_escaped = _escape_for_markdown(scheduled_time_display)
+            scheduled_time_display_escaped = _escape_for_markdown(
+                scheduled_time_display
+            )
             commit_by_text_escaped = _escape_for_markdown(commit_by_text)
             date_preset_text_escaped = _escape_for_markdown(date_preset_text)
             time_window_text_escaped = _escape_for_markdown(time_window_text)
@@ -1862,17 +2103,21 @@ async def _handle_organize_event_direct(
                 reply_markup=admin_reply_markup,
                 parse_mode="Markdown",
             )
-            logger.info(f"Full event details sent to admin {creator_id} via DM for event {event.event_id}")
+            logger.info(
+                f"Full event details sent to admin {creator_id} via DM for event {event.event_id}"
+            )
 
         # Minimal announcement for the group - NO interactive menu
         # All interactions (join, details, etc.) happen via DM only
         proposer = f"@{user.username}" if user and user.username else "the group"
         escaped_desc_group = _escape_for_markdown(description)
 
-        group_announcement = (
-            f"🌱 *New event proposed by {proposer}*\n\n"
-            f"Event #{event.event_id}: *{escaped_desc_group}*\n\n"
-            f"Check your DM with the bot for full details and to join."
+        group_announcement = t(
+            "group_announcement",
+            lang=user_lang,
+            proposer=proposer,
+            event_id=event.event_id,
+            description=escaped_desc_group,
         )
 
         await update.message.reply_text(

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from telegram import Bot, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes
 
+from bot.common.i18n import t
 from db.models import Event, EventLiveCard, GroupSettings
 from bot.services.event_enrichment_service import EventEnrichmentService
 
@@ -165,10 +166,15 @@ class LiveCardService:
 
         # Build new text if not provided
         if text is None:
-            event_result = await self.session.execute(select(Event).where(Event.event_id == event_id))
+            event_result = await self.session.execute(
+                select(Event).where(Event.event_id == event_id)
+            )
             event = event_result.scalar_one_or_none()
             if event:
-                hashtags = hashtags or await self.enrichment_service.get_public_hashtags(event_id)
+                hashtags = (
+                    hashtags
+                    or await self.enrichment_service.get_public_hashtags(event_id)
+                )
                 text = self._build_card_text(
                     event,
                     card.participant_count,
@@ -218,7 +224,9 @@ class LiveCardService:
             pass
 
         # Remove from database
-        await self.session.execute(select(EventLiveCard).where(EventLiveCard.event_id == event_id))
+        await self.session.execute(
+            select(EventLiveCard).where(EventLiveCard.event_id == event_id)
+        )
         await self.session.flush()
         return True
 
@@ -368,7 +376,9 @@ class LiveCardService:
 
     async def _get_existing_card(self, event_id: int) -> Optional[EventLiveCard]:
         """Get existing card record for an event."""
-        result = await self.session.execute(select(EventLiveCard).where(EventLiveCard.event_id == event_id))
+        result = await self.session.execute(
+            select(EventLiveCard).where(EventLiveCard.event_id == event_id)
+        )
         return result.scalar_one_or_none()
 
     async def _is_live_cards_enabled(self, chat_id: int) -> bool:
@@ -381,7 +391,9 @@ class LiveCardService:
         # Find group_id from chat_id
         from db.models import Group
 
-        group_result = await self.session.execute(select(Group).where(Group.telegram_group_id == abs(chat_id)))
+        group_result = await self.session.execute(
+            select(Group).where(Group.telegram_group_id == abs(chat_id))
+        )
         group = group_result.scalar_one_or_none()
 
         if not group:
@@ -417,7 +429,11 @@ class LiveCardService:
 
         # Description (truncated)
         if event.description:
-            desc = event.description[:100] + "..." if len(event.description) > 100 else event.description
+            desc = (
+                event.description[:100] + "..."
+                if len(event.description) > 100
+                else event.description
+            )
             lines.append(f"\n{desc}")
 
         # Time
@@ -433,7 +449,9 @@ class LiveCardService:
         lines.append(f"\n{state_emoji} Status: *{event.state.upper()}*")
 
         # Gravity signals - participant counts
-        lines.append(f"\n👥 {participant_count} interested | ✅ {confirmed_count} confirmed")
+        lines.append(
+            f"\n👥 {participant_count} interested | ✅ {confirmed_count} confirmed"
+        )
 
         # Hashtags
         if hashtags:
@@ -482,7 +500,14 @@ class LiveCardService:
         keyboard = [buttons[i : i + 5] for i in range(0, len(buttons), 5)]
 
         # Add view event button
-        keyboard.append([InlineKeyboardButton("📋 View Event", callback_data=f"ev:{event_id}:view")])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    t("live_card_view_event", lang="en"),
+                    callback_data=f"ev:{event_id}:view",
+                )
+            ]
+        )
 
         return InlineKeyboardMarkup(keyboard)
 
@@ -524,10 +549,10 @@ async def handle_reaction_callback(
         event_id = int(parts[1])
         emoji = parts[3]
     except (ValueError, IndexError):
-        await query.answer("Invalid reaction", show_alert=True)
+        await query.answer(t("live_card_invalid_reaction", lang="en"), show_alert=True)
         return
 
-    await query.answer(f"Reacted with {emoji}!")
+    await query.answer(t("live_card_reacted", lang="en", emoji=emoji))
 
     # Record the reaction
     service = LiveCardService(session, context.bot)

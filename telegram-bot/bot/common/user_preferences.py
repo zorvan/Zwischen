@@ -18,11 +18,31 @@ DEFAULT_LOCATION_PREFERENCES = ["any", "home", "outdoor", "cafe", "office", "gym
 DEFAULT_TRANSPORT_PREFERENCES = ["any", "walk", "public_transit", "drive"]
 
 PRIVACY_DEFAULTS = {
-    "time": {"private": False, "share_with_organizer": True, "share_with_attendees": False},
-    "activity": {"private": False, "share_with_organizer": True, "share_with_attendees": False},
-    "budget": {"private": True, "share_with_organizer": True, "share_with_attendees": False},
-    "location_type": {"private": False, "share_with_organizer": True, "share_with_attendees": False},
-    "transport": {"private": True, "share_with_organizer": True, "share_with_attendees": False},
+    "time": {
+        "private": False,
+        "share_with_organizer": True,
+        "share_with_attendees": False,
+    },
+    "activity": {
+        "private": False,
+        "share_with_organizer": True,
+        "share_with_attendees": False,
+    },
+    "budget": {
+        "private": True,
+        "share_with_organizer": True,
+        "share_with_attendees": False,
+    },
+    "location_type": {
+        "private": False,
+        "share_with_organizer": True,
+        "share_with_attendees": False,
+    },
+    "transport": {
+        "private": True,
+        "share_with_organizer": True,
+        "share_with_attendees": False,
+    },
 }
 
 
@@ -40,12 +60,18 @@ def get_preference_defaults(preference_type: str) -> List[str]:
 
 def get_privacy_defaults(preference_type: str) -> Dict[str, Any]:
     """Get default privacy settings for a preference type."""
-    return PRIVACY_DEFAULTS.get(preference_type, PRIVACY_DEFAULTS.get("time", {})).copy()
+    return PRIVACY_DEFAULTS.get(
+        preference_type, PRIVACY_DEFAULTS.get("time", {})
+    ).copy()
 
 
-async def get_user_preferences(session: AsyncSession, telegram_user_id: int) -> Optional[UserPreference]:
+async def get_user_preferences(
+    session: AsyncSession, telegram_user_id: int
+) -> Optional[UserPreference]:
     """Get user preferences or None if not set."""
-    result = await session.execute(select(UserPreference).where(UserPreference.user_id == telegram_user_id))
+    result = await session.execute(
+        select(UserPreference).where(UserPreference.user_id == telegram_user_id)
+    )
     return result.scalar_one_or_none()
 
 
@@ -119,7 +145,9 @@ def get_preference_value(
     if is_organizer or not is_private:
         return getattr(preferences, f"{preference_type}_preference", None)
 
-    privacy_settings = privacy.get(preference_type, get_privacy_defaults(preference_type))
+    privacy_settings = privacy.get(
+        preference_type, get_privacy_defaults(preference_type)
+    )
     if privacy_settings.get("private", False):
         return None
 
@@ -146,7 +174,9 @@ PREFERENCE_DECAY_DAYS = 90
 PREFERENCE_REFRESH_THRESHOLD_DAYS = 60
 
 
-def should_refresh_preference(preferences: UserPreference, preference_type: str) -> bool:
+def should_refresh_preference(
+    preferences: UserPreference, preference_type: str
+) -> bool:
     """Check if a preference should be refreshed based on age."""
     last_updated = preferences.last_updated or preferences.created_at
     if not last_updated:
@@ -222,7 +252,9 @@ def format_aggregate_preference(
     )
 
 
-async def refresh_expired_preferences(session: AsyncSession, telegram_user_id: int) -> Dict[str, str]:
+async def refresh_expired_preferences(
+    session: AsyncSession, telegram_user_id: int
+) -> Dict[str, str]:
     """Refresh preferences that have expired due to decay.
 
     Returns dict of preference_type -> old_value for changed preferences.
@@ -253,7 +285,9 @@ async def get_users_preferences(
     user_ids: List[int],
 ) -> Dict[int, UserPreference]:
     """Get preferences for multiple users."""
-    result = await session.execute(select(UserPreference).where(UserPreference.user_id.in_(user_ids)))
+    result = await session.execute(
+        select(UserPreference).where(UserPreference.user_id.in_(user_ids))
+    )
     prefs = result.scalars().all()
     return {p.user_id: p for p in prefs}
 
@@ -277,7 +311,9 @@ async def get_group_aggregate_preferences(
 
     from db.users import get_user_ids_for_telegram_ids
 
-    telegram_ids = [int(participant.telegram_user_id) for participant in (event.participants or [])]
+    telegram_ids = [
+        int(participant.telegram_user_id) for participant in (event.participants or [])
+    ]
 
     if not telegram_ids:
         return {}
@@ -296,16 +332,22 @@ async def get_group_aggregate_preferences(
     result_dict: Dict[str, str] = {}
 
     for pref_type in ["time", "activity", "budget", "location_type", "transport"]:
-        counts, total_non_private = get_aggregate_preference_counts(preferences_list, f"{pref_type}_preference")
+        counts, total_non_private = get_aggregate_preference_counts(
+            preferences_list, f"{pref_type}_preference"
+        )
 
         if not is_organizer and total_non_private == 0:
             result_dict[pref_type] = "No preferences shared"
         elif not is_organizer:
-            formatted = format_aggregate_preference(pref_type, counts, total_non_private)
+            formatted = format_aggregate_preference(
+                pref_type, counts, total_non_private
+            )
             result_dict[pref_type] = formatted
         else:
             if total_non_private > 0:
-                result_dict[pref_type] = format_aggregate_preference(pref_type, counts, total_non_private)
+                result_dict[pref_type] = format_aggregate_preference(
+                    pref_type, counts, total_non_private
+                )
             else:
                 result_dict[pref_type] = "All preferences are private"
 

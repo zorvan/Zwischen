@@ -432,52 +432,52 @@ When `menus.py` sets `stage: "time"` and `event_creation.py`'s callback handler 
 ```python
 class StateStore:
     """Centralized in-memory state management with TTL and locks."""
-    
+
     _stores: dict[str, GroupState] = {}  # group_id -> GroupState
     _locks: dict[int, asyncio.Lock] = {}  # event_id -> Lock
-    
+
     async def get_or_create_group_state(self, group_id: int) -> GroupState:
         ...
-    
+
     async def acquire_event_lock(self, event_id: int) -> asyncio.Lock:
         ...
-    
+
     async def cleanup_expired_states(self):
         ...
 
 class GroupState:
     """State for a single Telegram group."""
-    
+
     event_flows: dict[int, EventFlowState]  # event_id -> flow state
     user_views: dict[int, CurrentView]  # user_id -> current view
     enrichment_sessions: dict[int, EnrichmentSession]  # user_id -> session
-    
+
     async def cleanup_expired(self):
         ...
 
 class EventFlowState:
     """State for an in-progress event creation flow."""
-    
+
     stage: Literal["description", "type", "date_preset", ...]
     data: EventFlowData
     group_id: int
     created_at: datetime
     last_accessed: datetime
     ttl: timedelta = timedelta(minutes=30)
-    
+
     def is_expired(self) -> bool:
         return datetime.now() - self.last_accessed > self.ttl
 
 class CurrentView:
     """Tracks which message a user is viewing."""
-    
+
     event_id: int
     message_id: int
     chat_id: int
 
 class EnrichmentSession:
     """Isolated enrichment session for a user."""
-    
+
     session_id: str  # UUID
     event_id: int
     action: str

@@ -28,7 +28,6 @@ from bot.commands import (
     request_confirmations,
     modify_event,
     suggest_time,
-    event_details,
     events,
     check_deadlines,
     memory,
@@ -37,8 +36,15 @@ from bot.commands import (
     about,
     preferences,
 )
-from bot.handlers import event_panel, membership, mentions, menus, waitlist as waitlist_handlers
+from bot.handlers import (
+    event_panel,
+    membership,
+    mentions,
+    menus,
+    waitlist as waitlist_handlers,
+)
 from ai.llm import LLMClient
+from bot.common.i18n import init as init_i18n
 from db.connection import check_db_connection, create_engine, init_db
 
 
@@ -71,13 +77,19 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     if context.error:
         error_str = str(context.error).lower()
         if "timeout" in error_str:
-            logger.warning("[GLOBAL_ERROR] Timeout error detected - may indicate slow response or network issues")
+            logger.warning(
+                "[GLOBAL_ERROR] Timeout error detected - may indicate slow response or network issues"
+            )
         elif "rate limit" in error_str or "too many requests" in error_str:
             logger.warning("[GLOBAL_ERROR] Rate limit error - Telegram API throttling")
         elif "chat not found" in error_str or "user not found" in error_str:
-            logger.warning("[GLOBAL_ERROR] Chat/user not found - user may have blocked the bot or deleted account")
+            logger.warning(
+                "[GLOBAL_ERROR] Chat/user not found - user may have blocked the bot or deleted account"
+            )
         elif "message is not modified" in error_str:
-            logger.info("[GLOBAL_ERROR] Message not modified - harmless, duplicate edit")
+            logger.info(
+                "[GLOBAL_ERROR] Message not modified - harmless, duplicate edit"
+            )
         elif "message to edit not found" in error_str:
             logger.warning("[GLOBAL_ERROR] Message not found - may have been deleted")
 
@@ -125,17 +137,25 @@ def main():
     """Main entry point."""
     settings = Settings()
     logger = setup_logging(settings)
+    init_i18n()
 
     if not settings.telegram_token:
         raise ValueError("TELEGRAM_TOKEN is not set. Define it in environment or .env.")
-    if settings.telegram_token in {"test-token", "dummy-token", "changeme", "your-token-here", "<set-me>"}:
+    if settings.telegram_token in {
+        "test-token",
+        "dummy-token",
+        "changeme",
+        "your-token-here",
+        "<set-me>",
+    }:
         raise ValueError(
             "TELEGRAM_TOKEN is still a placeholder value. "
             "Set a real BotFather token in .env before starting the bot."
         )
     if ":" not in settings.telegram_token:
         raise ValueError(
-            "TELEGRAM_TOKEN does not look like a valid Telegram bot token. " "Expected '<bot_id>:<secret>'."
+            "TELEGRAM_TOKEN does not look like a valid Telegram bot token. "
+            "Expected '<bot_id>:<secret>'."
         )
     if settings.environment == "production" and not settings.webhook_url:
         raise ValueError("WEBHOOK_URL must be set when ENVIRONMENT=production.")
@@ -149,7 +169,9 @@ def main():
     loop.run_until_complete(check_llm_availability(logger))
     if settings.db_url:
         if not settings.db_url.startswith("postgresql+asyncpg://"):
-            db_url = settings.db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+            db_url = settings.db_url.replace(
+                "postgresql://", "postgresql+asyncpg://", 1
+            )
         else:
             db_url = settings.db_url
         loop.run_until_complete(check_db_availability(logger, db_url))
@@ -163,7 +185,12 @@ def main():
     # v3.5: Add persistence so user_data persists between updates (creation flow)
     persistence = PicklePersistence(filepath="bot_data.pkl")
 
-    application = ApplicationBuilder().token(settings.telegram_token).persistence(persistence).build()
+    application = (
+        ApplicationBuilder()
+        .token(settings.telegram_token)
+        .persistence(persistence)
+        .build()
+    )
 
     # Store settings in bot_data for access by handlers and jobs
     application.bot_data["settings"] = settings
@@ -248,15 +275,23 @@ def main():
         (r"^event_date_", event_creation.handle_callback),
         (r"^event_time_", event_creation.handle_callback),
         (r"^event_invitees_", event_creation.handle_callback),
+        (r"^event_invite_all$", event_creation.handle_callback),
+        (r"^event_invite_custom$", event_creation.handle_callback),
         (r"^event_threshold_", event_creation.handle_callback),
         (r"^event_transport_", event_creation.handle_callback),
         (r"^event_budget_", event_creation.handle_callback),
         (r"^event_location_", event_creation.handle_callback),
         (r"^event_calendar_", event_creation.handle_callback),
+        (r"^event_cal_", event_creation.handle_callback),
         (r"^event_time_option_", event_creation.handle_callback),
-        (r"^event_time_manual_", event_creation.handle_callback),
-        (r"^event_min_participants_", event_creation.handle_callback),
-        (r"^event_target_participants_", event_creation.handle_callback),
+        (r"^event_time_manual$", event_creation.handle_callback),
+        (r"^event_min_", event_creation.handle_callback),
+        (r"^event_target_", event_creation.handle_callback),
+        (r"^event_final_", event_creation.handle_callback),
+        (r"^event_cancel_no$", event_creation.handle_callback),
+        (r"^event_back_to_type$", event_creation.handle_callback),
+        (r"^event_back_to_time_window$", event_creation.handle_callback),
+        (r"^event_back_to_transport$", event_creation.handle_callback),
         # Private event creation flow callbacks
         (r"^private_event_type_", event_creation.private_handle_callback),
         (r"^private_event_duration_", event_creation.private_handle_callback),
@@ -269,14 +304,25 @@ def main():
         (r"^private_event_budget_", event_creation.private_handle_callback),
         (r"^private_event_location_", event_creation.private_handle_callback),
         (r"^private_event_calendar_", event_creation.private_handle_callback),
+        (r"^private_event_cal_", event_creation.private_handle_callback),
+        (r"^private_event_invite_all$", event_creation.private_handle_callback),
+        (r"^private_event_invite_custom$", event_creation.private_handle_callback),
         (r"^private_event_time_option_", event_creation.private_handle_callback),
-        (r"^private_event_time_manual_", event_creation.private_handle_callback),
-        (r"^private_event_min_participants_", event_creation.private_handle_callback),
-        (r"^private_event_target_participants_", event_creation.private_handle_callback),
+        (r"^private_event_time_manual$", event_creation.private_handle_callback),
+        (r"^private_event_min_", event_creation.private_handle_callback),
+        (r"^private_event_target_", event_creation.private_handle_callback),
+        (r"^private_event_final_", event_creation.private_handle_callback),
+        (r"^private_event_cancel_no$", event_creation.private_handle_callback),
+        (r"^private_event_back_to_type$", event_creation.private_handle_callback),
+        (r"^private_event_back_to_time_window$", event_creation.private_handle_callback),
+        (r"^private_event_back_to_transport$", event_creation.private_handle_callback),
         # v3.5: Event panel callbacks (ev:{id}:action format)
         (r"^ev:", event_panel.route_event_callback),
         (r"^mnpick_", mentions.handle_disambiguation_callbacks),
-        (r"^mention_(start_organize|show_status|ask_help)$", mentions.handle_disambiguation_callbacks),
+        (
+            r"^mention_(start_organize|show_status|ask_help)$",
+            mentions.handle_disambiguation_callbacks,
+        ),
         # Modify input handlers
         (r"^modinput_", mentions.handle_callback),
         # Other handlers
@@ -295,7 +341,9 @@ def main():
 
     # v3.5: Register creation flow message handler (runs first, checks for creation_step)
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, menus.handle_creation_message, block=False),
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND, menus.handle_creation_message, block=False
+        ),
         group=-9,  # Runs BEFORE other handlers to catch enrichment prompts
     )
 
@@ -305,7 +353,9 @@ def main():
         group=0,
     )
     application.add_handler(
-        MessageHandler(filters.TEXT & ~filters.COMMAND, private_organize_event.handle_message),
+        MessageHandler(
+            filters.TEXT & ~filters.COMMAND, private_organize_event.handle_message
+        ),
         group=1,
     )
 
@@ -338,7 +388,11 @@ def main():
     logger.info("Bot started. Press Ctrl+C to stop.")
 
     # Check if webhook mode is enabled
-    if settings.environment == "production" and hasattr(settings, "webhook_url") and settings.webhook_url:
+    if (
+        settings.environment == "production"
+        and hasattr(settings, "webhook_url")
+        and settings.webhook_url
+    ):
         # Production: Use webhook with worker queue
         logger.info("Starting in webhook mode: %s", settings.webhook_url)
         from bot.common.webhook import setup_webhook, shutdown_webhook

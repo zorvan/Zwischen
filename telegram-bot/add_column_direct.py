@@ -2,7 +2,13 @@
 """Directly add column using psycopg2."""
 import psycopg2
 
-conn = psycopg2.connect(dbname="coord_db", user="coord_user", password="coord_pass", host="localhost", port=5432)
+conn = psycopg2.connect(
+    dbname="coord_db",
+    user="coord_user",
+    password="coord_pass",
+    host="localhost",
+    port=5432,
+)
 cursor = conn.cursor()
 
 # Check if column exists

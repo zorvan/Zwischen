@@ -19,6 +19,7 @@ from bot.common.event_formatters import (
     format_scheduled_time,
     format_duration,
 )
+from bot.common.i18n import t
 from config.settings import settings
 
 
@@ -35,10 +36,14 @@ logger = logging.getLogger("coord_bot.event_notifications")
 
 
 def build_event_invitation_keyboard(
-    bot_username: str | None, event_id: int, group_id: int | None = None
+    bot_username: str | None,
+    event_id: int,
+    group_id: int | None = None,
+    lang: str | None = None,
 ) -> InlineKeyboardMarkup:
     """Build inline keyboard for event invitation DM."""
     rows: list[list[InlineKeyboardButton]] = []
+    tlang = lang or "en"
 
     if group_id is not None:
         join_callback = f"ev:{event_id}:{group_id}:join"
@@ -49,20 +54,30 @@ def build_event_invitation_keyboard(
 
     rows.append(
         [
-            InlineKeyboardButton("✅ Join", callback_data=join_callback),
-            InlineKeyboardButton("❌ Decline", callback_data=cancel_callback),
+            InlineKeyboardButton(
+                t("event_invitation_join", lang=tlang), callback_data=join_callback
+            ),
+            InlineKeyboardButton(
+                t("event_invitation_decline", lang=tlang), callback_data=cancel_callback
+            ),
         ]
     )
 
     rows.append(
         [
-            InlineKeyboardButton("📅 Set Availability", url=build_start_link(bot_username, f"avail_{event_id}")),
+            InlineKeyboardButton(
+                t("event_invitation_set_availability", lang=tlang),
+                url=build_start_link(bot_username, f"avail_{event_id}"),
+            ),
         ]
     )
 
     rows.append(
         [
-            InlineKeyboardButton("❓ Need Help", url=build_start_link(bot_username, f"help_{event_id}")),
+            InlineKeyboardButton(
+                t("event_invitation_need_help", lang=tlang),
+                url=build_start_link(bot_username, f"help_{event_id}"),
+            ),
         ]
     )
 
@@ -70,23 +85,39 @@ def build_event_invitation_keyboard(
 
 
 def build_event_modification_keyboard(
-    bot_username: str | None, event_id: int, request_id: str | None = None
+    bot_username: str | None,
+    event_id: int,
+    request_id: str | None = None,
+    lang: str | None = None,
 ) -> InlineKeyboardMarkup:
     """Build inline keyboard for event modification in DM."""
     rows: list[list[InlineKeyboardButton]] = []
+    tlang = lang or "en"
 
     rows.append(
         [
-            InlineKeyboardButton("📅 Modify Availability", url=build_start_link(bot_username, f"avail_{event_id}")),
-            InlineKeyboardButton("📝 Contact Organizer", url=build_start_link(bot_username, f"contact_{event_id}")),
+            InlineKeyboardButton(
+                t("modification_modify_availability", lang=tlang),
+                url=build_start_link(bot_username, f"avail_{event_id}"),
+            ),
+            InlineKeyboardButton(
+                t("modification_contact_organizer", lang=tlang),
+                url=build_start_link(bot_username, f"contact_{event_id}"),
+            ),
         ]
     )
 
     if request_id:
         rows.append(
             [
-                InlineKeyboardButton("✅ Approve", callback_data=f"modreq_{request_id}_approve"),
-                InlineKeyboardButton("↩️ Not Now", callback_data=f"modreq_{request_id}_reject"),
+                InlineKeyboardButton(
+                    t("modification_approve", lang=tlang),
+                    callback_data=f"modreq_{request_id}_approve",
+                ),
+                InlineKeyboardButton(
+                    t("modification_not_now", lang=tlang),
+                    callback_data=f"modreq_{request_id}_reject",
+                ),
             ]
         )
 
@@ -99,6 +130,7 @@ async def send_event_invitation_dm(
     event_data: dict[str, Any],
     event_id: int,
     group_id: int | None = None,
+    lang: str | None = None,
 ) -> bool:
     """Send event invitation to user via private DM.
 
@@ -107,6 +139,7 @@ async def send_event_invitation_dm(
         telegram_user_id: User's Telegram ID
         event_data: Event details
         event_id: Event ID
+        lang: Language code (auto-detected if None)
 
     Returns:
         True if DM sent successfully, False otherwise
@@ -127,9 +160,12 @@ async def send_event_invitation_dm(
         return False
 
     bot_username = context.bot.username
+    tlang = lang or "en"
 
     # Use human-readable formatters
-    scheduled_time = format_scheduled_time(event_data.get("scheduled_time"), include_flexible_note=True)
+    scheduled_time = format_scheduled_time(
+        event_data.get("scheduled_time"), include_flexible_note=True
+    )
 
     invitees = event_data.get("invitees", [])
     invite_all = bool(event_data.get("invite_all_members"))
@@ -168,7 +204,11 @@ async def send_event_invitation_dm(
 
             async with get_session(settings.db_url) as session:
                 org_user = (
-                    await session.execute(select(User).where(User.telegram_user_id == int(organizer_user_id)))
+                    await session.execute(
+                        select(User).where(
+                            User.telegram_user_id == int(organizer_user_id)
+                        )
+                    )
                 ).scalar_one_or_none()
                 if org_user:
                     organizer_username = getattr(org_user, "username", None)
@@ -186,13 +226,25 @@ async def send_event_invitation_dm(
     try:
         # Escape formatted text for Markdown safety
         scheduled_time_escaped = (
-            str(scheduled_time).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
+            str(scheduled_time)
+            .replace("_", "\\_")
+            .replace("*", "\\*")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
         )
         date_preset_escaped = (
-            str(date_preset_text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
+            str(date_preset_text)
+            .replace("_", "\\_")
+            .replace("*", "\\*")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
         )
         time_window_escaped = (
-            str(time_window_text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
+            str(time_window_text)
+            .replace("_", "\\_")
+            .replace("*", "\\*")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
         )
         duration_escaped = (
             str(format_duration(event_data.get("duration_minutes")))
@@ -202,13 +254,25 @@ async def send_event_invitation_dm(
             .replace("]", "\\]")
         )
         location_escaped = (
-            str(location_text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
+            str(location_text)
+            .replace("_", "\\_")
+            .replace("*", "\\*")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
         )
         budget_escaped = (
-            str(budget_text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
+            str(budget_text)
+            .replace("_", "\\_")
+            .replace("*", "\\*")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
         )
         transport_escaped = (
-            str(transport_text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
+            str(transport_text)
+            .replace("_", "\\_")
+            .replace("*", "\\*")
+            .replace("[", "\\[")
+            .replace("]", "\\]")
         )
 
         logger.info(
@@ -220,24 +284,27 @@ async def send_event_invitation_dm(
 
         await context.bot.send_message(
             chat_id=telegram_user_id,
-            text=(
-                f"✨ *Event Invitation*\n\n"
-                f"Event ID: {event_id}\n"
-                f"Organized by: {organizer_text}\n"
-                f"Type: {event_data.get('event_type', 'Not specified')}\n"
-                f"Description: {escaped_description}\n"
-                f"Time: {scheduled_time_escaped}\n"
-                f"Date Preset: {date_preset_escaped}\n"
-                f"Time Window: {time_window_escaped}\n"
-                f"Duration: {duration_escaped}\n"
-                f"Location Type: {location_escaped}\n"
-                f"Budget: {budget_escaped}\n"
-                f"Transport: {transport_escaped}\n"
-                f"Minimum: {event_data.get('min_participants', 'Not set')}\n"
-                f"Capacity: {event_data.get('target_participants', 'Not set')}\n"
-                f"Invitees: {invitees_summary}"
+            text=t(
+                "event_invitation_title",
+                lang=tlang,
+                event_id=event_id,
+                organizer=organizer_text,
+                type=event_data.get("event_type", "Not specified"),
+                description=escaped_description,
+                time=scheduled_time_escaped,
+                date_preset=date_preset_escaped,
+                time_window=time_window_escaped,
+                duration=duration_escaped,
+                location_type=location_escaped,
+                budget=budget_escaped,
+                transport=transport_escaped,
+                min=event_data.get("min_participants", "Not set"),
+                capacity=event_data.get("target_participants", "Not set"),
+                invitees=invitees_summary,
             ),
-            reply_markup=build_event_invitation_keyboard(bot_username, event_id, group_id),
+            reply_markup=build_event_invitation_keyboard(
+                bot_username, event_id, group_id, lang=tlang
+            ),
             parse_mode="Markdown",
         )
         logger.info(
@@ -264,6 +331,7 @@ async def send_join_notification_dm(
     event: Any,
     joiner_name: str,
     group_id: int | None = None,
+    lang: str | None = None,
 ) -> bool:
     """Send join notification to user via private DM.
 
@@ -296,7 +364,9 @@ async def send_join_notification_dm(
         return False
 
     scheduled_time = (
-        format_scheduled_time(event.scheduled_time, include_flexible_note=True) if event.scheduled_time else "Time TBD"
+        format_scheduled_time(event.scheduled_time, include_flexible_note=True)
+        if event.scheduled_time
+        else "Time TBD"
     )
 
     event_type_emoji = {
@@ -304,6 +374,8 @@ async def send_join_notification_dm(
         "social": "🍕",
         "work": "💻",
     }.get(event.event_type, "🎯")
+
+    tlang = lang or "en"
 
     try:
         if group_id is not None:
@@ -320,16 +392,23 @@ async def send_join_notification_dm(
 
         await context.bot.send_message(
             chat_id=telegram_user_id,
-            text=(
-                f"{event_type_emoji} *{event.event_type.capitalize()} Update*\n\n"
-                f"{joiner_name} just joined!\n\n"
-                f"{event.description or 'No description'}\n\n"
-                f"📅 {scheduled_time}\n"
-                f"👥 Tap to join:"
+            text=t(
+                "join_notification_title",
+                lang=tlang,
+                emoji=event_type_emoji,
+                type=event.event_type.capitalize(),
+                joiner_name=joiner_name,
+                description=event.description or "No description",
+                time=scheduled_time,
             ),
             reply_markup=InlineKeyboardMarkup(
                 [
-                    [InlineKeyboardButton("✅ Join", callback_data=join_callback)],
+                    [
+                        InlineKeyboardButton(
+                            t("join_notification_join", lang=tlang),
+                            callback_data=join_callback,
+                        )
+                    ],
                 ]
             ),
             parse_mode="Markdown",
@@ -359,6 +438,7 @@ async def send_event_modification_request_dm(
     event_id: int,
     deadline_info: str,
     request_id: str | None = None,
+    lang: str | None = None,
 ) -> bool:
     """Send event modification request to user via private DM.
 
@@ -376,6 +456,7 @@ async def send_event_modification_request_dm(
         return False
 
     bot_username = context.bot.username
+    tlang = lang or "en"
 
     scheduled_time = (
         str(event_data.get("scheduled_time", "TBD")).replace("T", " ")
@@ -384,7 +465,11 @@ async def send_event_modification_request_dm(
     )
 
     location_type_val = event_data.get("location_type")
-    location_text = location_type_val.replace("_", " ").title() if location_type_val else "As discussed"
+    location_text = (
+        location_type_val.replace("_", " ").title()
+        if location_type_val
+        else "As discussed"
+    )
 
     change_text = event_data.get("change_text", "")
     requester = event_data.get("requester", "Unknown")
@@ -401,22 +486,29 @@ async def send_event_modification_request_dm(
     try:
         await context.bot.send_message(
             chat_id=telegram_user_id,
-            text=(
-                f"🔧 *Event Modification Request*\n\n"
-                f"Event ID: `{event_id}`\n"
-                f"Requested by: {requester}\n"
-                f"Description: {event_data.get('description', 'N/A')}\n"
-                f"Time: {scheduled_time}\n"
-                f"Location: {location_text}\n\n"
-                f"*Requested changes:*\n{escaped_change}\n\n"
-                f"⏰ {deadline_info}\n\n"
-                "Please review and approve or reject the requested changes."
+            text=t(
+                "modification_request_title",
+                lang=tlang,
+                event_id=event_id,
+                requester=requester,
+                description=event_data.get("description", "N/A"),
+                time=scheduled_time,
+                location=location_text,
+                changes=escaped_change,
+                deadline_info=deadline_info,
             ),
-            reply_markup=build_event_modification_keyboard(bot_username, event_id, request_id),
+            reply_markup=build_event_modification_keyboard(
+                bot_username, event_id, request_id, lang=tlang
+            ),
             parse_mode="Markdown",
         )
-        logger.info(f"Event modification request DM sent to user {telegram_user_id} for event {event_id}")
+        logger.info(
+            f"Event modification request DM sent to user {telegram_user_id} for event {event_id}"
+        )
         return True
     except Exception as e:
-        logger.error(f"Failed to send event modification request DM to user {telegram_user_id}: {e}", exc_info=True)
+        logger.error(
+            f"Failed to send event modification request DM to user {telegram_user_id}: {e}",
+            exc_info=True,
+        )
         return False

@@ -30,9 +30,7 @@ async def run_migration():
         if current_nullable == "YES":
             print("group_id is already nullable. Nothing to do.")
         else:
-            await conn.execute(
-                "ALTER TABLE events ALTER COLUMN group_id DROP NOT NULL"
-            )
+            await conn.execute("ALTER TABLE events ALTER COLUMN group_id DROP NOT NULL")
             print("Done: events.group_id is now nullable")
     finally:
         await conn.close()

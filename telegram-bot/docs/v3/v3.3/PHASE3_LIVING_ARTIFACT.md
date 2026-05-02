@@ -24,15 +24,15 @@ from typing import Optional
 
 class EventMemoryService:
     # ... existing code ...
-    
+
     async def select_lineage_fragment(self, event: Event) -> Optional[str]:
         """
         Select one fragment to serve as lineage door for next event.
-        
+
         Two methods (configurable per group):
         - 'fixed': Use most recent fragment
         - 'llm': Context-aware selection
-        
+
         Returns: Single fragment string (first line)
         """
         # Get all fragments for this event
@@ -44,24 +44,24 @@ class EventMemoryService:
             )
             .order_by(EventMemory.created_at)
         )
-        
+
         fragments = result.scalars().all()
-        
+
         if not fragments:
             return None
-        
+
         # Get group settings
         if not event.group_id:
             return None
-        
+
         settings = await self._get_group_settings(event.group_id)
         method = settings.lineage_selection_method if settings else "llm"
-        
+
         if method == "llm":
             return await self._select_lineage_with_llm(event, fragments)
         else:
             return await self._select_lineage_fixed(fragments)
-    
+
     async def _select_lineage_with_llm(
         self,
         event: Event,
@@ -69,14 +69,14 @@ class EventMemoryService:
     ) -> Optional[str]:
         """Use LLM to select contextually relevant fragment."""
         from ai.llm import LLMClient
-        
+
         # Build context
         fragment_texts = [
-            f"- {f.fragment_text}" 
-            for f in fragments 
+            f"- {f.fragment_text}"
+            for f in fragments
             if f.fragment_text
         ]
-        
+
         prompt = (
             f"Select one fragment that best represents what this {event.event_type} event was about.\n"
             f"Event: {event.description}\n\n"
@@ -84,13 +84,13 @@ class EventMemoryService:
             f"{'\n'.join(fragment_texts)}\n\n"
             "Return ONLY the fragment text, exactly as written. No commentary."
         )
-        
+
         try:
             llm = LLMClient()
             try:
                 result = await llm.generate(prompt)
                 selected = result.strip().strip('"').strip("'")
-                
+
                 # Find the fragment object
                 for frag in fragments:
                     if frag.fragment_text and frag.fragment_text.strip() == selected.strip():
@@ -98,21 +98,21 @@ class EventMemoryService:
                         frag.selected_at = datetime.utcnow()
                         self.session.add(frag)
                         await self.session.commit()
-                        
+
                         # Also save to cache
                         cache_key = f"lineage_door_{event.group_id}_{event.event_type}"
                         if hasattr(self.bot, "data"):
                             self.bot.data[cache_key] = selected
-                        
+
                         return selected
             finally:
                 await llm.close()
         except Exception as e:
             logger.error(f"LLM lineage selection failed: {e}")
-        
+
         # Fallback to fixed
         return await self._select_lineage_fixed(fragments)
-    
+
     async def _select_lineage_fixed(
         self,
         fragments: list[EventMemory]
@@ -120,15 +120,15 @@ class EventMemoryService:
         """Use fixed rule: most recent fragment."""
         if not fragments:
             return None
-        
+
         # Mark as lineage door
         fragments[-1].is_lineage_door = True
         fragments[-1].selected_at = datetime.utcnow()
         self.session.add(fragments[-1])
         await self.session.commit()
-        
+
         return fragments[-1].fragment_text if fragments[-1].fragment_text else None
-    
+
     async def get_lineage_door_fragment(
         self,
         group_id: int,
@@ -137,16 +137,16 @@ class EventMemoryService:
     ) -> Optional[str]:
         """
         Get lineage door for creating new event of same type.
-        
+
         v3.3: Can be context-aware (LLM) or fixed.
-        
+
         Returns: Single fragment that will be shown before creation.
         """
         # Try cache first
         cache_key = f"lineage_door_{group_id}_{event_type}"
         if hasattr(self.bot, "data") and cache_key in self.bot.data:
             return self.bot.data[cache_key]
-        
+
         # Query DB
         result = await self.session.execute(
             select(EventMemory)
@@ -158,14 +158,14 @@ class EventMemoryService:
             .order_by(EventMemory.selected_at.desc())
             .limit(1)
         )
-        
+
         memory = result.scalar_one_or_none()
-        
+
         if memory and memory.weave_text:
             # Use first line as lineage door
             lines = memory.weave_text.split("\n")
             return lines[0] if lines else None
-        
+
         return None
 ```
 
@@ -207,7 +207,7 @@ async def display_mosaic(
 
     bot = update.get_bot()
     service = EventMemoryService(bot, session)
-    
+
     # Get fragments
     result = await session.execute(
         select(EventMemory)
@@ -215,31 +215,31 @@ async def display_mosaic(
         .order_by(EventMemory.created_at)
     )
     fragments = result.scalars().all()
-    
+
     if not fragments:
         await message.reply_text(
             "No memories yet. After the event, I'll ask participants to share what stuck with them."
         )
         return
-    
+
     # Build mosaic text
     mosaic_lines = [f"📿 **Fragment Mosaic: {event.event_type}**\n"]
-    
+
     for i, frag in enumerate(fragments, 1):
         if frag.weave_text:
             mosaic_lines.append(f"\n{i}. {frag.weave_text}")
         elif frag.fragment_text:
             mosaic_lines.append(f"\n{i}. {frag.fragment_text}")
-    
+
     mosaic_text = "\n".join(mosaic_lines)
-    
+
     # Post to group
     mosaic_msg = await bot.send_message(
         chat_id=event.group_id,
         text=mosaic_text,
         parse_mode="Markdown"
     )
-    
+
     # Pin message
     try:
         await bot.pin_chat_message(
@@ -247,7 +247,7 @@ async def display_mosaic(
             message_id=mosaic_msg.message_id,
             disable_notification=True
         )
-        
+
         await message.reply_text(
             "📌 Fragment mosaic pinned in group chat!",
             reply_to_message_id=mosaic_msg.message_id
@@ -258,7 +258,7 @@ async def display_mosaic(
             "Fragment mosaic posted (pin failed).",
             reply_to_message_id=mosaic_msg.message_id
         )
-    
+
     # Save mosaic message ID
     event.mosaic_message_id = mosaic_msg.message_id
     session.add(event)
@@ -281,7 +281,7 @@ async def start_event_flow_from_meaning_formation(
 ) -> None:
     """Start event creation from meaning-formation clarifications."""
     await start_event_flow(update, context, mode=mode)
-    
+
     if context.user_data is None:
         return
 
@@ -291,24 +291,24 @@ async def start_event_flow_from_meaning_formation(
         return
     event_flow: dict[str, Any] = event_flow_raw
     flow_data = event_flow.get("data", {})
-    
+
     # Get group info
     group_id = flow_data.get("group_id")
     chat = update.effective_chat
-    
+
     if group_id and chat:
         # Get lineage fragment
         lineage = await get_lineage_for_event(context, group_id, flow_data)
-        
+
         if lineage:
             lineage_text = (
                 f"Last time your group did something like this, "
                 f"someone said: \"{lineage}\"\n\n"
                 "You can ignore this or use it as inspiration."
             )
-            
+
             await update.effective_message.reply_text(lineage_text)
-    
+
     # ... rest of pre-fill logic ...
 ```
 
@@ -322,16 +322,16 @@ async def get_lineage_for_event(
 ) -> Optional[str]:
     """Get lineage fragment for event."""
     from bot.services.event_memory_service import EventMemoryService
-    
+
     session = await get_session(settings.db_url).__aenter__()
-    
+
     try:
         bot = context.bot
         service = EventMemoryService(bot, session)
-        
+
         event_type = flow_data.get("event_type", "social")
         event_desc = flow_data.get("description", "")
-        
+
         return await service.get_lineage_door_fragment(
             group_id=group_id,
             event_type=event_type,
@@ -354,7 +354,7 @@ def format_hashtags(hashtags: list[str], include_pill: bool = True) -> str:
     """Format hashtags for display."""
     if not hashtags:
         return ""
-    
+
     if include_pill:
         return " ".join(f"#{tag}" for tag in hashtags)
     else:
@@ -365,12 +365,12 @@ def format_hashtags_pill(hashtags: list[str]) -> str:
     """Format hashtags as inline pills."""
     if not hashtags:
         return ""
-    
+
     formatted = []
     for tag in hashtags:
         tag_clean = tag.lower().strip("#")
         formatted.append(f"#{tag_clean}")
-    
+
     return " ".join(formatted)
 ```
 
@@ -383,22 +383,22 @@ def format_event_card(event: Event, include_live: bool = True) -> str:
         f"🚀 **{event.event_type}**",
         f"{event.description[:100]}",
     ]
-    
+
     # Hashtags
     hashtags = event.formation_hashtag or event.locked_hashtag or []
     if hashtags:
         lines.append(format_hashtags_pill(hashtags))
-    
+
     # Time
     if event.scheduled_time:
         lines.append(f"📅 {event.scheduled_time.strftime('%d %b, %H:%M')}")
     else:
         lines.append("📅 TBD")
-    
+
     # Stats
     if event.min_participants:
         lines.append(f"👥 {event.min_participants} min")
-    
+
     return "\n".join(lines)
 ```
 
@@ -420,29 +420,29 @@ async def list_events_by_hashtag(
     message = update.effective_message
     if not message or not update.effective_chat:
         return
-    
+
     chat = update.effective_chat
     hashtag_clean = hashtag.lower().strip("#")
-    
+
     async with get_session(settings.db_url) as session:
         # Query events with hashtag
         from bot.services.event_hashtag_service import EventHashtagService
         service = EventHashtagService(session)
-        
+
         events = await service.query_by_hashtag(
             group_id=chat.id,
             hashtag=f"#{hashtag_clean}"
         )
-        
+
         if not events:
             await message.reply_text(
                 f"No events found with #{hashtag_clean}"
             )
             return
-        
+
         # Format results
         lines = [f"Events tagged with #{hashtag_clean}:"]
-        
+
         for event in events[:10]:  # Limit to 10
             time_str = (
                 event.scheduled_time.strftime("%d %b, %H:%M")
@@ -452,10 +452,10 @@ async def list_events_by_hashtag(
                 f"- [{event.event_type}] {event.description[:50]} "
                 f"({time_str})"
             )
-        
+
         if len(events) > 10:
             lines.append(f"\n...and {len(events) - 10} more")
-        
+
         await message.reply_text("\n".join(lines))
 
 
@@ -464,13 +464,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     message = update.effective_message
     if not message:
         return
-    
+
     text = (message.text or "").strip()
-    
+
     # Check for hashtag filter
     import re
     hashtag_match = re.search(r"#(\w+)", text)
-    
+
     if hashtag_match:
         hashtag = f"#{hashtag_match.group(1)}"
         await list_events_by_hashtag(update, context, hashtag)
@@ -492,13 +492,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     """Handle incoming messages."""
     if not update.effective_message or not update.effective_chat:
         return
-    
+
     message = update.effective_message
-    
+
     # Track reactions to mosaic messages
     if message.reactions:
         await track_mosaic_reactions(update, context)
-    
+
     # ... existing logic ...
 
 
@@ -508,14 +508,14 @@ async def track_mosaic_reactions(
 ) -> None:
     """Track reactions to mosaic messages."""
     message = update.effective_message
-    
+
     # Check if this is a mosaic message
     # (Could check database for pinned_message_id)
-    
+
     # For now, track all reactions
     if message.reactions:
         total_engagement = sum(r.count for r in message.reactions)
-        
+
         if total_engagement >= 5:  # Threshold
             logger.info(
                 f"Mosaic engagement high: {total_engagement} reactions"
@@ -587,7 +587,7 @@ async def test_lineage_door_shown_on_creation(bot_client):
     # Complete event A
     # Create event B of same type
     # Verify: Lineage fragment shown during creation
-    
+
     pass
 
 

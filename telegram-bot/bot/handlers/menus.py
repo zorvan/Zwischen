@@ -5,6 +5,7 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from sqlalchemy import select, update as sa_update
 
+from bot.common.i18n import t, get_user_language
 from bot.common.menus import (
     build_main_menu,
     build_event_detail_keyboard,
@@ -21,13 +22,17 @@ logger = logging.getLogger("coord_bot.menus")
 EVENTS_PER_PAGE = 5
 
 
-async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_menu_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle all menu callback queries."""
     import asyncio
 
     query = update.callback_query
     if not query:
         return
+
+    user_lang = get_user_language(query.from_user)
 
     try:
         await asyncio.wait_for(query.answer(), timeout=5.0)
@@ -38,15 +43,17 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
     # Route to appropriate handler
     if data == "menu_main":
-        await _show_main_menu(query, context)
+        await _show_main_menu(query, context, user_lang)
     elif data == "menu_my_events":
-        await _show_my_events(query, context, page=0)
+        await _show_my_events(query, context, page=0, user_lang=user_lang)
     elif data.startswith("menu_events_prev_"):
         page = int(data.split("_")[-1])
-        await _show_my_events(query, context, page=max(0, page - 1))
+        await _show_my_events(
+            query, context, page=max(0, page - 1), user_lang=user_lang
+        )
     elif data.startswith("menu_events_next_"):
         page = int(data.split("_")[-1])
-        await _show_my_events(query, context, page=page + 1)
+        await _show_my_events(query, context, page=page + 1, user_lang=user_lang)
     elif data.startswith("menu_event_select_"):
         event_id = int(data.split("_")[-1])
         # v3.5: Route to event panel (Level 2) instead of old detail view
@@ -54,57 +61,53 @@ async def handle_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 
         await event_panel._handle_view(query, context, event_id)
     elif data == "menu_my_profile":
-        await _redirect_to_profile(query, context)
+        await _redirect_to_profile(query, context, user_lang)
     elif data == "menu_history":
-        await _redirect_to_history(query, context)
+        await _redirect_to_history(query, context, user_lang)
     elif data == "menu_organize":
-        await _redirect_to_organize(query, context)
+        await _redirect_to_organize(query, context, user_lang)
     elif data == "organize_public":
         await _handle_organize_public(query, context)
     elif data == "organize_private":
         await _handle_organize_private(query, context)
     elif data == "menu_modify":
-        await _redirect_to_modify(query, context)
+        await _redirect_to_modify(query, context, user_lang)
     elif data == "menu_groups":
-        await _redirect_to_groups(query, context)
+        await _redirect_to_groups(query, context, user_lang)
     elif data == "menu_help":
-        await _show_help(query, context)
+        await _show_help(query, context, user_lang)
     elif data.startswith("help_"):
-        await _show_help_topic(query, context, data.split("_", 1)[1])
+        await _show_help_topic(query, context, data.split("_", 1)[1], user_lang)
     elif data == "noop":
         # No operation button (e.g., "Already Confirmed")
         pass
     # v3.5: Events list Create button handlers
     elif data == "events_create_new":
-        await _handle_create_new_event(query, context)
+        await _handle_create_new_event(query, context, user_lang)
     elif data == "create_specific":
         await _handle_create_specific(query, context)
     elif data == "create_flexible":
         await _handle_create_flexible(query, context)
     elif data == "events_back":
-        await _show_my_events(query, context, page=0)
+        await _show_my_events(query, context, page=0, user_lang=user_lang)
     else:
         logger.warning(f"Unknown menu callback: {data}")
 
 
-async def _show_main_menu(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _show_main_menu(
+    query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
+) -> None:
     """Show the main menu."""
     await query.edit_message_text(
-        "🏠 *Main Menu*\n\n"
-        "Choose an option below:\n\n"
-        "📋 *My Events* - View and manage your events\n"
-        "👤 *My Profile* - Check your stats\n"
-        "📜 *History* - Browse your event history\n"
-        "✏️ *Organize* - Create a new event\n"
-        "🔧 *Modify* - Modify an existing event\n"
-        "👥 *Groups* - View your groups\n"
-        "❓ *Help* - Get help and tips",
-        reply_markup=build_main_menu(),
-        parse_mode="Markdown",
+        t("main_menu_welcome", lang=user_lang),
+        reply_markup=build_main_menu(lang=user_lang),
+        parse_mode="HTML",
     )
 
 
-async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int = 0) -> None:
+async def _show_my_events(
+    query, context: ContextTypes.DEFAULT_TYPE, page: int = 0, user_lang: str = "en"
+) -> None:
     """Show user's events with clickable buttons."""
     user_id = query.from_user.id
     db_url = settings.db_url or ""
@@ -112,7 +115,9 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
     async with get_session(db_url) as session:
         # Get events where user is a participant
         result = await session.execute(
-            select(EventParticipant.event_id).where(EventParticipant.telegram_user_id == user_id).distinct()
+            select(EventParticipant.event_id)
+            .where(EventParticipant.telegram_user_id == user_id)
+            .distinct()
         )
         participant_event_ids = [row[0] for row in result.all()]
 
@@ -159,14 +164,12 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
         if not sorted_events:
             try:
                 await query.edit_message_text(
-                    "ℹ️ *No Events Found*\n\n"
-                    "You haven't joined any events yet.\n\n"
-                    "Use the menu below to get started!",
-                    reply_markup=build_main_menu(),
-                    parse_mode="Markdown",
+                    t("menu_my_events_no_events", lang=user_lang),
+                    reply_markup=build_main_menu(lang=user_lang),
+                    parse_mode="HTML",
                 )
             except Exception:
-                await query.answer("ℹ️ No events found.")
+                await query.answer(t("menu_my_events_no_events", lang=user_lang))
             return
 
         # Paginate
@@ -178,26 +181,34 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
             # Page is empty, go back to last page
             max_page = (len(sorted_events) - 1) // EVENTS_PER_PAGE
             if page > 0:
-                await _show_my_events(query, context, page=max_page)
+                await _show_my_events(
+                    query, context, page=max_page, user_lang=user_lang
+                )
                 return
             else:
                 try:
                     await query.edit_message_text(
-                        "ℹ️ *No Events Found*",
-                        reply_markup=build_back_to_menu_keyboard(),
-                        parse_mode="Markdown",
+                        t("menu_my_events_no_events", lang=user_lang),
+                        reply_markup=build_back_to_menu_keyboard(lang=user_lang),
+                        parse_mode="HTML",
                     )
                 except Exception:
-                    await query.answer("ℹ️ No events found.")
+                    await query.answer(t("menu_my_events_no_events", lang=user_lang))
                 return
 
         # Build message with event list
-        lines = ["📋 *Your Events*", ""]
+        lines = [t("menu_my_events_title", lang=user_lang), ""]
 
         # Add each event as a numbered item
         for idx, (event, group) in enumerate(page_events, start=start_idx + 1):
-            group_name = group.group_name[:20] if group and group.group_name else "Private"
-            time_str = event.scheduled_time.strftime("%m-%d %H:%M") if event.scheduled_time else "TBD"
+            group_name = (
+                group.group_name[:20] if group and group.group_name else "Private"
+            )
+            time_str = (
+                event.scheduled_time.strftime("%m-%d %H:%M")
+                if event.scheduled_time
+                else "TBD"
+            )
             desc = (event.description or "No description")[:40]
             if len(desc) == 40:
                 desc += "..."
@@ -213,12 +224,16 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
             state_escaped = event.state.replace("_", "\\_")
 
             lines.append(f"{idx}. {short_desc_escaped}")
-            lines.append(f"   {time_str_escaped} | {state_escaped} | {group_name_escaped}")
+            lines.append(
+                f"   {time_str_escaped} | {state_escaped} | {group_name_escaped}"
+            )
             lines.append("")
 
         # Add instruction
-        lines.append("💡 *Tap a button below to view event details*")
-        lines.append(f"📄 Page {page + 1} of {(len(sorted_events) - 1) // EVENTS_PER_PAGE + 1}")
+        lines.append(t("menu_my_events_tap_hint", lang=user_lang))
+        lines.append(
+            f"📄 Page {page + 1} of {(len(sorted_events) - 1) // EVENTS_PER_PAGE + 1}"
+        )
 
         # Build keyboard with event selection buttons
         keyboard = []
@@ -226,22 +241,39 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
             words = (event.description or "Event").split()[:3]
             short_desc = " ".join(words)
             keyboard.append(
-                [InlineKeyboardButton(f"{idx}. {short_desc}", callback_data=f"menu_event_select_{event.event_id}")]
+                [
+                    InlineKeyboardButton(
+                        f"{idx}. {short_desc}",
+                        callback_data=f"menu_event_select_{event.event_id}",
+                    )
+                ]
             )
 
         # Navigation
         nav_row = []
         if page > 0:
-            nav_row.append(InlineKeyboardButton("⬅️ Prev", callback_data=f"menu_events_prev_{page}"))
+            nav_row.append(
+                InlineKeyboardButton(
+                    t("menu_my_events_prev", lang=user_lang),
+                    callback_data=f"menu_events_prev_{page}",
+                )
+            )
         if end_idx < len(sorted_events):
-            nav_row.append(InlineKeyboardButton("Next ➡️", callback_data=f"menu_events_next_{page}"))
+            nav_row.append(
+                InlineKeyboardButton(
+                    t("menu_my_events_next", lang=user_lang),
+                    callback_data=f"menu_events_next_{page}",
+                )
+            )
 
         if nav_row:
             keyboard.append(nav_row)
 
         keyboard.append(
             [
-                InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main"),
+                InlineKeyboardButton(
+                    t("menu_my_events_back", lang=user_lang), callback_data="menu_main"
+                ),
             ]
         )
 
@@ -252,41 +284,57 @@ async def _show_my_events(query, context: ContextTypes.DEFAULT_TYPE, page: int =
                 parse_mode="Markdown",
             )
         except Exception:
-            await query.answer("ℹ️ Events list refreshed.")
+            await query.answer(t("menu_my_events_title", lang=user_lang))
 
 
-async def _show_event_detail(query, context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
+async def _show_event_detail(
+    query, context: ContextTypes.DEFAULT_TYPE, event_id: int
+) -> None:
     """Show detailed view of a specific event."""
     from bot.common.event_presenters import format_status_message
 
     db_url = settings.db_url or ""
     user_id = query.from_user.id
+    user_lang = get_user_language(query.from_user)
 
     async with get_session(db_url) as session:
         # Check event visibility based on group membership
         chat_id = getattr(getattr(query, "message", None), "chat_id", None)
-        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
-            session,
-            event_id,
-            user_id,
-            telegram_chat_id=chat_id,
-            bot=context.bot,
+        is_visible, event, group, error_msg = (
+            await check_event_visibility_and_get_event(
+                session,
+                event_id,
+                user_id,
+                telegram_chat_id=chat_id,
+                bot=context.bot,
+            )
         )
 
         if not is_visible:
             try:
                 await query.edit_message_text(
-                    f"❌ {error_msg or 'Event not found.'}",
-                    reply_markup=build_back_to_menu_keyboard(),
+                    t(
+                        "event_details_event_not_visible",
+                        lang=user_lang,
+                        error_msg=error_msg or "",
+                    ),
+                    reply_markup=build_back_to_menu_keyboard(lang=user_lang),
                 )
             except Exception:
-                await query.answer(f"❌ {error_msg or 'Event not found.'}")
+                await query.answer(
+                    t(
+                        "event_details_event_not_visible",
+                        lang=user_lang,
+                        error_msg=error_msg or "",
+                    )
+                )
             return
 
         # Get user's participation status
         result = await session.execute(
             select(EventParticipant).where(
-                EventParticipant.event_id == event_id, EventParticipant.telegram_user_id == user_id
+                EventParticipant.event_id == event_id,
+                EventParticipant.telegram_user_id == user_id,
             )
         )
         participant = result.scalar_one_or_none()
@@ -304,7 +352,7 @@ async def _show_event_detail(query, context: ContextTypes.DEFAULT_TYPE, event_id
         )
 
         # Add instruction text
-        status_message += "\n\n💡 Use the buttons below to interact with this event"
+        status_message += "\n\n" + t("menu_event_detail_hint", lang=user_lang)
 
         try:
             await query.edit_message_text(
@@ -313,6 +361,7 @@ async def _show_event_detail(query, context: ContextTypes.DEFAULT_TYPE, event_id
                     event_id=event_id,
                     user_status=user_status,
                     event_state=event.state,
+                    lang=user_lang,
                 ),
                 parse_mode="Markdown",
             )
@@ -326,96 +375,97 @@ async def _show_event_detail(query, context: ContextTypes.DEFAULT_TYPE, event_id
                             event_id=event_id,
                             user_status=user_status,
                             event_state=event.state,
+                            lang=user_lang,
                         ),
                     )
                 except Exception:
-                    await query.answer("ℹ️ Event details refreshed.")
+                    await query.answer(t("menu_my_events_title", lang=user_lang))
             elif "Message is not modified" in str(e):
-                await query.answer("ℹ️ Already up to date.")
+                await query.answer(
+                    t("event_details_already_up_to_date", lang=user_lang)
+                )
             else:
                 raise
 
 
-async def _show_help(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _show_help(query, context: ContextTypes.DEFAULT_TYPE, user_lang: str) -> None:
     """Show help menu."""
     await query.edit_message_text(
-        "❓ *Help & Information*\n\n" "Choose a topic below:",
-        reply_markup=build_help_keyboard(),
-        parse_mode="Markdown",
+        t("menu_help_title", lang=user_lang),
+        reply_markup=build_help_keyboard(lang=user_lang),
+        parse_mode="HTML",
     )
 
 
-async def _show_help_topic(query, context: ContextTypes.DEFAULT_TYPE, topic: str) -> None:
+async def _show_help_topic(
+    query, context: ContextTypes.DEFAULT_TYPE, topic: str, user_lang: str
+) -> None:
     """Show specific help topic."""
     topics = {
-        "start": (
-            "📖 *Getting Started*\n\n"
-            "Welcome to the Coordination Bot!\n\n"
-            "• Use *Organize Event* to create events\n"
-            "• Browse *My Events* to see your events\n"
-            "• Tap an event to join or manage it\n"
-            "• Set your *Availability* to help scheduling\n\n"
-            "The bot uses AI to find optimal times for everyone!"
-        ),
-        "events": (
-            "🎯 *How Events Work*\n\n"
-            "1. *Proposed* - Event is gathering interest\n"
-            "2. *Interested* - People have joined\n"
-            "3. *Confirmed* - Enough people committed\n"
-            "4. *Locked* - Event is finalized\n"
-            "5. *Completed* - Event happened!\n\n"
-            "You need to reach the *threshold* number of confirmations to lock an event."
-        ),
-        "scheduling": (
-            "📅 *Scheduling*\n\n"
-            "• Events can have *fixed* or *flexible* times\n"
-            "• Use *Set Availability* to share your free slots\n"
-            "• The bot suggests optimal times\n"
-            "• More availability = better scheduling!"
-        ),
+        "start": "menu_help_start",
+        "events": "menu_help_events",
+        "scheduling": "menu_help_scheduling",
     }
 
-    text = topics.get(topic, "❓ Help topic not found.")
+    key = topics.get(topic, "menu_help_topic_not_found")
+    text = t(key, lang=user_lang)
 
     await query.edit_message_text(
         text,
-        reply_markup=build_help_keyboard(),
-        parse_mode="Markdown",
+        reply_markup=build_help_keyboard(lang=user_lang),
+        parse_mode="HTML",
     )
 
 
 # Redirect handlers - these show a message telling user to use the command
-async def _redirect_to_profile(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _redirect_to_profile(
+    query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
+) -> None:
     """Redirect to profile command."""
     await query.edit_message_text(
-        "Your Profile\n\n" "Please use /profile command to view your full profile and stats.",
-        reply_markup=build_back_to_menu_keyboard(),
+        t("menu_redirect_profile", lang=user_lang),
+        reply_markup=build_back_to_menu_keyboard(lang=user_lang),
     )
 
 
-async def _redirect_to_history(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _redirect_to_history(
+    query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
+) -> None:
     """Redirect to history command."""
     await query.edit_message_text(
-        "Your History\n\n" "Please use /my_history command to view your event timeline.",
-        reply_markup=build_back_to_menu_keyboard(),
+        t("menu_redirect_history", lang=user_lang),
+        reply_markup=build_back_to_menu_keyboard(lang=user_lang),
     )
 
 
-async def _redirect_to_organize(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _redirect_to_organize(
+    query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
+) -> None:
     """Redirect to organize command."""
     keyboard = [
-        [InlineKeyboardButton("👥 Public / Group Event", callback_data="organize_public")],
-        [InlineKeyboardButton("🔒 Private Event", callback_data="organize_private")],
-        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="menu_main")],
+        [
+            InlineKeyboardButton(
+                t("menu_organize_public", lang=user_lang),
+                callback_data="organize_public",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu_organize_private", lang=user_lang),
+                callback_data="organize_private",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu_my_events_back", lang=user_lang), callback_data="menu_main"
+            )
+        ],
     ]
 
     await query.edit_message_text(
-        "✏️ *Organize Event*\n\n"
-        "Choose the type of event you want to create:\n\n"
-        "• *Public / Group Event* — Shared with the group, everyone can join\n"
-        "• *Private Event* — Only you can see and manage it",
+        t("menu_redirect_organize", lang=user_lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -441,21 +491,23 @@ async def _handle_organize_private(query, context: ContextTypes.DEFAULT_TYPE) ->
     )
 
 
-async def _redirect_to_modify(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _redirect_to_modify(
+    query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
+) -> None:
     """Redirect to modify command."""
     await query.edit_message_text(
-        "Modify Event\n\n"
-        "Please use /modify_event <event_id> command to modify an event.\n\n"
-        "Or select an event from My Events and use the Modify button.",
-        reply_markup=build_back_to_menu_keyboard(),
+        t("menu_redirect_modify", lang=user_lang),
+        reply_markup=build_back_to_menu_keyboard(lang=user_lang),
     )
 
 
-async def _redirect_to_groups(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _redirect_to_groups(
+    query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
+) -> None:
     """Redirect to groups command."""
     await query.edit_message_text(
-        "Your Groups\n\n" "Please use /my_groups command to view your groups.",
-        reply_markup=build_back_to_menu_keyboard(),
+        t("menu_redirect_groups", lang=user_lang),
+        reply_markup=build_back_to_menu_keyboard(lang=user_lang),
     )
 
 
@@ -464,22 +516,34 @@ async def _redirect_to_groups(query, context: ContextTypes.DEFAULT_TYPE) -> None
 # =============================================================================
 
 
-async def _handle_create_new_event(query, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def _handle_create_new_event(
+    query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
+) -> None:
     """Show memory-first creation intent selection."""
     keyboard = [
-        [InlineKeyboardButton("🎯 Plan something specific", callback_data="create_specific")],
-        [InlineKeyboardButton("💭 Just exploring ideas", callback_data="create_flexible")],
-        [InlineKeyboardButton("🔙 Back to Events", callback_data="events_back")],
+        [
+            InlineKeyboardButton(
+                t("menu_create_specific", lang=user_lang),
+                callback_data="create_specific",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu_create_flexible", lang=user_lang),
+                callback_data="create_flexible",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("menu_back_to_events", lang=user_lang), callback_data="events_back"
+            )
+        ],
     ]
 
     await query.edit_message_text(
-        "🌟 *Let's create something together*\n\n"
-        "What brings you here?\n\n"
-        "• *Plan something specific* — You have an idea in mind\n"
-        "• *Just exploring ideas* — Open to suggestions\n\n"
-        "💡 *Your intent shapes what we build*",
+        t("menu_create_new_event", lang=user_lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown",
+        parse_mode="HTML",
     )
 
 
@@ -491,7 +555,9 @@ async def _handle_create_specific(query, context: ContextTypes.DEFAULT_TYPE) -> 
     context.user_data["creation_intent"] = "specific"
 
     # Get the event type from the message
-    event_type = query.message.text.strip() if query.message and query.message.text else ""
+    event_type = (
+        query.message.text.strip() if query.message and query.message.text else ""
+    )
 
     # Start the unified event creation flow via callback_query
     await start_event_flow(
@@ -548,6 +614,7 @@ async def _handle_enrichment_message(
 
     text = update.message.text or ""
     user_id = update.effective_user.id
+    user_lang = get_user_language(update.effective_user)
 
     async with get_session(settings.db_url) as session:
         enrichment_service = EventEnrichmentService(session)
@@ -555,7 +622,9 @@ async def _handle_enrichment_message(
         try:
             if action == "add_idea":
                 await enrichment_service.add_idea(event_id, user_id, text)
-                await update.message.reply_text("✅ Idea saved! (visible to organizer until event locks)")
+                await update.message.reply_text(
+                    t("enrichment_idea_saved", lang=user_lang)
+                )
 
             elif action == "add_hashtag":
                 hashtag = text.strip()
@@ -563,36 +632,50 @@ async def _handle_enrichment_message(
                     hashtag = f"#{hashtag}"
                 await enrichment_service.add_hashtag(event_id, user_id, hashtag)
                 await update.message.reply_text(
-                    "✅ Hashtag saved! Hashtags become public on the live card when 2+ people add the same tag."
+                    t("enrichment_hashtag_saved", lang=user_lang)
                 )
 
             elif action == "add_memory":
                 await enrichment_service.add_memory(event_id, user_id, text)
                 await update.message.reply_text(
-                    "✅ Memory saved! (private until mosaic assembles when event completes)"
+                    t("enrichment_memory_saved", lang=user_lang)
                 )
 
             elif action in {"add_constraint", "add_constraint_unless"}:
-                event_result = await session.execute(select(Event).where(Event.event_id == event_id))
+                event_result = await session.execute(
+                    select(Event).where(Event.event_id == event_id)
+                )
                 event = event_result.scalar_one_or_none()
-                planning_prefs = event.planning_prefs.copy() if event and event.planning_prefs else {}
+                planning_prefs = (
+                    event.planning_prefs.copy()
+                    if event and event.planning_prefs
+                    else {}
+                )
                 constraint_key = "member_constraints"
                 planning_prefs.setdefault(constraint_key, [])
                 planning_prefs[constraint_key].append(
                     {
-                        "type": "if_joins" if action == "add_constraint" else "unless_joins",
+                        "type": (
+                            "if_joins" if action == "add_constraint" else "unless_joins"
+                        ),
                         "text": text,
                         "submitted_by": user_id,
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                     }
                 )
                 await session.execute(
-                    sa_update(Event).where(Event.event_id == event_id).values(planning_prefs=planning_prefs)
+                    sa_update(Event)
+                    .where(Event.event_id == event_id)
+                    .values(planning_prefs=planning_prefs)
                 )
-                await update.message.reply_text("✅ Constraint saved! The organizer will see it on the event.")
+                await update.message.reply_text(
+                    t("enrichment_constraint_saved", lang=user_lang)
+                )
 
             elif action == "suggest_time":
-                event_result = await session.execute(select(Event).where(Event.event_id == event_id))
+                event_result = await session.execute(
+                    select(Event).where(Event.event_id == event_id)
+                )
                 event = event_result.scalar_one_or_none()
                 if event and event.planning_prefs:
                     planning_prefs = event.planning_prefs.copy()
@@ -610,17 +693,28 @@ async def _handle_enrichment_message(
                 )
 
                 await session.execute(
-                    sa_update(Event).where(Event.event_id == event_id).values(planning_prefs=planning_prefs)
+                    sa_update(Event)
+                    .where(Event.event_id == event_id)
+                    .values(planning_prefs=planning_prefs)
                 )
                 await session.flush()
 
-                await update.message.reply_text("✅ Time suggestion saved! The organizer will see your preferred time.")
+                await update.message.reply_text(
+                    t("enrichment_time_saved", lang=user_lang)
+                )
 
             await session.commit()
 
         except Exception as e:
-            logger.error("Enrichment save failed for event %d, action %s: %s", event_id, action, e)
-            await update.message.reply_text(f"❌ Failed to save: {str(e)[:200]}")
+            logger.error(
+                "Enrichment save failed for event %d, action %s: %s",
+                event_id,
+                action,
+                e,
+            )
+            await update.message.reply_text(
+                t("enrichment_save_failed", lang=user_lang, error=str(e)[:200])
+            )
 
     # Clear enrichment state
     store = get_state_store(user_id, context.user_data)
@@ -632,7 +726,9 @@ async def _handle_enrichment_message(
 # =============================================================================
 
 
-async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_creation_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle text messages during enrichment prompts.
 
     This handler processes user input for enrichment prompts only.
@@ -658,7 +754,10 @@ async def handle_creation_message(update: Update, context: ContextTypes.DEFAULT_
     enrich_action = session["action"]
 
     try:
-        await _handle_enrichment_message(update, context, enrich_event_id, enrich_action)
+        await _handle_enrichment_message(
+            update, context, enrich_event_id, enrich_action
+        )
     except Exception as e:
         logger.exception("Error in handle_creation_message: %s", e)
-        await update.message.reply_text("❌ Sorry, something went wrong. Please try /events again.")
+        user_lang = get_user_language(update.effective_user)
+        await update.message.reply_text(t("enrichment_error", lang=user_lang))

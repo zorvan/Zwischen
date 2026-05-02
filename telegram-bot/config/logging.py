@@ -12,7 +12,9 @@ from contextvars import ContextVar
 from config.settings import Settings
 
 # Context variables for correlation IDs
-correlation_id_var: ContextVar[Optional[str]] = ContextVar("correlation_id", default=None)
+correlation_id_var: ContextVar[Optional[str]] = ContextVar(
+    "correlation_id", default=None
+)
 event_id_var: ContextVar[Optional[int]] = ContextVar("event_id", default=None)
 user_id_var: ContextVar[Optional[int]] = ContextVar("user_id", default=None)
 chat_id_var: ContextVar[Optional[int]] = ContextVar("chat_id", default=None)

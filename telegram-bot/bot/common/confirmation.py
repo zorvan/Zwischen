@@ -22,9 +22,13 @@ async def invalidate_confirmations_and_notify(
 ) -> int:
     """Reset confirmations to interested state and notify previously confirmed users."""
     confirmed_participants = [
-        participant for participant in _active_participants(event) if participant.status == ParticipantStatus.confirmed
+        participant
+        for participant in _active_participants(event)
+        if participant.status == ParticipantStatus.confirmed
     ]
-    confirmed_ids = [int(participant.telegram_user_id) for participant in confirmed_participants]
+    confirmed_ids = [
+        int(participant.telegram_user_id) for participant in confirmed_participants
+    ]
     if not confirmed_ids:
         return 0
 

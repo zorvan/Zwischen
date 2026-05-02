@@ -53,7 +53,9 @@ STATE_LABELS = {
 }
 
 
-def format_date_preset(value: Optional[str], context: Optional[Dict[str, Any]] = None) -> str:
+def format_date_preset(
+    value: Optional[str], context: Optional[Dict[str, Any]] = None
+) -> str:
     """Format date preset with human-readable label and optional context."""
     if not value:
         return "Not specified (flexible)"
@@ -67,7 +69,9 @@ def format_date_preset(value: Optional[str], context: Optional[Dict[str, Any]] =
     return label
 
 
-def format_time_window(value: Optional[str], context: Optional[Dict[str, Any]] = None) -> str:
+def format_time_window(
+    value: Optional[str], context: Optional[Dict[str, Any]] = None
+) -> str:
     """Format time window with human-readable label and optional context."""
     if not value:
         return "Not specified (flexible)"
@@ -80,7 +84,9 @@ def format_time_window(value: Optional[str], context: Optional[Dict[str, Any]] =
     return label
 
 
-def format_location_type(value: Optional[str], context: Optional[Dict[str, Any]] = None) -> str:
+def format_location_type(
+    value: Optional[str], context: Optional[Dict[str, Any]] = None
+) -> str:
     """Format location type with human-readable label and optional context."""
     if not value:
         return "Not specified (to be discussed)"
@@ -93,7 +99,9 @@ def format_location_type(value: Optional[str], context: Optional[Dict[str, Any]]
     return label
 
 
-def format_budget_level(value: Optional[str], context: Optional[Dict[str, Any]] = None) -> str:
+def format_budget_level(
+    value: Optional[str], context: Optional[Dict[str, Any]] = None
+) -> str:
     """Format budget level with human-readable label and optional context."""
     if not value:
         return "Not specified (flexible)"
@@ -106,7 +114,9 @@ def format_budget_level(value: Optional[str], context: Optional[Dict[str, Any]] 
     return label
 
 
-def format_transport_mode(value: Optional[str], context: Optional[Dict[str, Any]] = None) -> str:
+def format_transport_mode(
+    value: Optional[str], context: Optional[Dict[str, Any]] = None
+) -> str:
     """Format transport mode with human-readable label and optional context."""
     if not value:
         return "Not specified (flexible)"
@@ -195,16 +205,22 @@ def format_planning_prefs_with_context(
 
     return {
         "date_preset": format_date_preset(
-            planning_prefs.get("date_preset"), context_metadata.get("date_preset_context")
+            planning_prefs.get("date_preset"),
+            context_metadata.get("date_preset_context"),
         ),
         "time_window": format_time_window(
-            planning_prefs.get("time_window"), context_metadata.get("time_window_context")
+            planning_prefs.get("time_window"),
+            context_metadata.get("time_window_context"),
         ),
         "location_type": format_location_type(
-            planning_prefs.get("location_type"), context_metadata.get("location_context")
+            planning_prefs.get("location_type"),
+            context_metadata.get("location_context"),
         ),
-        "budget_level": format_budget_level(planning_prefs.get("budget_level"), context_metadata.get("budget_context")),
+        "budget_level": format_budget_level(
+            planning_prefs.get("budget_level"), context_metadata.get("budget_context")
+        ),
         "transport_mode": format_transport_mode(
-            planning_prefs.get("transport_mode"), context_metadata.get("transport_context")
+            planning_prefs.get("transport_mode"),
+            context_metadata.get("transport_context"),
         ),
     }

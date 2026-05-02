@@ -812,5 +812,3 @@ Every feature must pass these tests before implementation:
 | Version | Date | Changes |
 |---|---|---|
 | 3.0 | 2026-04-04 | Complete removal of all behavioral inference. Added Behavioral Neutrality Principle. Removed all reliability-based mechanisms. LLM constrained to rearrangement only. Materialization messages tested against awareness/pressure distinction. Personal Attendance Mirror marked causally inert. Added complete test suite for behavioral neutrality. |
-
-

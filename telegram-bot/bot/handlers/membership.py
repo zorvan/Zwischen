@@ -14,7 +14,9 @@ from db.users import get_or_create_user_id
 logger = logging.getLogger("coord_bot.membership")
 
 
-async def track_group_members(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+async def track_group_members(
+    update: Update, _context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Sync users/groups from group messages and new member events."""
     chat = update.effective_chat
     message = update.effective_message
@@ -38,7 +40,9 @@ async def track_group_members(update: Update, _context: ContextTypes.DEFAULT_TYP
 
     try:
         async with get_session(settings.db_url) as session:
-            result = await session.execute(select(Group).where(Group.telegram_group_id == chat_id))
+            result = await session.execute(
+                select(Group).where(Group.telegram_group_id == chat_id)
+            )
             group = result.scalar_one_or_none()
 
             member_ids = list(users_to_sync.keys())
@@ -55,7 +59,11 @@ async def track_group_members(update: Update, _context: ContextTypes.DEFAULT_TYP
                     group.group_name = chat_title
                     changed = True
                 current_members = group.member_list or []
-                new_members = [member_id for member_id in member_ids if member_id not in current_members]
+                new_members = [
+                    member_id
+                    for member_id in member_ids
+                    if member_id not in current_members
+                ]
                 if new_members:
                     group.member_list = [*current_members, *new_members]
                     changed = True

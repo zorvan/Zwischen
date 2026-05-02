@@ -89,26 +89,26 @@ async def handle_meaning_formation_message(
 ) -> bool:
     """Process a user message during meaning-formation mode."""
     # ... existing code ...
-    
+
     # After 2 turns, offer skip button
     if turns >= 2:
         skip_button = InlineKeyboardButton(
-            "🚀 Skip to structured", 
+            "🚀 Skip to structured",
             callback_data=f"{prefix}_skip_to_structured"
         )
         continue_button = InlineKeyboardButton(
-            "🤔 Keep clarifying", 
+            "🤔 Keep clarifying",
             callback_data=f"{prefix}_keep_clarifying"
         )
-        
+
         keyboard = [[skip_button], [continue_button]]
         reply_markup = InlineKeyboardMarkup(keyboard)
-        
+
         await update.effective_message.reply_text(
             "Want to build the details now, or keep clarifying?",
             reply_markup=reply_markup
         )
-    
+
     # ... rest of existing logic ...
 ```
 
@@ -120,17 +120,17 @@ async def _handle_callback_common(
 ) -> None:
     """Handle callback queries for event creation flow."""
     # ... existing code ...
-    
+
     elif data == f"{prefix}_skip_to_structured":
         # Transition to structured flow
         event_flow["stage"] = "structured_transition"
         context.user_data[flow_key] = event_flow
-        
+
         await query.edit_message_text(
             "Got it! Let's build the details.",
             reply_markup=None
         )
-        
+
         # Jump to type selection (pre-filled)
         flow_data = event_flow.get("data", {})
         await query.message.reply_text(
@@ -146,7 +146,7 @@ async def _handle_callback_common(
                 columns=2
             )
         )
-    
+
     elif data == f"{prefix}_keep_clarifying":
         # Continue clarification
         await query.edit_message_text(
@@ -170,7 +170,7 @@ async def start_event_flow_from_meaning_formation(
 ) -> None:
     """Start event creation from meaning-formation clarifications."""
     await start_event_flow(update, context, mode=mode)
-    
+
     if context.user_data is None:
         return
 
@@ -180,21 +180,21 @@ async def start_event_flow_from_meaning_formation(
         return
     event_flow: dict[str, Any] = event_flow_raw
     flow_data = event_flow.get("data", {})
-    
+
     # Get clarifications from meaning formation
     clarified = flow_data.get("clarified", {})
-    
+
     # Pre-fill structured data
     if "description" in clarified:
         flow_data["description"] = clarified["description"]
     if "event_type" in clarified:
         flow_data["event_type"] = clarified["event_type"]
-    
+
     # Set next stage
     event_flow["stage"] = "type"  # Skip description, go to type
-    
+
     context.user_data[flow_key] = event_flow
-    
+
     # Send user to type selection
     await update.effective_message.reply_text(
         f"Type: {flow_data.get('event_type', 'social')}\n\n"
@@ -228,7 +228,7 @@ async def get_prior_event_memories(
 ) -> list[EventMemory]:
     """
     Get prior event memories for same event type.
-    
+
     Returns memories sorted by recency.
     Also returns lineage door fragment for next event.
     """
@@ -242,14 +242,14 @@ async def get_prior_event_memories(
         .order_by(EventMemory.created_at.desc())
         .limit(limit)
     )
-    
+
     memories = result.scalars().all()
-    
+
     # Get lineage door (one fragment from most recent event)
     if memories:
         lineage_door = memories[0].weave_text.split("\n")[0] if memories[0].weave_text else None
         self.bot_data[f"lineage_door_{group_id}_{event_type}"] = lineage_door
-    
+
     return list(reversed(memories))  # Chronological order
 ```
 
@@ -263,11 +263,11 @@ async def get_lineage_door_fragment(
 ) -> Optional[str]:
     """Get lineage door fragment for group/event type."""
     cache_key = f"lineage_door_{group_id}_{event_type}"
-    
+
     # Try cache first
     if hasattr(self.bot, "data") and cache_key in self.bot.data:
         return self.bot.data[cache_key]
-    
+
     # Query DB
     result = await self.session.execute(
         select(EventMemory)
@@ -279,12 +279,12 @@ async def get_lineage_door_fragment(
         .order_by(EventMemory.selected_at.desc())
         .limit(1)
     )
-    
+
     memory = result.scalar_one_or_none()
     if memory and memory.weave_text:
         lines = memory.weave_text.split("\n")
         return lines[0] if lines else None
-    
+
     return None
 ```
 
@@ -301,10 +301,10 @@ def format_lineage_door(lineage_fragment: Optional[str], event_type: str) -> str
     """Format lineage door for event creation context."""
     if not lineage_fragment:
         return ""
-    
+
     # Shorten to first sentence
     first_sentence = lineage_fragment.split(".")[0] if "." in lineage_fragment else lineage_fragment
-    
+
     return (
         f" getLast time your group did a {event_type} event, "
         f"someone said: \"{first_sentence}\"."
@@ -319,19 +319,19 @@ def format_meaning_formation_prompt(clarified: dict[str, Any], turns: int) -> st
             "It can be as vague as 'something outdoors' or as specific as "
             "'Friday evening football'. I'll help you figure it out."
         )
-    
+
     if "description" not in clarified:
         return (
             "Can you describe it a bit more? What would people actually do? "
             "Even a sentence helps."
         )
-    
+
     if "event_type" not in clarified:
         return (
             "What kind of event is this — social, sports, outdoor, work, "
             "or something else?"
         )
-    
+
     return (
         "Sounds good. Want me to set up the details (time, place, etc.) "
         "or is there anything else you want to clarify first?"
@@ -349,9 +349,9 @@ def format_meaning_formation_prompt(clarified: dict[str, Any], turns: int) -> st
 ```python
 class Group(Base):
     __tablename__ = "groups"
-    
+
     # ... existing columns ...
-    
+
     settings = relationship("GroupSettings", uselist=False, back_populates="group")
 ```
 
@@ -396,7 +396,7 @@ async def test_meaning_formation_shows_memories():
     # Setup: create event memories for group
     # Call: start_meaning_formation
     # Verify: memories displayed before prompt
-    
+
     pass
 
 
@@ -405,7 +405,7 @@ async def test_skip_to_structured():
     # Setup: 2 clarification turns
     # Action: user clicks "Skip to structured"
     # Verify: transitions to event creation wizard
-    
+
     pass
 ```
 
@@ -426,7 +426,7 @@ async def test_full_memory_first_flow(bot_client):
     # Verify: "Skip to structured" button appears
     # User clicks skip
     # Verify: Event creation wizard with pre-filled type/description
-    
+
     pass
 
 
@@ -439,7 +439,7 @@ async def test_full_clarification_flow(bot_client):
     # Verify: "Want to build details or keep clarifying?"
     # User clicks "Keep clarifying"
     # Verify: Another question
-    
+
     pass
 ```
 
@@ -466,7 +466,7 @@ async def test_full_clarification_flow(bot_client):
 ```python
 class GroupSettings(Base):
     __tablename__ = "group_settings"
-    
+
     group_id = Column(Integer, ForeignKey("groups.group_id"), primary_key=True)
     enable_live_cards = Column(Boolean, default=True)
     memory_first_skip_enabled = Column(Boolean, default=True)  # NEW

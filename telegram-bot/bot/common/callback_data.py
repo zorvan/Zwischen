@@ -88,7 +88,9 @@ def encode_callback(action: str, event_id: int, group_id: Optional[int] = None) 
     return f"{CALLBACK_PREFIX}{SEPARATOR}{event_id}{SEPARATOR}{action}"
 
 
-def decode_callback(callback_data: str) -> Tuple[Optional[str], Optional[int], Optional[int]]:
+def decode_callback(
+    callback_data: str,
+) -> Tuple[Optional[str], Optional[int], Optional[int]]:
     """
     Decode compact callback data into action, event ID, and optional group ID.
 
