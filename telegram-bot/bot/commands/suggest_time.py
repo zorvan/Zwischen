@@ -28,7 +28,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     event_id_raw = args[0] if args else None
 
     if not event_id_raw:
-        await update.message.reply_text("Usage: /suggest_time <event_id>\n\n" "Example: /suggest_time 123")
+        await update.message.reply_text(
+            "Usage: /suggest_time <event_id>\n\n" "Example: /suggest_time 123"
+        )
         return
 
     try:
@@ -62,7 +64,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if not message or isinstance(message, InaccessibleMessage):
         return
 
-    await query.edit_message_text(f"🤖 *Requesting new AI time suggestion for event {event_id}...*")
+    await query.edit_message_text(
+        f"🤖 *Requesting new AI time suggestion for event {event_id}...*"
+    )
     await _send_suggestion(message, event_id)
 
 
@@ -90,7 +94,9 @@ async def _send_suggestion(message: MaybeInaccessibleMessage, event_id: int) -> 
             return
 
         suggested_time_raw = suggestion.get("suggested_time")
-        normalized_suggested = str(suggested_time_raw) if suggested_time_raw is not None else "TBD"
+        normalized_suggested = (
+            str(suggested_time_raw) if suggested_time_raw is not None else "TBD"
+        )
         auto_applied = False
         if event.scheduled_time is None:
             parsed = _parse_suggested_time(normalized_suggested)
@@ -120,7 +126,11 @@ async def _send_suggestion(message: MaybeInaccessibleMessage, event_id: int) -> 
             f"Reasoning: {suggestion.get('reasoning', 'N/A')}\n"
             f"Confidence: {suggestion.get('confidence', 0):.2f}\n"
             f"Availability Score: {suggestion.get('availability_score', 0):.2f}"
-            + ("\n\n✅ Applied this suggested time to the event." if auto_applied else ""),
+            + (
+                "\n\n✅ Applied this suggested time to the event."
+                if auto_applied
+                else ""
+            ),
             reply_markup=reply_markup,
         )
 

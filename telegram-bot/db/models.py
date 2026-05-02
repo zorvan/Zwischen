@@ -36,11 +36,17 @@ class User(Base):
     username = Column(String(255), unique=True)
     display_name = Column(String(255))
     # NOTE: expertise_per_activity removed in v3.5 (behavioral scoring deprecated per spec)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
-    constraints = relationship("Constraint", back_populates="user", foreign_keys="[Constraint.user_id]")
+    constraints = relationship(
+        "Constraint", back_populates="user", foreign_keys="[Constraint.user_id]"
+    )
     target_constraints = relationship(
-        "Constraint", back_populates="target_user", foreign_keys="[Constraint.target_user_id]"
+        "Constraint",
+        back_populates="target_user",
+        foreign_keys="[Constraint.target_user_id]",
     )
     logs = relationship("Log", back_populates="user")
     preferences = relationship("UserPreference", back_populates="user", uselist=False)
@@ -56,7 +62,9 @@ class Group(Base):
     group_name = Column(String(255))
     group_type = Column(String(50), default="casual")
     member_list = Column(JSON, default=list)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
     events = relationship("Event", back_populates="group")
 
@@ -67,7 +75,9 @@ class Event(Base):
     __tablename__ = "events"
 
     event_id = Column(Integer, primary_key=True)
-    group_id = Column(Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), nullable=True)
+    group_id = Column(
+        Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), nullable=True
+    )
     event_type = Column(String(100), nullable=False)
     description = Column(Text)
     organizer_telegram_user_id = Column(BigInteger)
@@ -78,13 +88,19 @@ class Event(Base):
     duration_minutes = Column(Integer, default=120)
     # PRD v2: Explicit threshold fields (Section 2.1)
     min_participants = Column(Integer, default=2)  # Absolute floor for viability
-    target_participants = Column(Integer, default=6)  # Desired count for optimal experience
-    collapse_at = Column(DateTime(timezone=True))  # Auto-cancel deadline for underthreshold events
+    target_participants = Column(
+        Integer, default=6
+    )  # Desired count for optimal experience
+    collapse_at = Column(
+        DateTime(timezone=True)
+    )  # Auto-cancel deadline for underthreshold events
     lock_deadline = Column(DateTime(timezone=True))  # Cutoff for attendance changes
 
     planning_prefs = Column(JSON, default=dict)
     state = Column(String(20), default="proposed")
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
     locked_at = Column(DateTime(timezone=True))
     completed_at = Column(DateTime(timezone=True))
 
@@ -92,12 +108,21 @@ class Event(Base):
     version = Column(Integer, default=0, nullable=False)
 
     group = relationship("Group", back_populates="events")
-    constraints = relationship("Constraint", back_populates="event", cascade="all, delete-orphan")
+    constraints = relationship(
+        "Constraint", back_populates="event", cascade="all, delete-orphan"
+    )
     logs = relationship("Log", back_populates="event")
     # PRD v2: Normalized participants table (Priority 1)
-    participants = relationship("EventParticipant", back_populates="event", cascade="all, delete-orphan")
+    participants = relationship(
+        "EventParticipant", back_populates="event", cascade="all, delete-orphan"
+    )
     # PRD v2: Memory layer (Priority 3)
-    memories = relationship("EventMemory", back_populates="event", cascade="all, delete-orphan", uselist=False)
+    memories = relationship(
+        "EventMemory",
+        back_populates="event",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
 
 class UserPreference(Base):
@@ -106,15 +131,24 @@ class UserPreference(Base):
     __tablename__ = "user_preferences"
 
     preference_id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False, unique=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
     time_preference = Column(String(50), default="any")
     activity_preference = Column(String(100), default="any")
     budget_preference = Column(String(50), default="any")
     location_type_preference = Column(String(100), default="any")
     transport_preference = Column(String(50), default="any")
     privacy_settings = Column(JSON, default=dict)
-    last_updated = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    last_updated = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
     user = relationship("User", back_populates="preferences")
 
@@ -125,15 +159,23 @@ class Constraint(Base):
     __tablename__ = "constraints"
 
     constraint_id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(
+        Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
     target_user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"))
-    event_id = Column(Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False)
+    event_id = Column(
+        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
+    )
     type = Column(String(50), nullable=False)
     confidence = Column(Float, default=1.0)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
     user = relationship("User", back_populates="constraints", foreign_keys=[user_id])
-    target_user = relationship("User", back_populates="target_constraints", foreign_keys=[target_user_id])
+    target_user = relationship(
+        "User", back_populates="target_constraints", foreign_keys=[target_user_id]
+    )
     event = relationship("Event", back_populates="constraints")
 
 
@@ -146,7 +188,9 @@ class Log(Base):
     event_id = Column(Integer, ForeignKey("events.event_id", ondelete="SET NULL"))
     user_id = Column(Integer, ForeignKey("users.user_id", ondelete="SET NULL"))
     action = Column(String(100), nullable=False)
-    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    timestamp = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
     metadata_dict = Column("metadata", JSON, default=dict)
 
     event = relationship("Event", back_populates="logs")
@@ -183,15 +227,26 @@ class EventParticipant(Base):
 
     __tablename__ = "event_participants"
 
-    event_id = Column(Integer, ForeignKey("events.event_id", ondelete="CASCADE"), primary_key=True, nullable=False)
+    event_id = Column(
+        Integer,
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
     telegram_user_id = Column(BigInteger, primary_key=True, nullable=False)
     status = Column(
-        SQLEnum(ParticipantStatus, name="participant_status"), default=ParticipantStatus.joined, nullable=False
+        SQLEnum(ParticipantStatus, name="participant_status"),
+        default=ParticipantStatus.joined,
+        nullable=False,
     )
     role = Column(
-        SQLEnum(ParticipantRole, name="participant_role"), default=ParticipantRole.participant, nullable=False
+        SQLEnum(ParticipantRole, name="participant_role"),
+        default=ParticipantRole.participant,
+        nullable=False,
     )
-    joined_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    joined_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
     confirmed_at = Column(DateTime(timezone=True))
     cancelled_at = Column(DateTime(timezone=True))
     source = Column(String(50))  # slash, callback, mention, dm
@@ -213,7 +268,11 @@ class IdempotencyKey(Base):
     event_id = Column(Integer, ForeignKey("events.event_id"))
     status = Column(String(50), default="pending")  # pending, completed, failed
     response_hash = Column(String(255))
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
     completed_at = Column(DateTime(timezone=True))
     expires_at = Column(DateTime(timezone=True), nullable=False)
 
@@ -230,11 +289,17 @@ class EventStateTransition(Base):
     __tablename__ = "event_state_transitions"
 
     transition_id = Column(Integer, primary_key=True)
-    event_id = Column(Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False)
+    event_id = Column(
+        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
+    )
     from_state = Column(String(20), nullable=False)
     to_state = Column(String(20), nullable=False)
     actor_telegram_user_id = Column(BigInteger)
-    timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    timestamp = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
     reason = Column(Text)
     source = Column(String(50), nullable=False)  # slash, callback, AI mention
 
@@ -261,10 +326,14 @@ class GroupEventTypeStats(Base):
     completed_count = Column(Integer, default=0, nullable=False)
     last_dropout_point = Column(Integer)  # participant count at last cancellation
     updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
-    __table_args__ = (UniqueConstraint("group_id", "event_type", name="uq_group_event_type_stats"),)
+    __table_args__ = (
+        UniqueConstraint("group_id", "event_type", name="uq_group_event_type_stats"),
+    )
 
     group = relationship("Group")
 
@@ -283,14 +352,21 @@ class EventMemory(Base):
     __tablename__ = "event_memories"
 
     memory_id = Column(Integer, primary_key=True)
-    event_id = Column(Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False, unique=True)
+    event_id = Column(
+        Integer,
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
     fragments = Column(JSON, default=list)
     # Each fragment: {text, contributor_hash, submitted_at, word_count}
     hashtags = Column(JSON, default=list)  # 1-3 natural language tags
     outcome_markers = Column(JSON, default=list)  # follow-on events, collaborations
     weave_text = Column(Text)  # Bot-generated weave posted to group
     lineage_event_ids = Column(JSON, default=list)  # References to prior similar events
-    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), nullable=False)
+    created_at = Column(
+        DateTime, default=lambda: datetime.now(timezone.utc), nullable=False
+    )
 
     event = relationship("Event", back_populates="memories")
 
@@ -312,15 +388,25 @@ class EventWaitlist(Base):
     __tablename__ = "event_waitlist"
 
     waitlist_id = Column(Integer, primary_key=True)
-    event_id = Column(Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False)
+    event_id = Column(
+        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
+    )
     telegram_user_id = Column(BigInteger, nullable=False)
     # Legacy compatibility field. Active v3.2 ordering is by added_at only.
     position = Column(Integer, nullable=True)
-    added_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    added_at = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
     expires_at = Column(DateTime(timezone=True))  # When waitlist offer expires
-    status = Column(String(20), default="waiting", nullable=False)  # waiting, offered, promoted, expired, cancelled
+    status = Column(
+        String(20), default="waiting", nullable=False
+    )  # waiting, offered, promoted, expired, cancelled
 
-    __table_args__ = (UniqueConstraint("event_id", "telegram_user_id", name="uq_waitlist_event_user"),)
+    __table_args__ = (
+        UniqueConstraint("event_id", "telegram_user_id", name="uq_waitlist_event_user"),
+    )
 
     event = relationship("Event", back_populates="waitlist")
 
@@ -328,7 +414,10 @@ class EventWaitlist(Base):
 # Add back-populates to Event model for waitlist
 # (This needs to be added to the Event class definition)
 Event.waitlist = relationship(
-    "EventWaitlist", back_populates="event", cascade="all, delete-orphan", order_by="EventWaitlist.added_at"
+    "EventWaitlist",
+    back_populates="event",
+    cascade="all, delete-orphan",
+    order_by="EventWaitlist.added_at",
 )
 
 
@@ -349,12 +438,18 @@ class EventEnrichment(Base):
     __tablename__ = "event_enrichments"
 
     enrichment_id = Column(BigInteger, primary_key=True)
-    event_id = Column(BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False)
+    event_id = Column(
+        BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
+    )
     telegram_user_id = Column(BigInteger, nullable=False)
-    enrichment_type = Column(String(30), nullable=False)  # 'idea' | 'hashtag' | 'memory'
+    enrichment_type = Column(
+        String(30), nullable=False
+    )  # 'idea' | 'hashtag' | 'memory'
     content = Column(Text, nullable=False)
     is_public = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
     event = relationship("Event", back_populates="enrichments")
 
@@ -370,10 +465,16 @@ class EventLineage(Base):
 
     __tablename__ = "event_lineage"
 
-    parent_event_id = Column(BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), primary_key=True)
-    child_event_id = Column(BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), primary_key=True)
+    parent_event_id = Column(
+        BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), primary_key=True
+    )
+    child_event_id = Column(
+        BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), primary_key=True
+    )
     relation_type = Column(String(30), default="same_type")
-    linked_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    linked_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
 
 
 class EventLiveCard(Base):
@@ -387,14 +488,21 @@ class EventLiveCard(Base):
     __tablename__ = "event_live_cards"
 
     id = Column(BigInteger, primary_key=True)
-    event_id = Column(BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), unique=True, nullable=False)
+    event_id = Column(
+        BigInteger,
+        ForeignKey("events.event_id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
     message_id = Column(BigInteger, nullable=False)
     chat_id = Column(BigInteger, nullable=False)
     participant_count = Column(Integer, default=0)
     confirmed_count = Column(Integer, default=0)
     reaction_counts = Column(JSON, default=dict)
     last_updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 
@@ -408,27 +516,40 @@ class GroupSettings(Base):
 
     __tablename__ = "group_settings"
 
-    group_id = Column(Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), primary_key=True)
+    group_id = Column(
+        Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), primary_key=True
+    )
     enable_live_cards = Column(Boolean, default=True)
     group_timezone = Column(String(50), default="UTC")
     max_hashtags_per_event = Column(Integer, default=5)
     lineage_selection_method = Column(String(10), default="fixed")
     # 'fixed' = most recent fragment | 'llm' = context-aware
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
     updated_at = Column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc)
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
     )
 
 
 # Add back-populates to Event model for enrichments
 Event.enrichments = relationship(
-    "EventEnrichment", back_populates="event", cascade="all, delete-orphan", order_by="EventEnrichment.created_at"
+    "EventEnrichment",
+    back_populates="event",
+    cascade="all, delete-orphan",
+    order_by="EventEnrichment.created_at",
 )
 
 # Add back-populates to Event model for lineage
 Event.lineage_as_parent = relationship(
-    "EventLineage", foreign_keys="EventLineage.parent_event_id", cascade="all, delete-orphan"
+    "EventLineage",
+    foreign_keys="EventLineage.parent_event_id",
+    cascade="all, delete-orphan",
 )
 Event.lineage_as_child = relationship(
-    "EventLineage", foreign_keys="EventLineage.child_event_id", cascade="all, delete-orphan"
+    "EventLineage",
+    foreign_keys="EventLineage.child_event_id",
+    cascade="all, delete-orphan",
 )

@@ -12,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from telegram import Bot
 
 from db.models import Event, EventParticipant, ParticipantStatus
-from bot.services import EventStateTransitionService, EventMaterializationService, EventMemoryService
+from bot.services import (
+    EventStateTransitionService,
+    EventMaterializationService,
+    EventMemoryService,
+)
 from bot.services.group_event_type_stats_service import GroupEventTypeStatsService
 from config.settings import settings
 
@@ -34,9 +38,13 @@ class EventLifecycleService:
         self.session = session
         self.transition_service = EventStateTransitionService(session)
         self.materialization_service = (
-            EventMaterializationService(bot, session) if settings.enable_materialization else None
+            EventMaterializationService(bot, session)
+            if settings.enable_materialization
+            else None
         )
-        self.memory_service = EventMemoryService(bot, session) if settings.enable_memory_layer else None
+        self.memory_service = (
+            EventMemoryService(bot, session) if settings.enable_memory_layer else None
+        )
         self.stats_service = GroupEventTypeStatsService(session)
 
     async def transition_with_lifecycle(
@@ -87,7 +95,9 @@ class EventLifecycleService:
         )
 
         # Trigger lifecycle events based on target state
-        await self._trigger_lifecycle_events(event, target_state, actor_telegram_user_id)
+        await self._trigger_lifecycle_events(
+            event, target_state, actor_telegram_user_id
+        )
 
         logger.info(
             "[LIFECYCLE] Lifecycle events completed | event_id=%s state=%s",
@@ -122,17 +132,23 @@ class EventLifecycleService:
             # Announce event locked
             if group_chat_id:
                 participants = await self._get_confirmed_participants(event.event_id)
-                await self.materialization_service.announce_event_locked(event, participants, group_chat_id)
+                await self.materialization_service.announce_event_locked(
+                    event, participants, group_chat_id
+                )
 
         elif target_state == "completed":
             # Track completion in stats
             if event.group_id and event.event_type:
-                await self.stats_service.record_completion(event.group_id, event.event_type)
+                await self.stats_service.record_completion(
+                    event.group_id, event.event_type
+                )
 
             # Announce event completed
             if self.materialization_service and group_chat_id:
                 participant_count = await self._get_participant_count(event.event_id)
-                await self.materialization_service.announce_event_completed(event, participant_count, group_chat_id)
+                await self.materialization_service.announce_event_completed(
+                    event, participant_count, group_chat_id
+                )
 
             # Trigger memory collection
             if self.memory_service:
@@ -142,17 +158,23 @@ class EventLifecycleService:
             # Track failed attempt in stats
             if event.group_id and event.event_type:
                 confirmed = await self._get_participant_count(event.event_id)
-                await self.stats_service.record_attempt(event.group_id, event.event_type, dropout_point=confirmed)
+                await self.stats_service.record_attempt(
+                    event.group_id, event.event_type, dropout_point=confirmed
+                )
 
     async def _get_group_chat_id(self, event: Event) -> Optional[int]:
         """Get the Telegram group chat ID for the event."""
         from sqlalchemy import select
         from db.models import Group
 
-        result = await self.session.execute(select(Group.telegram_group_id).where(Group.group_id == event.group_id))
+        result = await self.session.execute(
+            select(Group.telegram_group_id).where(Group.group_id == event.group_id)
+        )
         return result.scalar_one_or_none()
 
-    async def _get_confirmed_participants(self, event_id: int) -> list[EventParticipant]:
+    async def _get_confirmed_participants(
+        self, event_id: int
+    ) -> list[EventParticipant]:
         """Get confirmed participants for the event."""
         from sqlalchemy import select
 

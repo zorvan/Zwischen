@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
 
+from bot.common.i18n import t
 from db.models import Event, EventMemory, EventParticipant, Group, ParticipantStatus
 
 logger = logging.getLogger("coord_bot.digest")
@@ -93,11 +94,15 @@ class WeeklyDigestService:
                 {
                     "event_id": event.event_id,
                     "event_type": event.event_type,
-                    "description": event.description[:100] if event.description else "N/A",
+                    "description": (
+                        event.description[:100] if event.description else "N/A"
+                    ),
                     "completed_at": event.completed_at,
                     "weave_text": memory.weave_text,
                     "hashtags": memory.hashtags or [],
-                    "participant_count": await self._get_participant_count(event.event_id),
+                    "participant_count": await self._get_participant_count(
+                        event.event_id
+                    ),
                 }
             )
 
@@ -128,7 +133,9 @@ class WeeklyDigestService:
                 {
                     "event_id": event.event_id,
                     "event_type": event.event_type,
-                    "description": event.description[:100] if event.description else "N/A",
+                    "description": (
+                        event.description[:100] if event.description else "N/A"
+                    ),
                     "scheduled_time": event.scheduled_time,
                     "state": event.state,
                     "confirmed_count": await self._get_confirmed_count(event.event_id),
@@ -199,7 +206,9 @@ class WeeklyDigestService:
     async def _get_participant_count(self, event_id: int) -> int:
         """Get total participant count for event."""
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(EventParticipant.event_id == event_id)
+            select(func.count(EventParticipant.telegram_user_id)).where(
+                EventParticipant.event_id == event_id
+            )
         )
         return result.scalar() or 0
 
@@ -257,7 +266,9 @@ class WeeklyDigestService:
             lines.append("")
 
         # Footer
-        lines.append(f"_Generated on {digest['generated_at'].strftime('%Y-%m-%d %H:%M')}_")
+        lines.append(
+            f"_Generated on {digest['generated_at'].strftime('%Y-%m-%d %H:%M')}_"
+        )
 
         return "\n".join(lines)
 
@@ -273,8 +284,14 @@ class WeeklyDigestService:
         keyboard = InlineKeyboardMarkup(
             [
                 [
-                    InlineKeyboardButton("📊 View All Events", callback_data="digest_events"),
-                    InlineKeyboardButton("📿 View All Memories", callback_data="digest_memories"),
+                    InlineKeyboardButton(
+                        t("digest_view_all_events", lang="en"),
+                        callback_data="digest_events",
+                    ),
+                    InlineKeyboardButton(
+                        t("digest_view_all_memories", lang="en"),
+                        callback_data="digest_memories",
+                    ),
                 ],
             ]
         )

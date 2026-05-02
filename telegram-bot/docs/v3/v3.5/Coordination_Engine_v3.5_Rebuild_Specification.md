@@ -1,14 +1,14 @@
 # Coordination Engine — v3.5 Rebuild Specification
 
-**Document Type:** Product & Engineering Specification  
-**Status:** Active — For Immediate Implementation  
-**Addresses:** UX Fragmentation · LLM Inconsistency · DB Rigidity · Engagement Vacuum  
-**Philosophy:** `docs/v3/WHY_VERSION_3.md` — Relational emergence, not computational governance  
+**Document Type:** Product & Engineering Specification
+**Status:** Active — For Immediate Implementation
+**Addresses:** UX Fragmentation · LLM Inconsistency · DB Rigidity · Engagement Vacuum
+**Philosophy:** `docs/v3/WHY_VERSION_3.md` — Relational emergence, not computational governance
 **Intended Readers:** Engineers, designers, AI agents building this system
 
 ---
 
-> **North Star**  
+> **North Star**
 > The value is not knowing more about people. The value is shaping how people relate to what they already know is forming. Every decision in this document is derived from that premise.
 
 ---
@@ -186,7 +186,7 @@ Event creation is reached through `/events` via the `[ + Create New Event ]` but
 6. System presents a draft card: description, type, time, suggested min participants. User confirms or edits inline.
 7. On confirm: event is created, Live Card posts to group, `/events` list updates, organizer is auto-joined as participant.
 
-**Why memory-first is non-negotiable:**  
+**Why memory-first is non-negotiable:**
 From `WHY_VERSION_3.md`: *"Memory is a coordination input, not a coordination output."* If a user can bypass prior memories by choosing a create path, then memory is still an artifact — it arrives too late to shape what forms next. The creation flow must surface prior memory even if the user taps "skip" — showing it changes the affordance.
 
 ---
@@ -995,7 +995,7 @@ All schema changes and new service files. No command or handler changes. Deploye
 
 ### 6.1 Callback Data Length Limits
 
-Telegram inline keyboard `callback_data` is limited to **64 bytes**. The current codebase has callback patterns that may exceed this (`menu_event_select_123_details_constraints_available`). 
+Telegram inline keyboard `callback_data` is limited to **64 bytes**. The current codebase has callback patterns that may exceed this (`menu_event_select_123_details_constraints_available`).
 
 **Enforce this pattern everywhere:**
 
@@ -1211,7 +1211,7 @@ The internal state machine should not be visible to users. The display layer tra
 
 Emoji for event types:
 - `🏃` Sports
-- 🍕 Social  
+- 🍕 Social
 - 💻 Work
 - 🎯 Other / default
 
@@ -1272,7 +1272,7 @@ The vision in this codebase is unusual and precise. `WHY_VERSION_3.md` is not as
 
 **Does this make the forming event more legible to the people who are forming it?**
 
-If yes: build it.  
+If yes: build it.
 If it requires knowing more about people to work: do not build it.
 
 The failure mode to watch for is the one that killed v2: building two systems simultaneously — one that says "people commit when they feel seen" and one that secretly scores, ranks, and models them. These two systems are not in tension they can resolve. They are architecturally incompatible.
@@ -1288,5 +1288,5 @@ Every recommendation in this document was evaluated against the six questions fr
 
 ---
 
-*Document version: v3.5-rebuild-spec*  
+*Document version: v3.5-rebuild-spec*
 *Prepared for the Coordination Engine open source engineering team*

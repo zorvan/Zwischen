@@ -6,28 +6,48 @@ Use these consistently. Never let the bot go silent on an error.
 """
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from bot.common.i18n import t
+
 
 # =============================================================================
 # Fallback Messages
 # =============================================================================
 
-FALLBACK_CLARIFY_TEXT = "I didn't quite get that. What did you want to do?"
 
-FALLBACK_CLARIFY_KEYBOARD = [
-    [
-        InlineKeyboardButton("📋 View Events", callback_data="menu_my_events"),
-    ],
-    [
-        InlineKeyboardButton("➕ Create Event", callback_data="events_create_new"),
-    ],
-    [
-        InlineKeyboardButton("Never mind", callback_data="noop"),
-    ],
-]
+def fallback_clarify_text(lang: str = "en") -> str:
+    """Get the fallback clarify text for the given language."""
+    return t("fallback_clarify", lang=lang)
 
-FALLBACK_EVENT_NEEDED_TEXT = "Which event are you referring to? Here are your active events:"
 
-FALLBACK_GENERAL_TEXT = "Type /events to see what's happening in your group."
+def fallback_clarify_keyboard(lang: str = "en") -> list[list[InlineKeyboardButton]]:
+    """Build fallback clarify keyboard for the given language."""
+    return [
+        [
+            InlineKeyboardButton(
+                t("fallback_view_events", lang=lang), callback_data="menu_my_events"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("fallback_create_event", lang=lang), callback_data="events_create_new"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                t("fallback_never_mind", lang=lang), callback_data="noop"
+            )
+        ],
+    ]
+
+
+def fallback_event_needed_text(lang: str = "en") -> str:
+    """Get the fallback event needed text for the given language."""
+    return t("fallback_event_needed", lang=lang)
+
+
+def fallback_general_text(lang: str = "en") -> str:
+    """Get the fallback general text for the given language."""
+    return t("fallback_general", lang=lang)
 
 
 # =============================================================================
@@ -35,15 +55,19 @@ FALLBACK_GENERAL_TEXT = "Type /events to see what's happening in your group."
 # =============================================================================
 
 
-def build_fallback_clarify_markup() -> InlineKeyboardMarkup:
+def build_fallback_clarify_markup(lang: str = "en") -> InlineKeyboardMarkup:
     """Build keyboard for FALLBACK_CLARIFY."""
-    return InlineKeyboardMarkup(FALLBACK_CLARIFY_KEYBOARD)
+    return InlineKeyboardMarkup(fallback_clarify_keyboard(lang))
 
 
-def build_fallback_general_markup() -> InlineKeyboardMarkup:
+def build_fallback_general_markup(lang: str = "en") -> InlineKeyboardMarkup:
     """Build a simple keyboard for FALLBACK_GENERAL."""
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("📋 View Events", callback_data="menu_my_events")],
+            [
+                InlineKeyboardButton(
+                    t("fallback_view_events", lang=lang), callback_data="menu_my_events"
+                )
+            ],
         ]
     )

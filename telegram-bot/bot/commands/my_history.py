@@ -67,20 +67,27 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         async with get_session(settings.db_url) as session:
             # Get user
-            result = await session.execute(select(User).where(User.telegram_user_id == user_id))
+            result = await session.execute(
+                select(User).where(User.telegram_user_id == user_id)
+            )
             user = result.scalar_one_or_none()
 
             if not user:
-                await update.message.reply_text("You're not registered yet.\n" "Use /start to register.")
+                await update.message.reply_text(
+                    "You're not registered yet.\n" "Use /start to register."
+                )
                 return
 
             # Get participation history
-            history = await _get_participation_history(session, user.user_id, event_type_filter)
+            history = await _get_participation_history(
+                session, user.user_id, event_type_filter
+            )
 
             if not history:
                 if event_type_filter:
                     await update.message.reply_text(
-                        f"No {event_type_filter} events in your history yet.\n\n" f"Use /my_history to see all events."
+                        f"No {event_type_filter} events in your history yet.\n\n"
+                        f"Use /my_history to see all events."
                     )
                 else:
                     await update.message.reply_text(
@@ -91,7 +98,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
 
             # Build response
-            response = await _format_history_response(user, history, event_type_filter, session)
+            response = await _format_history_response(
+                user, history, event_type_filter, session
+            )
 
             await update.message.reply_text(response, parse_mode="HTML")
 
@@ -136,7 +145,9 @@ async def _get_participation_history(
     history = []
     for event, participant in rows:
         # Check if event has memory weave
-        memory_result = await session.execute(select(EventMemory).where(EventMemory.event_id == event.event_id))
+        memory_result = await session.execute(
+            select(EventMemory).where(EventMemory.event_id == event.event_id)
+        )
         memory = memory_result.scalar_one_or_none()
 
         history.append(
@@ -166,8 +177,12 @@ async def _format_history_response(
 
     # Summary stats
     total = len(history)
-    confirmed = sum(1 for h in history if h["participant"].status == ParticipantStatus.confirmed)
-    no_shows = sum(1 for h in history if h["participant"].status == ParticipantStatus.no_show)
+    confirmed = sum(
+        1 for h in history if h["participant"].status == ParticipantStatus.confirmed
+    )
+    no_shows = sum(
+        1 for h in history if h["participant"].status == ParticipantStatus.no_show
+    )
     with_memories = sum(1 for h in history if h["has_memory"])
 
     header += (
@@ -213,7 +228,10 @@ async def _format_history_response(
         # Memory indicator
         memory_indicator = " 📿" if h["has_memory"] else ""
 
-        events_list.append(f"{i}. {status_emoji} <b>{event_title}</b>{memory_indicator}\n" f"   {date_str}")
+        events_list.append(
+            f"{i}. {status_emoji} <b>{event_title}</b>{memory_indicator}\n"
+            f"   {date_str}"
+        )
 
     body = "\n\n".join(events_list)
 
@@ -237,7 +255,9 @@ async def _get_participation_summary(
     """Get participation summary statistics."""
     # Total events
     total_result = await session.execute(
-        select(func.count(func.distinct(EventParticipant.event_id))).where(EventParticipant.telegram_user_id == user_id)
+        select(func.count(func.distinct(EventParticipant.event_id))).where(
+            EventParticipant.telegram_user_id == user_id
+        )
     )
     total_events = total_result.scalar() or 0
 

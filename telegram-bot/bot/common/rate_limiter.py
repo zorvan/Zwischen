@@ -58,7 +58,9 @@ class RateLimiter:
         self._cleanup_interval = 300  # Cleanup every 5 minutes
         self._last_cleanup = datetime.utcnow()
 
-    def _get_key(self, user_id: Optional[int], group_id: Optional[int], action_type: str) -> str:
+    def _get_key(
+        self, user_id: Optional[int], group_id: Optional[int], action_type: str
+    ) -> str:
         """Generate rate limit key."""
         if group_id:
             return f"group:{group_id}:{action_type}"
@@ -104,7 +106,8 @@ class RateLimiter:
 
         # Get limits for action type
         config = self.ACTION_LIMITS.get(
-            action_type, {"limit": self.DEFAULT_LIMIT, "window": self.DEFAULT_WINDOW_SECONDS}
+            action_type,
+            {"limit": self.DEFAULT_LIMIT, "window": self.DEFAULT_WINDOW_SECONDS},
         )
         limit = config["limit"]
         window = config["window"]
@@ -120,7 +123,9 @@ class RateLimiter:
         if current_count >= limit:
             # Calculate retry after
             oldest_in_window = min(self._requests[key])
-            retry_after = int((oldest_in_window + timedelta(seconds=window) - now).total_seconds())
+            retry_after = int(
+                (oldest_in_window + timedelta(seconds=window) - now).total_seconds()
+            )
             retry_after = max(1, retry_after)  # At least 1 second
             return False, retry_after
 
@@ -148,7 +153,8 @@ class RateLimiter:
         Returns dict with: current_count, limit, window, remaining, reset_at
         """
         config = self.ACTION_LIMITS.get(
-            action_type, {"limit": self.DEFAULT_LIMIT, "window": self.DEFAULT_WINDOW_SECONDS}
+            action_type,
+            {"limit": self.DEFAULT_LIMIT, "window": self.DEFAULT_WINDOW_SECONDS},
         )
         limit = config["limit"]
         window = config["window"]
@@ -205,7 +211,10 @@ async def check_rate_limit(
     is_allowed, retry_after = limiter.check_rate_limit(user_id, group_id, action_type)
 
     if not is_allowed:
-        error_msg = f"⚠️ Rate limit exceeded. Please wait {retry_after} seconds " f"before trying again."
+        error_msg = (
+            f"⚠️ Rate limit exceeded. Please wait {retry_after} seconds "
+            f"before trying again."
+        )
         if raise_on_exceed:
             raise RateLimitExceeded(error_msg, retry_after)
         return False, error_msg

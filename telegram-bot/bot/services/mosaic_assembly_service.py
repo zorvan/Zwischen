@@ -215,7 +215,9 @@ class MosaicAssembler:
             List of fragment dictionaries with content and metadata
         """
         # Find parent event through lineage
-        lineage_stmt = select(EventLineage).where(EventLineage.child_event_id == event_id)
+        lineage_stmt = select(EventLineage).where(
+            EventLineage.child_event_id == event_id
+        )
         lineage_result = await self.session.execute(lineage_stmt)
         lineage = lineage_result.scalar_one_or_none()
 
@@ -245,9 +247,15 @@ class MosaicAssembler:
             fragments.append(
                 {
                     "id": memory.id,
-                    "content": memory.content[:200] + "..." if len(memory.content) > 200 else memory.content,
+                    "content": (
+                        memory.content[:200] + "..."
+                        if len(memory.content) > 200
+                        else memory.content
+                    ),
                     "author_id": memory.telegram_user_id,
-                    "created_at": memory.created_at.isoformat() if memory.created_at else None,
+                    "created_at": (
+                        memory.created_at.isoformat() if memory.created_at else None
+                    ),
                     "parent_event_id": parent_event_id,
                 }
             )
@@ -298,7 +306,11 @@ class MosaicAssembler:
             memory_id: Memory to update
             is_public: New visibility status
         """
-        stmt = update(EventEnrichment).where(EventEnrichment.id == memory_id).values(is_public=is_public)
+        stmt = (
+            update(EventEnrichment)
+            .where(EventEnrichment.id == memory_id)
+            .values(is_public=is_public)
+        )
         await self.session.execute(stmt)
         await self.session.commit()
 

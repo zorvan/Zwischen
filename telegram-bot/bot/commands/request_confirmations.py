@@ -11,6 +11,7 @@ from db.connection import get_session
 from db.models import Event, User
 from bot.services import ParticipantService
 from bot.common.callback_data import encode_callback
+from bot.common.i18n import t, get_user_language
 
 
 def _format_user_label(user: User | None, telegram_user_id: int) -> str:
@@ -26,16 +27,21 @@ async def send_confirmation_request_message(
     reply_message,
     context: ContextTypes.DEFAULT_TYPE,
     event_id: int,
+    user_lang: str = "en",
 ) -> None:
     """Send a group message asking participants to confirm via inline button."""
     if not settings.db_url:
-        await reply_message.reply_text("ℹ️ Database configuration is unavailable.")
+        await reply_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
 
     async with get_session(settings.db_url) as session:
-        event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
+        event = (
+            await session.execute(select(Event).where(Event.event_id == event_id))
+        ).scalar_one_or_none()
         if not event:
-            await reply_message.reply_text("ℹ️ Event not found.")
+            await reply_message.reply_text(
+                t("request_confirmations_event_not_found", lang=user_lang)
+            )
             return
 
         # Get participants using ParticipantService
@@ -54,7 +60,13 @@ async def send_confirmation_request_message(
         users_by_tid: dict[int, User] = {}
         if participants:
             users = (
-                (await session.execute(select(User).where(User.telegram_user_id.in_(list(participants)))))
+                (
+                    await session.execute(
+                        select(User).where(
+                            User.telegram_user_id.in_(list(participants))
+                        )
+                    )
+                )
                 .scalars()
                 .all()
             )
@@ -63,42 +75,73 @@ async def send_confirmation_request_message(
     pending_labels = (
         ", ".join(_format_user_label(users_by_tid.get(uid), uid) for uid in pending)
         if pending
-        else "No pending participants."
+        else t("request_confirmations_no_pending", lang=user_lang)
     )
     confirmed_labels = (
-        ", ".join(_format_user_label(users_by_tid.get(uid), uid) for uid in sorted(confirmed)) if confirmed else "None"
+        ", ".join(
+            _format_user_label(users_by_tid.get(uid), uid) for uid in sorted(confirmed)
+        )
+        if confirmed
+        else t("request_confirmations_none", lang=user_lang)
     )
 
     keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Confirm", callback_data=encode_callback("commit", event_id)),
-                InlineKeyboardButton("Uncommit", callback_data=encode_callback("cancel", event_id)),
+                InlineKeyboardButton(
+                    t("request_confirmations_confirm", lang=user_lang),
+                    callback_data=encode_callback("commit", event_id),
+                ),
+                InlineKeyboardButton(
+                    t("request_confirmations_uncommit", lang=user_lang),
+                    callback_data=encode_callback("cancel", event_id),
+                ),
             ],
             [
-                InlineKeyboardButton("Step Back", callback_data=encode_callback("cancel", event_id)),
-                InlineKeyboardButton("Lock", callback_data=encode_callback("lock", event_id)),
+                InlineKeyboardButton(
+                    t("request_confirmations_step_back", lang=user_lang),
+                    callback_data=encode_callback("cancel", event_id),
+                ),
+                InlineKeyboardButton(
+                    t("request_confirmations_lock", lang=user_lang),
+                    callback_data=encode_callback("lock", event_id),
+                ),
             ],
-            [InlineKeyboardButton("Status", callback_data=encode_callback("det", event_id))],
+            [
+                InlineKeyboardButton(
+                    t("request_confirmations_status", lang=user_lang),
+                    callback_data=encode_callback("det", event_id),
+                )
+            ],
         ]
     )
     await reply_message.reply_text(
-        "📣 *Confirmation Request*\n\n"
-        f"Event ID: {event_id}\n"
-        f"Type: {event.event_type}\n"
-        f"Time: {event.scheduled_time or 'TBD'}\n"
-        f"State: {event.state}\n\n"
-        f"Pending commitments ({len(pending)}): {pending_labels}\n"
-        f"Already committed ({len(confirmed)}): {confirmed_labels}\n\n"
-        "Participants should click *Confirm* to commit attendance.",
+        t(
+            "request_confirmations_message",
+            lang=user_lang,
+            event_id=event_id,
+            type=event.event_type,
+            time=event.scheduled_time or "TBD",
+            state=event.state,
+            count=len(pending),
+            pending=pending_labels,
+            confirmed_count=len(confirmed),
+            confirmed=confirmed_labels,
+        ),
         reply_markup=keyboard,
     )
- # Send final confirmation DM to attendees.
+    # Send final confirmation DM to attendees.
     dm_keyboard = InlineKeyboardMarkup(
         [
             [
-                InlineKeyboardButton("Final Confirm", callback_data=encode_callback("commit", event_id)),
-                InlineKeyboardButton("Uncommit", callback_data=encode_callback("cancel", event_id)),
+                InlineKeyboardButton(
+                    t("request_confirmations_final_confirm", lang=user_lang),
+                    callback_data=encode_callback("commit", event_id),
+                ),
+                InlineKeyboardButton(
+                    t("request_confirmations_uncommit", lang=user_lang),
+                    callback_data=encode_callback("cancel", event_id),
+                ),
             ]
         ]
     )
@@ -107,12 +150,12 @@ async def send_confirmation_request_message(
         try:
             await context.bot.send_message(
                 chat_id=tid,
-                text=(
-                    "📩 *Final Confirmation Required*\n\n"
-                    f"Event ID: {event_id}\n"
-                    f"Type: {event.event_type}\n"
-                    f"Time: {event.scheduled_time or 'TBD'}\n\n"
-                    "Please commit or go back."
+                text=t(
+                    "request_confirmations_final_dm",
+                    lang=user_lang,
+                    event_id=event_id,
+                    type=event.event_type,
+                    time=event.scheduled_time or "TBD",
                 ),
                 reply_markup=dm_keyboard,
             )
@@ -120,7 +163,14 @@ async def send_confirmation_request_message(
         except Exception:
             continue
 
-    await reply_message.reply_text(f"ℹ️ Final-confirmation DM sent to {dm_sent}/{len(participants)} attendees.")
+    await reply_message.reply_text(
+        t(
+            "request_confirmations_dm_sent",
+            lang=user_lang,
+            sent=dm_sent,
+            total=len(participants),
+        )
+    )
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -128,20 +178,28 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message:
         return
 
+    user_lang = (
+        get_user_language(update.message.from_user)
+        if update.message.from_user
+        else "en"
+    )
     event_id_raw = context.args[0] if context.args else None
     if not event_id_raw:
         await update.message.reply_text(
-            "Usage: /request_confirmations <event_id>\n\n" "Example: /request_confirmations 123"
+            t("request_confirmations_usage", lang=user_lang)
         )
         return
     try:
         event_id = int(event_id_raw)
     except ValueError:
-        await update.message.reply_text("ℹ️ Event ID must be a number.")
+        await update.message.reply_text(
+            t("request_confirmations_event_id_invalid", lang=user_lang)
+        )
         return
 
     await send_confirmation_request_message(
         reply_message=update.message,
         context=context,
         event_id=event_id,
+        user_lang=user_lang,
     )

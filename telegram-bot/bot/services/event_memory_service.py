@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from telegram import Bot
 
+from bot.common.i18n import t
 from db.models import Event, EventMemory, EventParticipant, ParticipantStatus, User
 
 logger = logging.getLogger("coord_bot.services.memory")
@@ -50,7 +51,9 @@ class EventMemoryService:
         "something that didn't quite go as planned" as a valid frame.
         """
         if not event.completed_at:
-            logger.warning("Attempted memory collection for incomplete event %s", event.event_id)
+            logger.warning(
+                "Attempted memory collection for incomplete event %s", event.event_id
+            )
             return
 
         result = await self.session.execute(
@@ -67,15 +70,22 @@ class EventMemoryService:
         participants = result.scalars().all()
 
         if not participants:
-            logger.info("No participants to collect memories from", extra={"event_id": event.event_id})
+            logger.info(
+                "No participants to collect memories from",
+                extra={"event_id": event.event_id},
+            )
             return
 
         logger.info(
-            "Starting memory collection for %d participants", len(participants), extra={"event_id": event.event_id}
+            "Starting memory collection for %d participants",
+            len(participants),
+            extra={"event_id": event.event_id},
         )
 
         # v3.2: Check for reflexive lineage fragment
-        lineage_fragment = await self.get_lineage_door_fragment(event.group_id or 0, event.event_type)
+        lineage_fragment = await self.get_lineage_door_fragment(
+            event.group_id or 0, event.event_type
+        )
 
         for participant in participants:
             await self._send_memory_request(participant, event, lineage_fragment)
@@ -100,31 +110,29 @@ class EventMemoryService:
         user = user_result.scalar_one_or_none()
 
         if not user or not user.telegram_user_id:
-            logger.warning("Cannot find user for participant %s", participant.telegram_user_id)
+            logger.warning(
+                "Cannot find user for participant %s", participant.telegram_user_id
+            )
             return
 
         # v3.2: Build reflexive lineage door message
         event_name = f"{event.event_type}"
         if event.scheduled_time:
-            event_name = f"{event.event_type} on {event.scheduled_time.strftime('%d %b')}"
+            event_name = (
+                f"{event.event_type} on {event.scheduled_time.strftime('%d %b')}"
+            )
 
         if lineage_fragment:
             # Reflexive lineage door with prior fragment
-            message = (
-                f"How was {event_name}? The last time your group did something like this, "
-                f'someone said: "{lineage_fragment}".\n\n'
-                f"Anything from today you'd want to remember? A moment that worked, "
-                f"something that surprised you, something that didn't quite go as planned. "
-                f"Whatever comes to mind."
+            message = t(
+                "memory_request_with_lineage",
+                lang="en",
+                event_name=event_name,
+                lineage_fragment=lineage_fragment,
             )
         else:
             # No prior fragment — reflexive prompt without lineage door
-            message = (
-                f"How was {event_name}? Anything that stuck with you — a moment that worked, "
-                f"something that surprised you, something that didn't quite go as planned. "
-                f"Whatever comes to mind.\n\n"
-                f"(This isn't feedback or a rating — just what you want to remember.)"
-            )
+            message = t("memory_request", lang="en", event_name=event_name)
 
         try:
             await self.bot.send_message(
@@ -133,9 +141,14 @@ class EventMemoryService:
                 # No parse_mode — plain text to avoid issues with user-contributed
                 # fragments containing HTML special characters
             )
-            logger.info("Sent memory request", extra={"event_id": event.event_id, "user": user.user_id})
+            logger.info(
+                "Sent memory request",
+                extra={"event_id": event.event_id, "user": user.user_id},
+            )
         except Exception as e:
-            logger.error("Failed to send memory request to user %s: %s", user.user_id, e)
+            logger.error(
+                "Failed to send memory request to user %s: %s", user.user_id, e
+            )
 
     async def collect_memory_fragment(
         self,
@@ -150,7 +163,9 @@ class EventMemoryService:
         v3: No deadline — fragments accepted weeks after event.
         v3.2: word_count computed at write time for hook/lineage qualification.
         """
-        contributor_hash = hashlib.sha256(f"{event_id}:{user_id}:{datetime.utcnow().date()}".encode()).hexdigest()[:8]
+        contributor_hash = hashlib.sha256(
+            f"{event_id}:{user_id}:{datetime.utcnow().date()}".encode()
+        ).hexdigest()[:8]
 
         # v3.2: count words at write time
         word_count = len(fragment_text.split())
@@ -181,7 +196,9 @@ class EventMemoryService:
         fragment: Dict[str, Any],
     ) -> EventMemory:
         """Add fragment to event memory (create or update EventMemory)."""
-        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == event_id))
+        result = await self.session.execute(
+            select(EventMemory).where(EventMemory.event_id == event_id)
+        )
         memory = result.scalar_one_or_none()
 
         if not memory:
@@ -206,7 +223,9 @@ class EventMemoryService:
         v3 Constraint: LLM rearranges fragments only. No words added. No interpretation.
         If LLM can't be constrained, fall back to chronological ordering.
         """
-        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == event.event_id))
+        result = await self.session.execute(
+            select(EventMemory).where(EventMemory.event_id == event.event_id)
+        )
         memory = result.scalar_one_or_none()
 
         if not memory or not memory.fragments:
@@ -254,9 +273,7 @@ class EventMemoryService:
             )
             weave_text = self._chronological_weave(memory.fragments)
 
-        event_anchor = (
-            f"{event.event_type} • {event.scheduled_time.strftime('%d %b %Y') if event.scheduled_time else 'TBD'}"
-        )
+        event_anchor = f"{event.event_type} • {event.scheduled_time.strftime('%d %b %Y') if event.scheduled_time else 'TBD'}"
         header = f"📿 <b>How people remember: {event_anchor}</b>\n\n"
         full_weave = header + weave_text
 
@@ -292,15 +309,21 @@ class EventMemoryService:
                 text=weave_text,
                 parse_mode="HTML",
             )
-            logger.info("Posted memory weave to group", extra={"event_id": event.event_id})
+            logger.info(
+                "Posted memory weave to group", extra={"event_id": event.event_id}
+            )
             return True
         except Exception as e:
-            logger.error("Failed to post memory weave to group %s: %s", group_chat_id, e)
+            logger.error(
+                "Failed to post memory weave to group %s: %s", group_chat_id, e
+            )
             return False
 
     async def add_hashtags(self, event_id: int, hashtags: List[str]) -> EventMemory:
         """Add group hashtags to event memory."""
-        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == event_id))
+        result = await self.session.execute(
+            select(EventMemory).where(EventMemory.event_id == event_id)
+        )
         memory = result.scalar_one_or_none()
 
         if not memory:
@@ -316,7 +339,9 @@ class EventMemoryService:
         marker: Dict[str, Any],
     ) -> EventMemory:
         """Add outcome marker (e.g., 'led to collaboration X')."""
-        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == event_id))
+        result = await self.session.execute(
+            select(EventMemory).where(EventMemory.event_id == event_id)
+        )
         memory = result.scalar_one_or_none()
 
         if not memory:
@@ -335,7 +360,9 @@ class EventMemoryService:
         prior_event_ids: List[int],
     ) -> EventMemory:
         """Link current event to prior similar events (lineage)."""
-        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == current_event_id))
+        result = await self.session.execute(
+            select(EventMemory).where(EventMemory.event_id == current_event_id)
+        )
         memory = result.scalar_one_or_none()
 
         if not memory:
@@ -348,10 +375,14 @@ class EventMemoryService:
 
     async def get_memory_weave(self, event_id: int) -> Optional[EventMemory]:
         """Get memory weave for an event."""
-        result = await self.session.execute(select(EventMemory).where(EventMemory.event_id == event_id))
+        result = await self.session.execute(
+            select(EventMemory).where(EventMemory.event_id == event_id)
+        )
         return result.scalar_one_or_none()
 
-    async def get_recent_memories(self, group_id: int, limit: int = 10) -> List[EventMemory]:
+    async def get_recent_memories(
+        self, group_id: int, limit: int = 10
+    ) -> List[EventMemory]:
         """Get recent memory weaves for a group (for /recall)."""
         result = await self.session.execute(
             select(EventMemory)
@@ -446,7 +477,9 @@ class EventMemoryService:
         if not memory or not memory.fragments:
             return None
 
-        qualifying = [f for f in memory.fragments if f.get("word_count", 999) <= max_words]
+        qualifying = [
+            f for f in memory.fragments if f.get("word_count", 999) <= max_words
+        ]
         if not qualifying:
             return None
 
@@ -501,7 +534,9 @@ class EventMemoryService:
         if not memory or not memory.fragments:
             return None
 
-        qualifying = [f for f in memory.fragments if f.get("word_count", 999) <= max_words]
+        qualifying = [
+            f for f in memory.fragments if f.get("word_count", 999) <= max_words
+        ]
         if not qualifying:
             return None
 
@@ -526,7 +561,11 @@ class EventMemoryService:
             "despite",
             "still",
         }
-        reflexive = [f for f in qualifying if any(kw in f.get("text", "").lower() for kw in reflexive_keywords)]
+        reflexive = [
+            f
+            for f in qualifying
+            if any(kw in f.get("text", "").lower() for kw in reflexive_keywords)
+        ]
         if reflexive:
             return min(reflexive, key=lambda f: f.get("word_count", 999)).get("text")
 

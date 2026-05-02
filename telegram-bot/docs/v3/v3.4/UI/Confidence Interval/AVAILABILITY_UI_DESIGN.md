@@ -45,7 +45,7 @@ Constraint(
 ```python
 class Constraint(Base):
     __tablename__ = "constraints"
-    
+
     constraint_id = Column(Integer, primary_key=True)
     user_id = Column(BigInteger, ForeignKey("users.user_id"), nullable=False)
     event_id = Column(BigInteger, ForeignKey("events.event_id"), nullable=False)
@@ -55,7 +55,7 @@ class Constraint(Base):
     confidence = Column(Integer, nullable=False)  # 20-100 in steps of 10
     metadata = Column(JSON)  # Additional preferences, notes
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
-    
+
     # Relationships
     user = relationship("User", back_populates="constraints")
     event = relationship("Event", back_populates="constraints")
@@ -66,7 +66,7 @@ class Constraint(Base):
 # Single time slot with high confidence
 {
     "start_time": "2026-04-18 18:00",
-    "end_time": "2026-04-18 20:00", 
+    "end_time": "2026-04-18 20:00",
     "confidence": 90,
     "metadata": {"note": "Prefer earlier if possible", "flexible": True}
 }
@@ -107,7 +107,7 @@ Select Date(s)
 Select Time Range
 
 Morning:   [06:00] - [12:00]  (6 hours)
-Afternoon: [12:00] - [18:00]  (6 hours)  
+Afternoon: [12:00] - [18:00]  (6 hours)
 Evening:   [18:00] - [22:00]  (4 hours)
 Night:     [22:00] - [02:00]  (4 hours)
 Custom:    [HH:MM] - [HH:MM]
@@ -123,7 +123,7 @@ Set Confidence Level
 Legend:
 20-40%: If nothing better comes up
 50-70%: Good option, prefer if possible
-80-90%: Strong preference  
+80-90%: Strong preference
 100%: Definite commitment
 ```
 
@@ -160,29 +160,29 @@ Final Event Recommendation
 def generate_availability_prompt(event_info, user_availabilities):
     prompt = f"""
     Analyze availability data for optimal event scheduling:
-    
+
     Event Details:
     - Type: {event_info['type']}
     - Duration: {event_info['duration_minutes']} minutes
     - Participants: {event_info['participant_count']}
     - Preferred Time Range: {event_info.get('preferred_range', 'Any')}
-    
+
     User Availability Data:
     {format_user_availabilities(user_availabilities)}
-    
-    Task: 
+
+    Task:
     1. Identify overlapping time windows
     2. Calculate confidence scores for each window
     3. Consider event type preferences
     4. Rank top 3 optimal time slots
     5. Provide reasoning for each recommendation
-    
+
     Output Format:
     {{
         "recommendations": [
             {{
                 "start_time": "YYYY-MM-DD HH:MM",
-                "end_time": "YYYY-MM-DD HH:MM", 
+                "end_time": "YYYY-MM-DD HH:MM",
                 "confidence_score": 85,
                 "participant_coverage": 0.8,
                 "reasoning": "High overlap during evening hours",
@@ -200,12 +200,12 @@ def generate_availability_prompt(event_info, user_availabilities):
 def calculate_time_slot_confidence(availabilities, start_time, end_time):
     """
     Calculate confidence score for a specific time slot based on user availabilities.
-    
+
     Formula: Weighted average of individual confidences
     """
     total_weight = 0
     weighted_confidence = 0
-    
+
     for availability in availabilities:
         if time_overlaps(availability, start_time, end_time):
             # Weight by confidence level and duration overlap
@@ -215,12 +215,12 @@ def calculate_time_slot_confidence(availabilities, start_time, end_time):
             weight = (availability.confidence / 100) * overlap_duration
             weighted_confidence += weight
             total_weight += overlap_duration
-    
+
     if total_weight == 0:
         return 0
-    
+
     base_confidence = (weighted_confidence / total_weight) * 100
-    
+
     # Apply modifiers
     modifiers = {
         'participant_count': apply_participant_count_modifier,
@@ -228,7 +228,7 @@ def calculate_time_slot_confidence(availabilities, start_time, end_time):
         'time_preference': apply_time_preference_modifier,
         'historical_success': apply_historical_modifier
     }
-    
+
     final_confidence = apply_modifiers(base_confidence, availabilities, modifiers)
     return min(100, max(0, final_confidence))
 ```
@@ -240,11 +240,11 @@ def calculate_time_slot_confidence(availabilities, start_time, end_time):
 def calculate_participant_coverage(availabilities, time_slot):
     available_participants = 0
     total_participants = len(availabilities)
-    
+
     for availability in availabilities:
         if time_overlaps(availability, time_slot.start, time_slot.end):
             available_participants += 1
-    
+
     return available_participants / total_participants
 ```
 
@@ -294,14 +294,14 @@ def calculate_base_confidence(user_availabilities, time_slot):
     """
     if not user_availabilities:
         return 0
-    
+
     # Weighted average of individual confidences
     total_confidence = sum(av.confidence for av in user_availabilities)
     avg_confidence = total_confidence / len(user_availabilities)
-    
+
     # Adjust for availability overlap
     overlap_factor = calculate_overlap_percentage(user_availabilities, time_slot)
-    
+
     return avg_confidence * overlap_factor
 ```
 
@@ -312,24 +312,24 @@ def assess_risk_factors(recommendation):
     Identify potential risks for a time slot recommendation.
     """
     risks = []
-    
+
     # Low confidence participants
     low_conf_users = [
-        av for av in recommendation['availabilities'] 
+        av for av in recommendation['availabilities']
         if av.confidence < 50
     ]
     if len(low_conf_users) > len(recommendation['availabilities']) * 0.3:
         risks.append("High number of low-confidence participants")
-    
+
     # Time conflicts
     if has_known_conflicts(recommendation['time_slot']):
         risks.append("Known conflicts with other events")
-    
+
     # Last-minute scheduling
     days_until_event = (recommendation['time_slot'].start - datetime.now()).days
     if days_until_event < 2:
         risks.append("Last-minute scheduling may reduce attendance")
-    
+
     return risks
 ```
 
@@ -340,7 +340,7 @@ def calculate_confidence_margin(base_confidence, risk_factors, modifiers):
     Calculate final confidence with margins for uncertainty.
     """
     margin = 0
-    
+
     # Risk-based margin reduction
     for risk in risk_factors:
         if risk['severity'] == 'high':
@@ -349,13 +349,13 @@ def calculate_confidence_margin(base_confidence, risk_factors, modifiers):
             margin -= 10
         elif risk['severity'] == 'low':
             margin -= 5
-    
+
     # Positive modifiers
     for modifier in modifiers:
         margin += modifier['bonus']
-    
+
     final_confidence = base_confidence + margin
-    
+
     # Ensure bounds
     return min(100, max(0, final_confidence))
 ```
@@ -367,15 +367,15 @@ def calculate_confidence_margin(base_confidence, risk_factors, modifiers):
 ### Database Schema Changes
 ```sql
 -- Add new columns to constraints table
-ALTER TABLE constraints 
+ALTER TABLE constraints
 ADD COLUMN start_time TIMESTAMP NOT NULL,
 ADD COLUMN end_time TIMESTAMP NOT NULL,
 ADD COLUMN confidence INTEGER NOT NULL CHECK (confidence >= 20 AND confidence <= 100),
 ADD COLUMN metadata JSON;
 
 -- Update existing availability constraints
-UPDATE constraints 
-SET 
+UPDATE constraints
+SET
     start_time = TO_TIMESTAMP(SUBSTRING(type FROM 12), 'YYYY-MM-DD HH24:MI'),
     end_time = TO_TIMESTAMP(SUBSTRING(type FROM 12), 'YYYY-MM-DD HH24:MI') + INTERVAL '1 hour',
     confidence = 100,
@@ -405,10 +405,10 @@ async def set_availability(
         confidence=availability.confidence,
         metadata=availability.metadata or {}
     )
-    
+
     db.add(constraint)
     await db.commit()
-    
+
     return {"message": "Availability set successfully"}
 ```
 
@@ -424,19 +424,19 @@ async def get_optimal_time_slots(
     """
     # Fetch event details
     event = await get_event(event_id)
-    
+
     # Fetch all user availabilities
     availabilities = await get_event_availabilities(event_id)
-    
+
     # LLM analysis
     llm_response = await llm_client.analyze_availability(
         event_info=event.to_dict(),
         user_availabilities=[av.to_dict() for av in availabilities]
     )
-    
+
     # Process and rank recommendations
     recommendations = process_llm_response(llm_response)
-    
+
     return {
         "event_id": event_id,
         "recommendations": recommendations,
@@ -449,48 +449,48 @@ async def get_optimal_time_slots(
 class AvailabilityAnalyzer:
     def __init__(self, llm_client):
         self.llm_client = llm_client
-    
+
     async def analyze_and_recommend(self, event_info, user_availabilities):
         """
         Analyze availability data and generate recommendations.
         """
         # Generate time slot candidates
         candidates = self.generate_time_candidates(event_info, user_availabilities)
-        
+
         # Calculate base confidences
         scored_candidates = []
         for candidate in candidates:
             confidence = calculate_time_slot_confidence(
-                user_availabilities, 
-                candidate['start'], 
+                user_availabilities,
+                candidate['start'],
                 candidate['end']
             )
             candidate['base_confidence'] = confidence
             scored_candidates.append(candidate)
-        
+
         # LLM enhancement
         prompt = self.generate_analysis_prompt(event_info, user_availabilities, scored_candidates)
         llm_response = await self.llm_client.generate(prompt)
-        
+
         # Process LLM recommendations
         enhanced_recommendations = self.process_llm_recommendations(
             scored_candidates, llm_response
         )
-        
+
         return enhanced_recommendations
-    
+
     def generate_time_candidates(self, event_info, user_availabilities):
         """
         Generate candidate time slots based on availability overlaps.
         """
         # Find overlapping time windows
         overlaps = find_overlapping_windows(user_availabilities)
-        
+
         # Generate candidates from overlaps
         candidates = []
         for overlap in overlaps:
             candidates.extend(self.generate_slot_variants(overlap, event_info))
-        
+
         return candidates
 ```
 
@@ -554,7 +554,7 @@ class AvailabilityAnalysis(BaseModel):
 - Risk assessment logic
 - LLM prompt generation
 
-### Integration Tests  
+### Integration Tests
 - Database schema migrations
 - API endpoint functionality
 - LLM service integration

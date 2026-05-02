@@ -18,6 +18,8 @@ from telegram import Bot
 from sqlalchemy import select, func, delete
 
 from db.models import Event, Log, EventParticipant, ParticipantStatus, Group, User
+
+from bot.common.i18n import t
 from db.connection import get_session
 
 logger = logging.getLogger("coord_bot.scheduler")
@@ -56,7 +58,9 @@ class SchedulerService:
                     Event.state == "completed",
                     Event.completed_at <= two_hours_ago,
                 )
-                .outerjoin(EventParticipant, Event.event_id == EventParticipant.event_id)
+                .outerjoin(
+                    EventParticipant, Event.event_id == EventParticipant.event_id
+                )
                 .group_by(Event.event_id)
                 .having(func.count(EventParticipant.telegram_user_id) > 0)
             )
@@ -67,7 +71,9 @@ class SchedulerService:
                 # Check if memory collection already started
                 from db.models import EventMemory
 
-                memory_result = await session.execute(select(EventMemory).where(EventMemory.event_id == event.event_id))
+                memory_result = await session.execute(
+                    select(EventMemory).where(EventMemory.event_id == event.event_id)
+                )
                 if memory_result.scalar_one_or_none():
                     # Already collected
                     continue
@@ -80,7 +86,9 @@ class SchedulerService:
                 started_count += 1
 
                 logger.info(
-                    "Started memory collection for event %s", event.event_id, extra={"event_id": event.event_id}
+                    "Started memory collection for event %s",
+                    event.event_id,
+                    extra={"event_id": event.event_id},
                 )
 
             return started_count
@@ -99,7 +107,9 @@ class SchedulerService:
             ninety_days_ago = datetime.utcnow() - timedelta(days=90)
 
             # Delete old logs (not state transitions - those are audit trail)
-            result = await session.execute(delete(Log).where(Log.timestamp < ninety_days_ago))
+            result = await session.execute(
+                delete(Log).where(Log.timestamp < ninety_days_ago)
+            )
             deleted_count = result.rowcount
 
             await session.commit()
@@ -152,7 +162,9 @@ class SchedulerService:
                 min_required = event.min_participants or 2
                 if confirmed_count < min_required:
                     # Auto-cancel
-                    from bot.services.event_lifecycle_service import EventLifecycleService
+                    from bot.services.event_lifecycle_service import (
+                        EventLifecycleService,
+                    )
 
                     lifecycle = EventLifecycleService(self.bot, session)
 
@@ -208,7 +220,9 @@ class SchedulerService:
             sent_count = 0
             for event in events:
                 # Get group chat ID
-                group_result = await session.execute(select(Group).where(Group.group_id == event.group_id))
+                group_result = await session.execute(
+                    select(Group).where(Group.group_id == event.group_id)
+                )
                 group = group_result.scalar_one_or_none()
 
                 if not group or not group.telegram_group_id:
@@ -217,7 +231,9 @@ class SchedulerService:
                 # Get confirmed participants
                 participant_result = await session.execute(
                     select(EventParticipant, User)
-                    .join(User, EventParticipant.telegram_user_id == User.telegram_user_id)
+                    .join(
+                        User, EventParticipant.telegram_user_id == User.telegram_user_id
+                    )
                     .where(
                         EventParticipant.event_id == event.event_id,
                         EventParticipant.status.in_(
@@ -236,17 +252,26 @@ class SchedulerService:
                 for participant, user in participants:
                     if user:
                         name = user.display_name or (
-                            f"@{user.username}" if user.username else f"User #{user.telegram_user_id}"
+                            f"@{user.username}"
+                            if user.username
+                            else f"User #{user.telegram_user_id}"
                         )
                         names.append(name)
 
                 names_str = ", ".join(names) if names else "TBD"
-                time_str = event.scheduled_time.strftime("%a %d %b, %H:%M") if event.scheduled_time else "TBD"
+                time_str = (
+                    event.scheduled_time.strftime("%a %d %b, %H:%M")
+                    if event.scheduled_time
+                    else "TBD"
+                )
 
-                message = (
-                    f"📅 <b>Reminder: {event.event_type}</b>\n\n"
-                    f"Tomorrow: {time_str}\n"
-                    f"{confirmed_count} confirmed: {names_str}"
+                message = t(
+                    "scheduler_24h_reminder",
+                    lang="en",
+                    type=event.event_type,
+                    time=time_str,
+                    count=confirmed_count,
+                    names=names_str,
                 )
 
                 try:
@@ -257,7 +282,11 @@ class SchedulerService:
                     )
                     sent_count += 1
 
-                    logger.info("Sent 24h reminder for event %s", event.event_id, extra={"event_id": event.event_id})
+                    logger.info(
+                        "Sent 24h reminder for event %s",
+                        event.event_id,
+                        extra={"event_id": event.event_id},
+                    )
                 except Exception as e:
                     logger.error(
                         "Failed to send 24h reminder for event %s: %s",
@@ -344,7 +373,9 @@ async def cleanup_expired_idempotency_keys(db_url: str) -> int:
     deleted = 0
 
     async with get_session(db_url) as session:
-        result = await session.execute(delete(IdempotencyKey).where(IdempotencyKey.expires_at < cutoff))
+        result = await session.execute(
+            delete(IdempotencyKey).where(IdempotencyKey.expires_at < cutoff)
+        )
         deleted = result.rowcount
         await session.commit()
 

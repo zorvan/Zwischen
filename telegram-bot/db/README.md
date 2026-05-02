@@ -22,7 +22,7 @@ No migrations needed for fresh deployments.
 When you need to modify the schema:
 
 1. **Update the model** in `models.py`
-2. **Update the reference** in `schema.sql` 
+2. **Update the reference** in `schema.sql`
 3. **Restart the application**
 4. `init_db()` will create/update tables automatically
 
@@ -30,7 +30,7 @@ When you need to modify the schema:
 
 - `connection.py` - Async database connection and initialization
 - `models.py` - SQLAlchemy ORM models (primary schema definition)
-- `schema.sql` - SQL schema reference documentation  
+- `schema.sql` - SQL schema reference documentation
 - `users.py` - User-related database operations
 - `errors.py` - Database error definitions
 - `migrations/` - Directory for future migrations (if needed)

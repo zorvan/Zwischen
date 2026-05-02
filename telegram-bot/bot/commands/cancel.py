@@ -8,7 +8,9 @@ from db.connection import get_session
 from db.users import get_or_create_user_id
 from config.settings import settings
 from datetime import datetime
-from bot.common.participant_state_reconcile import reconcile_event_state_after_participant_change
+from bot.common.participant_state_reconcile import (
+    reconcile_event_state_after_participant_change,
+)
 from bot.services import ParticipantService
 from bot.common.rbac import check_event_visibility_and_get_event
 
@@ -48,12 +50,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id if update.effective_chat else None
 
     async with get_session(settings.db_url) as session:
-        is_visible, event, group, error_msg = await check_event_visibility_and_get_event(
-            session,
-            event_id,
-            telegram_user_id,
-            telegram_chat_id=chat_id,
-            bot=context.bot,
+        is_visible, event, group, error_msg = (
+            await check_event_visibility_and_get_event(
+                session,
+                event_id,
+                telegram_user_id,
+                telegram_chat_id=chat_id,
+                bot=context.bot,
+            )
         )
 
         if not is_visible:
@@ -61,7 +65,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             return
 
         if event.state == "locked":
-            await message.reply_text(f"❌ Cannot cancel event {event_id} - it's already locked.")
+            await message.reply_text(
+                f"❌ Cannot cancel event {event_id} - it's already locked."
+            )
             return
 
         # Use ParticipantService to cancel attendance
@@ -73,7 +79,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 source="slash",
             )
         except Exception:
-            await message.reply_text(f"❌ You haven't joined event {event_id} yet. " "Nothing to cancel.")
+            await message.reply_text(
+                f"❌ You haven't joined event {event_id} yet. " "Nothing to cancel."
+            )
             return
 
         user_id = await get_or_create_user_id(

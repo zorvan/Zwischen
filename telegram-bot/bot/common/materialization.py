@@ -87,7 +87,9 @@ class MaterializationOrchestrator:
             group_chat_id = await self._get_group_chat_id(event)
 
         if not group_chat_id:
-            logger.warning("Cannot announce: no group chat ID for event %s", event.event_id)
+            logger.warning(
+                "Cannot announce: no group chat ID for event %s", event.event_id
+            )
             return
 
         from bot.services import EventMaterializationService
@@ -95,10 +97,14 @@ class MaterializationOrchestrator:
         materialization = EventMaterializationService(self.bot, self.session)
 
         if trigger == "first_join":
-            await self._announce_first_join(event, actor_user_id, group_chat_id, materialization)
+            await self._announce_first_join(
+                event, actor_user_id, group_chat_id, materialization
+            )
 
         elif trigger == "join":
-            await self._announce_join(event, actor_user_id, group_chat_id, materialization)
+            await self._announce_join(
+                event, actor_user_id, group_chat_id, materialization
+            )
 
         elif trigger == "threshold_reached":
             await self._announce_threshold(event, group_chat_id, materialization)
@@ -187,7 +193,9 @@ class MaterializationOrchestrator:
         )
         confirmed_count = result.scalar() or 0
 
-        await materialization.announce_threshold_reached(event, confirmed_count, group_chat_id)
+        await materialization.announce_threshold_reached(
+            event, confirmed_count, group_chat_id
+        )
 
     async def _announce_locked(
         self,
@@ -235,7 +243,9 @@ class MaterializationOrchestrator:
         )
         participant_count = result.scalar() or 0
 
-        await materialization.announce_event_completed(event, participant_count, group_chat_id)
+        await materialization.announce_event_completed(
+            event, participant_count, group_chat_id
+        )
 
     async def _announce_cancellation(
         self,
@@ -272,13 +282,17 @@ class MaterializationOrchestrator:
         )
         remaining_count = result.scalar() or 0
 
-        await materialization.announce_cancellation_private(event, user, organizer_chat_id, remaining_count)
+        await materialization.announce_cancellation_private(
+            event, user, organizer_chat_id, remaining_count
+        )
 
     async def _get_user(self, telegram_user_id: int) -> Optional[User]:
         """Get user by Telegram ID."""
         from sqlalchemy import select
 
-        result = await self.session.execute(select(User).where(User.telegram_user_id == telegram_user_id))
+        result = await self.session.execute(
+            select(User).where(User.telegram_user_id == telegram_user_id)
+        )
         return result.scalar_one_or_none()
 
     async def _get_group_chat_id(self, event: "Event") -> Optional[int]:
@@ -286,7 +300,9 @@ class MaterializationOrchestrator:
         from sqlalchemy import select
         from db.models import Group
 
-        result = await self.session.execute(select(Group.telegram_group_id).where(Group.group_id == event.group_id))
+        result = await self.session.execute(
+            select(Group.telegram_group_id).where(Group.group_id == event.group_id)
+        )
         return result.scalar_one_or_none()
 
     async def _get_organizer_chat_id(self, event: "Event") -> Optional[int]:
@@ -298,7 +314,9 @@ class MaterializationOrchestrator:
             return None
 
         result = await self.session.execute(
-            select(User.telegram_user_id).where(User.telegram_user_id == event.organizer_telegram_user_id)
+            select(User.telegram_user_id).where(
+                User.telegram_user_id == event.organizer_telegram_user_id
+            )
         )
         return result.scalar_one_or_none()
 

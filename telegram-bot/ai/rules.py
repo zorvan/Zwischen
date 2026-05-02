@@ -11,7 +11,9 @@ from db.models import Event
 class RuleBasedEngine:
     """Rules-based AI engine - fast, no external dependency."""
 
-    def check_availability(self, event: Event, constraints: List | None = None) -> Dict[Any, float]:
+    def check_availability(
+        self, event: Event, constraints: List | None = None
+    ) -> Dict[Any, float]:
         """Calculate availability scores per user (placeholder)."""
         if constraints:
             slot_users: dict[str, set[int]] = defaultdict(set)
@@ -24,7 +26,10 @@ class RuleBasedEngine:
                     slot_users[slot].add(int(constraint.user_id))
             if slot_users:
                 return {slot: float(len(users)) for slot, users in slot_users.items()}
-        return {int(participant.telegram_user_id): 1.0 for participant in (getattr(event, "participants", None) or [])}
+        return {
+            int(participant.telegram_user_id): 1.0
+            for participant in (getattr(event, "participants", None) or [])
+        }
 
     def resolve_conflicts(
         self,
@@ -40,14 +45,17 @@ class RuleBasedEngine:
             best_slot = max(availability, key=availability.get)
             suggested_time = str(best_slot).replace("T", " ")
             reasoning = (
-                "Using attendee availability constraints; selected the slot " "with the most declared availability"
+                "Using attendee availability constraints; selected the slot "
+                "with the most declared availability"
             )
 
         return {
             "suggested_time": suggested_time,
             "reasoning": reasoning,
             "confidence": 0.5,
-            "availability_score": sum(availability.values()) / len(availability) if availability else 0,
+            "availability_score": (
+                sum(availability.values()) / len(availability) if availability else 0
+            ),
         }
 
     def check_constraints(self, constraints: List) -> List[Dict[str, Any]]:
@@ -72,7 +80,9 @@ class RuleBasedEngine:
     def suggest_time_fallback(self, event: Event) -> Dict[str, Any]:
         """Fallback when LLM unavailable."""
         return {
-            "suggested_time": str(event.scheduled_time) if event.scheduled_time else "TBD",
+            "suggested_time": (
+                str(event.scheduled_time) if event.scheduled_time else "TBD"
+            ),
             "reasoning": "AI fallback - rules-based suggestion only",
             "confidence": 0.3,
             "note": "LLM unavailable, using rules-based suggestion",

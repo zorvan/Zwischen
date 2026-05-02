@@ -14,19 +14,19 @@ async def create_database():
             password='coord_pass',
             database='postgres'
         )
-        
+
         # Check if database exists
         exists = await conn.fetchval(
             "SELECT 1 FROM pg_database WHERE datname = $1",
             'coord_db'
         )
-        
+
         if not exists:
             await conn.execute("CREATE DATABASE coord_db")
             print("Database 'coord_db' created successfully")
         else:
             print("Database 'coord_db' already exists")
-        
+
         await conn.close()
     except Exception as e:
         print(f"Error: {e}")

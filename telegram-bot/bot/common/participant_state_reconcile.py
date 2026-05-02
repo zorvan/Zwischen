@@ -35,7 +35,9 @@ async def reconcile_event_state_after_participant_change(
     interested→proposed) are only allowed when triggered by participant
     departure (not by a manual organizer action).
     """
-    event_result = await session.execute(select(Event).where(Event.event_id == event_id))
+    event_result = await session.execute(
+        select(Event).where(Event.event_id == event_id)
+    )
     event = event_result.scalar_one_or_none()
     if event is None:
         raise ValueError(f"Event {event_id} not found")
@@ -64,7 +66,9 @@ async def reconcile_event_state_after_participant_change(
         organizer_participant_result = await session.execute(
             select(EventParticipant.telegram_user_id).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.status.in_([ParticipantStatus.joined, ParticipantStatus.confirmed]),
+                EventParticipant.status.in_(
+                    [ParticipantStatus.joined, ParticipantStatus.confirmed]
+                ),
                 EventParticipant.telegram_user_id == organizer_id,
             )
         )

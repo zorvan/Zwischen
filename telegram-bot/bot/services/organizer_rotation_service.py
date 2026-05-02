@@ -150,7 +150,9 @@ class OrganizerRotationService:
         Returns:
             (should_suggest, consecutive_count)
         """
-        consecutive = await self.count_consecutive_organized(telegram_user_id, event_type, group_id)
+        consecutive = await self.count_consecutive_organized(
+            telegram_user_id, event_type, group_id
+        )
 
         should_suggest = consecutive >= self.CONSECUTIVE_THRESHOLD
 
@@ -217,7 +219,9 @@ class OrganizerRotationService:
         candidates = []
         for participant, user in eligible:
             # Count recent organizing activity
-            history = await self.get_organizer_history(user.telegram_user_id, limit=10)  # Last 10 events
+            history = await self.get_organizer_history(
+                user.telegram_user_id, limit=10
+            )  # Last 10 events
             organized_count = len(history)
 
             candidates.append(
@@ -260,12 +264,15 @@ class OrganizerRotationService:
             f"The bot can help with all the logistics!",
         ]
 
-        prompt = base_prompts[min(consecutive_count - self.CONSECUTIVE_THRESHOLD, len(base_prompts) - 1)]
+        prompt = base_prompts[
+            min(consecutive_count - self.CONSECUTIVE_THRESHOLD, len(base_prompts) - 1)
+        ]
 
         # Add suggested organizer if available
         if suggested_organizer:
             prompt += (
-                f"\n\n💡 {suggested_organizer['display_name']} hasn't organized recently " f"and might be interested!"
+                f"\n\n💡 {suggested_organizer['display_name']} hasn't organized recently "
+                f"and might be interested!"
             )
 
         return prompt
@@ -324,13 +331,17 @@ async def check_and_suggest_rotation(
     """
     service = OrganizerRotationService(session)
 
-    should_suggest, count = await service.should_suggest_rotation(organizer_telegram_user_id, event_type, group_id)
+    should_suggest, count = await service.should_suggest_rotation(
+        organizer_telegram_user_id, event_type, group_id
+    )
 
     if not should_suggest:
         return None
 
     # Get organizer name
-    user_result = await session.execute(select(User).where(User.telegram_user_id == organizer_telegram_user_id))
+    user_result = await session.execute(
+        select(User).where(User.telegram_user_id == organizer_telegram_user_id)
+    )
     organizer = user_result.scalar_one_or_none()
     organizer_name = organizer.display_name or organizer.username or "Organizer"
 

@@ -65,7 +65,9 @@ async def _try_auto_lock_event(session, event, now: datetime, bot=None) -> dict:
 
         # Use ParticipantService to get confirmed count
         participant_service = ParticipantService(session)
-        current_confirmed = await participant_service.get_confirmed_count(event.event_id)
+        current_confirmed = await participant_service.get_confirmed_count(
+            event.event_id
+        )
         threshold = int(event.min_participants or 2)
 
         if current_confirmed >= threshold:
@@ -135,7 +137,9 @@ async def check_deadline_status(event_id: int) -> Optional[dict]:
         return None
 
     async with get_session(settings.db_url) as session:
-        event = (await session.execute(select(Event).where(Event.event_id == event_id))).scalar_one_or_none()
+        event = (
+            await session.execute(select(Event).where(Event.event_id == event_id))
+        ).scalar_one_or_none()
 
         if not event:
             return None
@@ -158,7 +162,9 @@ async def check_deadline_status(event_id: int) -> Optional[dict]:
             "state": state,
             "commit_by": commit_by.isoformat() if commit_by else None,
             "deadline_reached": deadline_reached,
-            "time_remaining_seconds": int(time_remaining.total_seconds()) if time_remaining else None,
+            "time_remaining_seconds": (
+                int(time_remaining.total_seconds()) if time_remaining else None
+            ),
             "is_locked": is_locked,
             "locked_at": locked_at.isoformat() if locked_at else None,
         }

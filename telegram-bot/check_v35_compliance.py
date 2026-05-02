@@ -22,11 +22,12 @@ import ast
 import re
 import sys
 from pathlib import Path
-from typing import Tuple
 
 ROOT = Path(__file__).parent
 PYTHON_FILES = list(ROOT.rglob("*.py"))
-PYTHON_FILES = [f for f in PYTHON_FILES if ".venv" not in str(f) and "__pycache__" not in str(f)]
+PYTHON_FILES = [
+    f for f in PYTHON_FILES if ".venv" not in str(f) and "__pycache__" not in str(f)
+]
 
 # ── Results accumulator ──────────────────────────────────────────────
 failures: list[str] = []
@@ -68,14 +69,22 @@ def check_callback_wiring() -> None:
         # handler_expr may contain function calls like handle_menu_callback
         match = re.match(r"^([\w.]+)\.([\w]+)(?:\(\))?$", handler_expr)
         if not match:
-            check(f"callback pattern: {pattern}", False, f"unparseable handler: {handler_expr}")
+            check(
+                f"callback pattern: {pattern}",
+                False,
+                f"unparseable handler: {handler_expr}",
+            )
             continue
 
         import_name, func_name = match.groups()
         module_name = handler_imports.get(import_name)
 
         if not module_name:
-            check(f"callback pattern: {pattern}", False, f"import '{import_name}' not found in main.py")
+            check(
+                f"callback pattern: {pattern}",
+                False,
+                f"import '{import_name}' not found in main.py",
+            )
             continue
 
         # module_name is the package (e.g. "bot.handlers")
@@ -89,15 +98,29 @@ def check_callback_wiring() -> None:
             submodule_name = alias_to_submodule.get(import_name, import_name)
             imported_obj = getattr(package, submodule_name, None)
             if imported_obj is None:
-                check(f"callback pattern: {pattern}", False, f"'{submodule_name}' not found in {module_name}")
+                check(
+                    f"callback pattern: {pattern}",
+                    False,
+                    f"'{submodule_name}' not found in {module_name}",
+                )
                 continue
             # imported_obj is the actual module (e.g. bot.handlers.event_panel)
             if not hasattr(imported_obj, func_name):
-                check(f"callback pattern: {pattern}", False, f"{import_name} has no '{func_name}'")
+                check(
+                    f"callback pattern: {pattern}",
+                    False,
+                    f"{import_name} has no '{func_name}'",
+                )
             else:
-                passes.append(f"WIRING: {pattern} → {module_name}.{import_name}.{func_name}")
+                passes.append(
+                    f"WIRING: {pattern} → {module_name}.{import_name}.{func_name}"
+                )
         except ImportError as e:
-            check(f"callback pattern: {pattern}", False, f"cannot import {module_name}: {e}")
+            check(
+                f"callback pattern: {pattern}",
+                False,
+                f"cannot import {module_name}: {e}",
+            )
 
 
 # ── 2. No remaining TODO/STUB/placeholder code ───────────────────────
@@ -188,7 +211,9 @@ def check_schema_compliance() -> None:
 
     # Index on renamed column must exist
     has_edm_index = bool(re.search(r"idx_events_emergency_admin_tg", content))
-    check("index uses renamed column", has_edm_index, "still references old column name")
+    check(
+        "index uses renamed column", has_edm_index, "still references old column name"
+    )
 
 
 # ── 5. LLM layer compliance ──────────────────────────────────────────
@@ -222,7 +247,9 @@ def check_llm_compliance() -> None:
     )
     if infer_group_match:
         method_body = infer_group_match.group()
-        regex_fallback_lines = len(re.findall(r"re\.(?:search|match|findall)", method_body))
+        regex_fallback_lines = len(
+            re.findall(r"re\.(?:search|match|findall)", method_body)
+        )
         check(
             "infer_group_mention_action has no regex fallbacks",
             regex_fallback_lines == 0,
@@ -246,7 +273,9 @@ def check_model_compliance() -> None:
     # (a comment is fine, but not an actual column)
     # Check it's only in a comment
     non_comment_lines = [
-        line for line in content.split("\n") if "expertise_per_activity" in line and not line.strip().startswith("#")
+        line
+        for line in content.split("\n")
+        if "expertise_per_activity" in line and not line.strip().startswith("#")
     ]
     check(
         "expertise_per_activity not in User model",
@@ -282,7 +311,9 @@ def check_infrastructure() -> None:
     # Rate limiter warning
     with open(ROOT / "bot" / "common" / "rate_limiter.py") as f:
         content = f.read()
-    has_restart_warning = "restart-safe" in content.lower() or "NOT restart-safe" in content
+    has_restart_warning = (
+        "restart-safe" in content.lower() or "NOT restart-safe" in content
+    )
     check("rate_limiter has restart warning", has_restart_warning)
 
     # Idempotency cleanup in scheduler
@@ -297,7 +328,11 @@ def check_infrastructure() -> None:
         with open(actions_path) as f:
             content = f.read()
         actions = re.findall(r'"(\w+)":\s*\{', content)
-        check("ai/actions.py has ACTIONS registry", len(actions) >= 10, f"found {len(actions)} actions")
+        check(
+            "ai/actions.py has ACTIONS registry",
+            len(actions) >= 10,
+            f"found {len(actions)} actions",
+        )
     else:
         check("ai/actions.py exists", False)
 
@@ -307,7 +342,10 @@ def check_infrastructure() -> None:
         with open(validator_path) as f:
             content = f.read()
         check("ai/validator.py exists", True)
-        check("validate_action_result in validator.py", "validate_action_result" in content)
+        check(
+            "validate_action_result in validator.py",
+            "validate_action_result" in content,
+        )
     else:
         check("ai/validator.py exists", False)
 
@@ -332,7 +370,9 @@ def check_event_panel_wiring() -> None:
     )
     if view_match:
         view_body = view_match.group()
-        is_stub = "Loading event details" in view_body or ("TODO" in view_body and "implement" in view_body.lower())
+        is_stub = "Loading event details" in view_body or (
+            "TODO" in view_body and "implement" in view_body.lower()
+        )
         check("_handle_view is fully implemented", not is_stub)
     else:
         check("_handle_view function exists", False)
@@ -345,7 +385,9 @@ def check_event_panel_wiring() -> None:
     )
     if lock_match:
         lock_body = lock_match.group()
-        is_stub = "coming soon" in lock_body or ("TODO" in lock_body and "implement" in lock_body.lower())
+        is_stub = "coming soon" in lock_body or (
+            "TODO" in lock_body and "implement" in lock_body.lower()
+        )
         check("_handle_lock is fully implemented", not is_stub)
     else:
         check("_handle_lock function exists", False)
@@ -373,8 +415,14 @@ def check_enrichment_handling() -> None:
         panel = f.read()
 
     # All enrichment prompts should set enrich_event_id / enrich_action
-    for action in ["add_idea", "add_hashtag", "add_memory", "suggest_time", "add_constraint"]:
-        has_state = f"enrich_action" in panel and f"enrich_event_id" in panel
+    for action in [
+        "add_idea",
+        "add_hashtag",
+        "add_memory",
+        "suggest_time",
+        "add_constraint",
+    ]:
+        has_state = "enrich_action" in panel and "enrich_event_id" in panel
         check(f"enrichment {action} sets conversation state", has_state)
 
     # menus.py should have _handle_enrichment_message
@@ -484,11 +532,17 @@ def check_runtime_safety() -> None:
 
         # Check 3: reply_text with Markdown should not include user data directly
         # (use reply_html or escape user content)
-        markdown_replies = list(re.finditer(r'reply_text\([^)]*parse_mode="Markdown"', content))
+        markdown_replies = list(
+            re.finditer(r'reply_text\([^)]*parse_mode="Markdown"', content)
+        )
         for reply in markdown_replies:
             # Check if this reply includes f-string with user variables
             surrounding = content[max(0, reply.start() - 200) : reply.end() + 200]
-            if "display_name" in surrounding or "full_name" in surrounding or "username" in surrounding:
+            if (
+                "display_name" in surrounding
+                or "full_name" in surrounding
+                or "username" in surrounding
+            ):
                 check(
                     f"Markdown reply safe in {rel_path}",
                     False,
@@ -515,7 +569,11 @@ def check_session_handling() -> None:
         # Check for context.chat_data.get("session") pattern (anti-pattern)
         bad_pattern = re.findall(r'context\.chat_data\.get\("session"\)', content)
         if bad_pattern:
-            check(f"no chat_data.session in {rel_path}", False, f"found {len(bad_pattern)} uses")
+            check(
+                f"no chat_data.session in {rel_path}",
+                False,
+                f"found {len(bad_pattern)} uses",
+            )
 
 
 if __name__ == "__main__":

@@ -34,7 +34,11 @@ from bot.common.event_formatters import (
     format_commit_by,
     format_duration,
 )
-from bot.common.keyboards import build_threshold_markup, build_min_participants_markup, build_target_participants_markup
+from bot.common.keyboards import (
+    build_threshold_markup,
+    build_min_participants_markup,
+    build_target_participants_markup,
+)
 from bot.common.callback_data import encode_callback
 from bot.common.scheduling import find_user_event_conflict
 from db.connection import get_session
@@ -80,7 +84,13 @@ WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 def _escape_md(text: str) -> str:
     """Escape text for safe Telegram Markdown parsing."""
-    return str(text).replace("_", "\\_").replace("*", "\\*").replace("[", "\\[").replace("]", "\\]")
+    return (
+        str(text)
+        .replace("_", "\\_")
+        .replace("*", "\\*")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+    )
 
 
 def compute_commit_by_time(scheduled_time: datetime | None) -> datetime | None:
@@ -124,7 +134,9 @@ def build_date_preset_markup(prefix: str = "event") -> InlineKeyboardMarkup:
     return build_compact_markup(options, columns=2, footer=footer)
 
 
-def build_date_options_markup(dates: list[date], preset: str, prefix: str = "event") -> InlineKeyboardMarkup:
+def build_date_options_markup(
+    dates: list[date], preset: str, prefix: str = "event"
+) -> InlineKeyboardMarkup:
     """Build date choice keyboard for multi-date presets."""
     options = [
         (
@@ -154,10 +166,15 @@ def build_time_window_markup(prefix: str = "event") -> InlineKeyboardMarkup:
     return build_compact_markup(options, columns=2, footer=footer)
 
 
-def build_time_options_markup(window: str, prefix: str = "event") -> InlineKeyboardMarkup:
+def build_time_options_markup(
+    window: str, prefix: str = "event"
+) -> InlineKeyboardMarkup:
     """Build compact keyboard for concrete time options by window."""
     time_options = TIME_WINDOWS.get(window, [])
-    options = [(time_value, f"{prefix}_time_option_{time_value.replace(':', '')}") for time_value in time_options]
+    options = [
+        (time_value, f"{prefix}_time_option_{time_value.replace(':', '')}")
+        for time_value in time_options
+    ]
     footer = [
         ("⌨️ Enter Time Manually", f"{prefix}_time_manual"),
         ("✏️ Edit Previous", f"{prefix}_edit_time_window"),
@@ -167,7 +184,9 @@ def build_time_options_markup(window: str, prefix: str = "event") -> InlineKeybo
 
 def build_location_type_markup(prefix: str = "event") -> InlineKeyboardMarkup:
     """Build location type presets."""
-    options = [(label, f"{prefix}_location_{value}") for label, value in LOCATION_PRESETS]
+    options = [
+        (label, f"{prefix}_location_{value}") for label, value in LOCATION_PRESETS
+    ]
     return build_compact_markup(
         options,
         columns=2,
@@ -187,7 +206,9 @@ def build_budget_markup(prefix: str = "event") -> InlineKeyboardMarkup:
 
 def build_transport_markup(prefix: str = "event") -> InlineKeyboardMarkup:
     """Build transport mode presets."""
-    options = [(label, f"{prefix}_transport_{value}") for label, value in TRANSPORT_PRESETS]
+    options = [
+        (label, f"{prefix}_transport_{value}") for label, value in TRANSPORT_PRESETS
+    ]
     return build_compact_markup(
         options,
         columns=2,
@@ -229,18 +250,33 @@ def resolve_date_preset(preset: str, now: datetime | None = None) -> list[date]:
     return []
 
 
-def build_calendar_markup(year: int, month: int, prefix: str = "event") -> InlineKeyboardMarkup:
+def build_calendar_markup(
+    year: int, month: int, prefix: str = "event"
+) -> InlineKeyboardMarkup:
     """Build month-view inline calendar keyboard."""
     rows: list[list[InlineKeyboardButton]] = []
-    rows.append([InlineKeyboardButton(f"{month_name[month]} {year}", callback_data=f"{prefix}_cal_ignore")])
-    rows.append([InlineKeyboardButton(day, callback_data=f"{prefix}_cal_ignore") for day in CALENDAR_WEEKDAYS])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                f"{month_name[month]} {year}", callback_data=f"{prefix}_cal_ignore"
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(day, callback_data=f"{prefix}_cal_ignore")
+            for day in CALENDAR_WEEKDAYS
+        ]
+    )
 
     cal = Calendar(firstweekday=0)
     for week in cal.monthdayscalendar(year, month):
         row = []
         for day in week:
             if day == 0:
-                row.append(InlineKeyboardButton(" ", callback_data=f"{prefix}_cal_ignore"))
+                row.append(
+                    InlineKeyboardButton(" ", callback_data=f"{prefix}_cal_ignore")
+                )
             else:
                 row.append(
                     InlineKeyboardButton(
@@ -265,7 +301,13 @@ def build_calendar_markup(year: int, month: int, prefix: str = "event") -> Inlin
             ),
         ]
     )
-    rows.append([InlineKeyboardButton("✏️ Edit Previous", callback_data=f"{prefix}_edit_date_preset")])
+    rows.append(
+        [
+            InlineKeyboardButton(
+                "✏️ Edit Previous", callback_data=f"{prefix}_edit_date_preset"
+            )
+        ]
+    )
 
     return InlineKeyboardMarkup(rows)
 
@@ -341,7 +383,11 @@ def build_final_confirmation_markup(prefix: str = "event") -> InlineKeyboardMark
         ]
     else:
         keyboard = [
-            [InlineKeyboardButton("✅ Confirm & Lock", callback_data=f"{prefix}_final_yes")],
+            [
+                InlineKeyboardButton(
+                    "✅ Confirm & Lock", callback_data=f"{prefix}_final_yes"
+                )
+            ],
             [InlineKeyboardButton("🛠 Modify", callback_data=f"{prefix}_final_edit")],
             [InlineKeyboardButton("❌ Discard", callback_data=f"{prefix}_cancel_no")],
         ]
@@ -357,7 +403,9 @@ def build_event_summary_text(data: dict[str, Any], is_private: bool = False) -> 
         invitees = []
     invite_all = bool(data.get("invite_all_members"))
     invitees_summary = (
-        "all group members" if invite_all else f"{len(invitees)} users ({', '.join(invitees) if invitees else 'none'})"
+        "all group members"
+        if invite_all
+        else f"{len(invitees)} users ({', '.join(invitees) if invitees else 'none'})"
     )
     notes = data.get("planning_notes", [])
 
@@ -476,7 +524,9 @@ async def _apply_final_stage_patch(
                 changes.append(f"type set to {normalized}")
                 changed = True
         else:
-            warnings.append("Unsupported event type in modification; kept current value.")
+            warnings.append(
+                "Unsupported event type in modification; kept current value."
+            )
 
     min_raw = patch.get("min_participants")
     if min_raw is not None:
@@ -486,7 +536,9 @@ async def _apply_final_stage_patch(
                 warnings.append("Minimum participants must be at least 1.")
             else:
                 flow_data["min_participants"] = min_participants
-                existing_target = int(flow_data.get("target_participants", min_participants))
+                existing_target = int(
+                    flow_data.get("target_participants", min_participants)
+                )
                 if existing_target < min_participants:
                     flow_data["target_participants"] = min_participants
                 changes.append(f"minimum set to {min_participants}")
@@ -635,7 +687,9 @@ async def _apply_final_stage_patch(
         flow_data["invitees"] = ["@all"]
         changes.append("invitees set to all group members")
         changed = True
-    elif patch.get("invite_all_members") is False and flow_data.get("invite_all_members"):
+    elif patch.get("invite_all_members") is False and flow_data.get(
+        "invite_all_members"
+    ):
         flow_data["invite_all_members"] = False
         if flow_data.get("invitees") == ["@all"]:
             flow_data["invitees"] = []
@@ -708,7 +762,9 @@ async def start_event_flow(
 
     if mode == "public":
         async with get_session(settings.db_url) as session:
-            result = await session.execute(select(Group).where(Group.telegram_group_id == chat_id))
+            result = await session.execute(
+                select(Group).where(Group.telegram_group_id == chat_id)
+            )
             group = result.scalar_one_or_none()
 
             if not group:
@@ -769,7 +825,11 @@ async def start_event_flow(
         )
     else:
         scheduling_mode = flow_data["data"].get("scheduling_mode", "fixed")
-        mode_text = "Fixed date/time" if scheduling_mode == "fixed" else "Flexible (collect availability first)"
+        mode_text = (
+            "Fixed date/time"
+            if scheduling_mode == "fixed"
+            else "Flexible (collect availability first)"
+        )
         await message.reply_text(
             "📝 *Event Description*\n\n"
             "Send a short description for the event.\n"
@@ -802,9 +862,13 @@ async def start_event_flow_from_prefill(
         event_flow["data"] = flow_data
 
     pre = prefill or {}
-    flow_data["description"] = str(pre.get("description") or "Group planned event").strip()[:500]
+    flow_data["description"] = str(
+        pre.get("description") or "Group planned event"
+    ).strip()[:500]
     event_type = str(pre.get("event_type") or "social").strip().lower()
-    flow_data["event_type"] = event_type if event_type in ALLOWED_EVENT_TYPES else "social"
+    flow_data["event_type"] = (
+        event_type if event_type in ALLOWED_EVENT_TYPES else "social"
+    )
     try:
         flow_data["min_participants"] = max(1, int(pre.get("min_participants", 3)))
     except (TypeError, ValueError):
@@ -832,18 +896,32 @@ async def start_event_flow_from_prefill(
         flow_data["invitees"] = invitees
     notes = pre.get("planning_notes", [])
     flow_data["planning_notes"] = (
-        [str(x).strip()[:300] for x in notes if str(x).strip()] if isinstance(notes, list) else []
+        [str(x).strip()[:300] for x in notes if str(x).strip()]
+        if isinstance(notes, list)
+        else []
     )
     location_type = str(pre.get("location_type") or "cafe").strip().lower()
-    flow_data["location_type"] = location_type if location_type in {value for _, value in LOCATION_PRESETS} else "cafe"
+    flow_data["location_type"] = (
+        location_type
+        if location_type in {value for _, value in LOCATION_PRESETS}
+        else "cafe"
+    )
     budget_level = str(pre.get("budget_level") or "medium").strip().lower()
-    flow_data["budget_level"] = budget_level if budget_level in {value for _, value in BUDGET_PRESETS} else "medium"
+    flow_data["budget_level"] = (
+        budget_level
+        if budget_level in {value for _, value in BUDGET_PRESETS}
+        else "medium"
+    )
     transport_mode = str(pre.get("transport_mode") or "any").strip().lower()
     flow_data["transport_mode"] = (
-        transport_mode if transport_mode in {value for _, value in TRANSPORT_PRESETS} else "any"
+        transport_mode
+        if transport_mode in {value for _, value in TRANSPORT_PRESETS}
+        else "any"
     )
     date_preset = str(pre.get("date_preset") or "custom").strip().lower()
-    flow_data["date_preset"] = date_preset if date_preset in DATE_PRESET_LABELS else "custom"
+    flow_data["date_preset"] = (
+        date_preset if date_preset in DATE_PRESET_LABELS else "custom"
+    )
     time_window = str(pre.get("time_window") or "evening").strip().lower()
     flow_data["time_window"] = time_window if time_window in TIME_WINDOWS else "evening"
 
@@ -868,7 +946,8 @@ async def start_event_flow_from_prefill(
     if msg:
         prefix = "private_event" if mode == "private" else "event"
         await msg.reply_text(
-            "🤖 I prepared an event draft from recent chat context.\n" "Review and confirm or modify:",
+            "🤖 I prepared an event draft from recent chat context.\n"
+            "Review and confirm or modify:",
             reply_markup=build_final_confirmation_markup(prefix=prefix),
         )
         await msg.reply_text(
@@ -894,12 +973,30 @@ async def private_handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle callback queries for public event creation flow."""
-    await _handle_callback_common(update, context, mode="public")
+    logger.info("handle_callback entered | data=%s", update.callback_query.data if update.callback_query else "None")
+    try:
+        await _handle_callback_common(update, context, mode="public")
+        logger.info("handle_callback completed successfully | data=%s", update.callback_query.data if update.callback_query else "None")
+    except Exception as e:
+        logger.error("handle_callback failed | error=%s", e, exc_info=True)
+        query = update.callback_query
+        if query:
+            await query.answer()
+            await _safe_edit_message(query, "❌ An error occurred. Please try again.")
 
 
-async def private_handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def private_handle_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle callback queries for private event creation flow."""
-    await _handle_callback_common(update, context, mode="private")
+    try:
+        await _handle_callback_common(update, context, mode="private")
+    except Exception as e:
+        logger.error("private_handle_callback failed | error=%s", e, exc_info=True)
+        query = update.callback_query
+        if query:
+            await query.answer()
+            await _safe_edit_message(query, "❌ An error occurred. Please try again.")
 
 
 async def _safe_edit_message(query: CallbackQuery, text: str, **kwargs) -> bool:
@@ -917,14 +1014,18 @@ async def _safe_edit_message(query: CallbackQuery, text: str, **kwargs) -> bool:
         raise
     except RetryAfter as e:
         retry_after = e.retry_after
-        logger.warning(f"Flood control triggered. Waiting {retry_after}s before retry...")
+        logger.warning(
+            f"Flood control triggered. Waiting {retry_after}s before retry..."
+        )
         await asyncio.sleep(retry_after)
         try:
             await query.edit_message_text(text, **kwargs)
             return True
         except RetryAfter as e2:
             logger.error(f"RetryAfter again after {retry_after}s, giving up: {e2}")
-            await query.answer("⏳ Too many requests. Please try again in a moment.", show_alert=True)
+            await query.answer(
+                "⏳ Too many requests. Please try again in a moment.", show_alert=True
+            )
             return False
         except BadRequest as e2:
             if "Message is not modified" in str(e2):
@@ -933,13 +1034,17 @@ async def _safe_edit_message(query: CallbackQuery, text: str, **kwargs) -> bool:
             raise
 
 
-async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str) -> None:
+async def _handle_callback_common(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str
+) -> None:
     """Handle callback queries for event creation flow."""
+    logger.info("_handle_callback_common entered | mode=%s", mode)
     query = update.callback_query
     if not query:
         return
 
     await query.answer()
+    logger.info("_handle_callback_common | data=%s mode=%s", query.data, mode)
 
     data = query.data
     flow_key = "private_event_flow" if mode == "private" else "event_flow"
@@ -950,9 +1055,13 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         return
 
     event_flow_raw = context.user_data.get(flow_key)
-    event_flow: dict[str, Any] = event_flow_raw if isinstance(event_flow_raw, dict) else {}
+    event_flow: dict[str, Any] = (
+        event_flow_raw if isinstance(event_flow_raw, dict) else {}
+    )
     if not event_flow:
-        await _safe_edit_message(query, "ℹ️ Event setup session expired. Please run /organize_event again.")
+        await _safe_edit_message(
+            query, "ℹ️ Event setup session expired. Please run /organize_event again."
+        )
         return
     flow_data = event_flow.get("data")
     if not isinstance(flow_data, dict):
@@ -993,7 +1102,9 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                 "event_type",
                 "date_preset",
             ]:
-                if edit_order.index(target) < edit_order.index("date_preset") and downstream_key in [
+                if edit_order.index(target) < edit_order.index(
+                    "date_preset"
+                ) and downstream_key in [
                     "scheduled_date",
                     "scheduled_time",
                     "time_window",
@@ -1054,15 +1165,24 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                     "invitee_mode",
                 ]:
                     flow_data.pop(downstream_key, None)
-                elif target == "budget" and downstream_key in ["budget_level", "transport_mode", "invitee_mode"]:
+                elif target == "budget" and downstream_key in [
+                    "budget_level",
+                    "transport_mode",
+                    "invitee_mode",
+                ]:
                     flow_data.pop(downstream_key, None)
-                elif target == "transport" and downstream_key in ["transport_mode", "invitee_mode"]:
+                elif target == "transport" and downstream_key in [
+                    "transport_mode",
+                    "invitee_mode",
+                ]:
                     flow_data.pop(downstream_key, None)
 
         if target == "description":
             event_flow["stage"] = "description"
             context.user_data[flow_key] = event_flow
-            await _safe_edit_message(query, "📝 *Edit Description*\n\nSend a new event description.")
+            await _safe_edit_message(
+                query, "📝 *Edit Description*\n\nSend a new event description."
+            )
         elif target == "type":
             event_flow["stage"] = "type"
             context.user_data[flow_key] = event_flow
@@ -1086,8 +1206,11 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                     context.user_data[flow_key] = event_flow
                     await _safe_edit_message(
                         query,
-                        "Flexible mode skips fixed date selection.\n" "Set the minimum people needed:",
-                        reply_markup=build_threshold_markup(f"{prefix}_edit_type", prefix=prefix),
+                        "Flexible mode skips fixed date selection.\n"
+                        "Set the minimum people needed:",
+                        reply_markup=build_threshold_markup(
+                            f"{prefix}_edit_type", prefix=prefix
+                        ),
                     )
                 else:
                     event_flow["stage"] = "date_preset"
@@ -1226,7 +1349,9 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                 "No fixed date/time now. Attendees can add availability slots later with:\n"
                 "/constraints <event_id> availability <YYYY-MM-DD HH:MM, ...>\n\n"
                 "Set the minimum people needed:",
-                reply_markup=build_threshold_markup(f"{prefix}_edit_type", prefix=prefix),
+                reply_markup=build_threshold_markup(
+                    f"{prefix}_edit_type", prefix=prefix
+                ),
             )
         else:
             event_flow["stage"] = "date_preset"
@@ -1275,7 +1400,9 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
                 await _safe_edit_message(
                     query,
                     f"📆 *{label}*\n\nPick a specific date:",
-                    reply_markup=build_date_options_markup(choices, preset, prefix=prefix),
+                    reply_markup=build_date_options_markup(
+                        choices, preset, prefix=prefix
+                    ),
                 )
 
     elif data and data.startswith(f"{prefix}_date_pick_"):
@@ -1296,7 +1423,9 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         )
 
     elif data and data.startswith(f"{prefix}_cal_"):
-        await _handle_calendar_callback(query, context, event_flow, flow_data, prefix=prefix)
+        await _handle_calendar_callback(
+            query, context, event_flow, flow_data, prefix=prefix
+        )
 
     elif data and data.startswith(f"{prefix}_time_window_"):
         window = data.replace(f"{prefix}_time_window_", "")
@@ -1318,7 +1447,9 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
         context.user_data[flow_key] = event_flow
         selected_date = flow_data.get("scheduled_date", "N/A")
         await _safe_edit_message(
-            query, f"⌨️ *Manual Time Entry*\n\nDate: {selected_date}\n" "Send time in format `HH:MM` (e.g., `18:30`)."
+            query,
+            f"⌨️ *Manual Time Entry*\n\nDate: {selected_date}\n"
+            "Send time in format `HH:MM` (e.g., `18:30`).",
         )
 
     elif data and data.startswith(f"{prefix}_time_option_"):
@@ -1352,7 +1483,9 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
             query,
             f"⏱️ *Time: {scheduled_time.strftime('%Y-%m-%d %H:%M')}*\n\n"
             "What's the minimum number of people this needs to happen?",
-            reply_markup=build_min_participants_markup(f"{prefix}_edit_time_window", prefix=prefix),
+            reply_markup=build_min_participants_markup(
+                f"{prefix}_edit_time_window", prefix=prefix
+            ),
         )
 
     # v3.2: Handle min_participants selection
@@ -1369,7 +1502,9 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
             query,
             f"✅ *Minimum: {min_val}*\n\n"
             f"How many people can this comfortably fit? (Default: {flow_data['target_participants']})",
-            reply_markup=build_target_participants_markup(min_val, f"{prefix}_min_{min_val}", prefix=prefix),
+            reply_markup=build_target_participants_markup(
+                min_val, f"{prefix}_edit_threshold", prefix=prefix
+            ),
         )
 
     # v3.2: Handle target_participants selection
@@ -1471,9 +1606,23 @@ async def _handle_callback_common(update: Update, context: ContextTypes.DEFAULT_
 
     elif data == f"{prefix}_final_yes":
         if mode == "private":
-            await finalize_private_event(query, context)
+            try:
+                await finalize_private_event(query, context)
+            except Exception as e:
+                logger.error(
+                    "finalize_private_event failed | error=%s", e, exc_info=True
+                )
+                await _safe_edit_message(
+                    query, "❌ Failed to create event. Please try again."
+                )
         else:
-            await finalize_event(query, context)
+            try:
+                await finalize_event(query, context)
+            except Exception as e:
+                logger.error("finalize_event failed | error=%s", e, exc_info=True)
+                await _safe_edit_message(
+                    query, "❌ Failed to create event. Please try again."
+                )
     elif data == f"{prefix}_final_edit":
         await _safe_edit_message(
             query,
@@ -1542,7 +1691,9 @@ async def _handle_calendar_callback(
         flow_data["scheduled_date"] = selected_date
         flow_data["date_preset"] = "custom"
         event_flow["stage"] = "time_window"
-        context.user_data["event_flow" if prefix == "event" else "private_event_flow"] = event_flow
+        context.user_data[
+            "event_flow" if prefix == "event" else "private_event_flow"
+        ] = event_flow
 
         await _safe_edit_message(
             query,
@@ -1556,12 +1707,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await _handle_message_common(update, context, mode="public")
 
 
-async def private_handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def private_handle_message(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Handle text messages during private event creation flow."""
     await _handle_message_common(update, context, mode="private")
 
 
-async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str) -> None:
+async def _handle_message_common(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, mode: str
+) -> None:
     """Handle text messages during event creation flow."""
     if not update.message or not update.effective_user:
         return
@@ -1589,23 +1744,33 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         if not text or not text.strip():
             await update.message.reply_text(
                 "ℹ️ Description cannot be empty. Please send a short description.",
-                reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_type")]),
+                reply_markup=build_compact_markup(
+                    [], footer=[("🔙 Back", f"{prefix}_back_to_type")]
+                ),
             )
             return
         description = text.strip()
         if len(description) > 500:
             await update.message.reply_text(
                 "ℹ️ Description is too long. Keep it under 500 characters.",
-                reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_type")]),
+                reply_markup=build_compact_markup(
+                    [], footer=[("🔙 Back", f"{prefix}_back_to_type")]
+                ),
             )
             return
 
         flow_data["description"] = description
         event_flow["stage"] = "type"
         context.user_data[flow_key] = event_flow
-        scheduling_mode = str(flow_data.get("scheduling_mode", "fixed")) if mode == "public" else "fixed"
+        scheduling_mode = (
+            str(flow_data.get("scheduling_mode", "fixed"))
+            if mode == "public"
+            else "fixed"
+        )
         scheduling_mode_text = (
-            "Fixed date/time" if scheduling_mode == "fixed" else "Flexible (collect availability first)"
+            "Fixed date/time"
+            if scheduling_mode == "fixed"
+            else "Flexible (collect availability first)"
         )
 
         if mode == "private":
@@ -1626,7 +1791,9 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         if text is None:
             await update.message.reply_text(
                 "ℹ️ Please send time as text in format: HH:MM",
-                reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_time_window")]),
+                reply_markup=build_compact_markup(
+                    [], footer=[("🔙 Back", f"{prefix}_back_to_time_window")]
+                ),
             )
             return
 
@@ -1634,7 +1801,9 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         if not isinstance(scheduled_date, str):
             await update.message.reply_text(
                 "ℹ️ Event date is missing. Please reselect date from calendar.",
-                reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_time_window")]),
+                reply_markup=build_compact_markup(
+                    [], footer=[("🔙 Back", f"{prefix}_back_to_time_window")]
+                ),
             )
             return
 
@@ -1649,7 +1818,9 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
             await update.message.reply_text(
                 f"⏱️ *Time: {scheduled_time.strftime('%Y-%m-%d %H:%M')}*\n\n"
                 "What is the minimum attendance threshold?",
-                reply_markup=build_threshold_markup(f"{prefix}_edit_time_window", prefix=prefix),
+                reply_markup=build_threshold_markup(
+                    f"{prefix}_edit_time_window", prefix=prefix
+                ),
             )
         except ValueError:
             await update.message.reply_text("ℹ️ Invalid time format. Please use: HH:MM")
@@ -1659,7 +1830,9 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
         if text is None:
             await update.message.reply_text(
                 "ℹ️ Invalid input. Please enter comma-separated handles like @alice, @bob.",
-                reply_markup=build_compact_markup([], footer=[("🔙 Back", f"{prefix}_back_to_transport")]),
+                reply_markup=build_compact_markup(
+                    [], footer=[("🔙 Back", f"{prefix}_back_to_transport")]
+                ),
             )
             return
 
@@ -1736,7 +1909,9 @@ async def _handle_message_common(update: Update, context: ContextTypes.DEFAULT_T
             )
 
 
-async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE, _mode: str = "public") -> None:
+async def finalize_event(
+    query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE, _mode: str = "public"
+) -> None:
     """Finalize and create the public/event in database."""
     if context.user_data is None:
         await _safe_edit_message(query, "ℹ️ User session data is unavailable.")
@@ -1766,7 +1941,11 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
         return
 
     async with get_session(settings.db_url) as session:
-        candidate_time = datetime.fromisoformat(scheduled_time_raw) if isinstance(scheduled_time_raw, str) else None
+        candidate_time = (
+            datetime.fromisoformat(scheduled_time_raw)
+            if isinstance(scheduled_time_raw, str)
+            else None
+        )
         commit_by = compute_commit_by_time(candidate_time)
         duration_minutes = int(data.get("duration_minutes", 120))
         creator_id = int(data.get("creator", query.from_user.id))
@@ -1796,7 +1975,9 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
             commit_by=commit_by,
             duration_minutes=duration_minutes,
             min_participants=data.get("min_participants", 2),
-            target_participants=data.get("target_participants", max(data.get("min_participants", 2), 5)),
+            target_participants=data.get(
+                "target_participants", max(data.get("min_participants", 2), 5)
+            ),
             planning_prefs={
                 "date_preset": data.get("date_preset"),
                 "time_window": data.get("time_window"),
@@ -1838,13 +2019,17 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
                     lineage_suggestion = {
                         "event_id": memory.event.event_id,
                         "event_type": memory.event.event_type,
-                        "weave_preview": (memory.weave_text[:200] if memory.weave_text else None),
+                        "weave_preview": (
+                            memory.weave_text[:200] if memory.weave_text else None
+                        ),
                         "hashtags": memory.hashtags or [],
                     }
 
         # Store lineage if found
         if lineage_event_ids:
-            await memory_service.link_lineage(event.event_id, lineage_event_ids[:3])  # Max 3
+            await memory_service.link_lineage(
+                event.event_id, lineage_event_ids[:3]
+            )  # Max 3
             logger.info(
                 "Linked lineage for event %s: %s",
                 event.event_id,
@@ -1866,12 +2051,16 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
     async with get_session(settings.db_url) as session:
         # Get organizer's username and display_name for display in invitation
         organizer_user = (
-            await session.execute(select(User).where(User.telegram_user_id == int(creator_id)))
+            await session.execute(
+                select(User).where(User.telegram_user_id == int(creator_id))
+            )
         ).scalar_one_or_none()
         organizer_username = organizer_user.username if organizer_user else None
         organizer_display_name = organizer_user.display_name if organizer_user else None
 
-        group = (await session.execute(select(Group).where(Group.group_id == group_id))).scalar_one_or_none()
+        group = (
+            await session.execute(select(Group).where(Group.group_id == group_id))
+        ).scalar_one_or_none()
 
         # Add organizer info to data for the invitation message
         data["organizer_telegram_user_id"] = int(creator_id)
@@ -1940,7 +2129,9 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
             try:
                 user_id = await get_user_id_by_username(session, username)
                 if user_id:
-                    result = await session.execute(select(User).where(User.user_id == int(user_id)))
+                    result = await session.execute(
+                        select(User).where(User.user_id == int(user_id))
+                    )
                     invitee_user = result.scalar_one_or_none()
                     if invitee_user and invitee_user.telegram_user_id:
                         tg_id = int(invitee_user.telegram_user_id)
@@ -1992,7 +2183,8 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
             len(group.member_list or []) if group else 0,
             len(explicit_tg_ids),
             invite_all,
-            creator_id in (recipient_telegram_ids | {creator_id}),  # Check if creator was in set
+            creator_id
+            in (recipient_telegram_ids | {creator_id}),  # Check if creator was in set
         )
 
         if not recipient_telegram_ids:
@@ -2006,7 +2198,9 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
         dm_count = 0
         dm_failed = 0
         dm_skipped_no_bot = 0
-        RATE_LIMIT_DELAY = 0.1  # 100ms between sends (~10 msg/sec, well under 30/sec limit)
+        RATE_LIMIT_DELAY = (
+            0.1  # 100ms between sends (~10 msg/sec, well under 30/sec limit)
+        )
 
         if not context.bot:
             logger.error(
@@ -2095,7 +2289,9 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
                         [
                             InlineKeyboardButton(
                                 "View & Join",
-                                callback_data=encode_callback("join", event.event_id, int(group.telegram_group_id)),
+                                callback_data=encode_callback(
+                                    "join", event.event_id, int(group.telegram_group_id)
+                                ),
                             )
                         ]
                     ]
@@ -2110,12 +2306,16 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
                 )
                 logger.info("Live card posted to group for event %s", event.event_id)
             except Exception as lc_err:
-                logger.warning("Failed to post live card for event %s: %s", event.event_id, lc_err)
+                logger.warning(
+                    "Failed to post live card for event %s: %s", event.event_id, lc_err
+                )
     # Use human-readable formatters
     scheduled_time = format_scheduled_time(data.get("scheduled_time"))
     commit_by_text = format_commit_by(commit_by)
     invitees_summary = (
-        "all group members" if data.get("invite_all_members") else f"{len(data.get('invitees', []))} users"
+        "all group members"
+        if data.get("invite_all_members")
+        else f"{len(data.get('invitees', []))} users"
     )
     location_text = format_location_type(data.get("location_type"))
     budget_text = format_budget_level(data.get("budget_level"))
@@ -2164,8 +2364,17 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
 
     # Send full details to admin via DM
     dm_keyboard = [
-        [InlineKeyboardButton("View Event Details", callback_data=encode_callback("det", event.event_id))],
-        [InlineKeyboardButton("Manage Event", callback_data=encode_callback("view", event.event_id))],
+        [
+            InlineKeyboardButton(
+                "View Event Details",
+                callback_data=encode_callback("det", event.event_id),
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "Manage Event", callback_data=encode_callback("view", event.event_id)
+            )
+        ],
     ]
     dm_reply_markup = InlineKeyboardMarkup(dm_keyboard)
 
@@ -2182,7 +2391,9 @@ async def finalize_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYP
     )
 
 
-async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def finalize_private_event(
+    query: CallbackQuery, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """Finalize and create the private event in database."""
     if context.user_data is None:
         await _safe_edit_message(query, "ℹ️ Session data unavailable.")
@@ -2209,7 +2420,11 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
     creator_id = int(data.get("creator", query.from_user.id))
 
     async with get_session(settings.db_url) as session:
-        candidate_time = datetime.fromisoformat(scheduled_time_raw) if isinstance(scheduled_time_raw, str) else None
+        candidate_time = (
+            datetime.fromisoformat(scheduled_time_raw)
+            if isinstance(scheduled_time_raw, str)
+            else None
+        )
         commit_by = compute_commit_by_time(candidate_time)
         duration_minutes = int(data.get("duration_minutes", 120))
 
@@ -2241,7 +2456,9 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
             commit_by=commit_by,
             duration_minutes=duration_minutes,
             min_participants=data.get("min_participants", 2),
-            target_participants=data.get("target_participants", max(data.get("min_participants", 2), 5)),
+            target_participants=data.get(
+                "target_participants", max(data.get("min_participants", 2), 5)
+            ),
             planning_prefs={
                 "date_preset": data.get("date_preset"),
                 "time_window": data.get("time_window"),
@@ -2275,7 +2492,9 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
     async with get_session(settings.db_url) as session:
         # Get organizer's username for display in invitation
         organizer_user = (
-            await session.execute(select(User).where(User.telegram_user_id == int(creator_id)))
+            await session.execute(
+                select(User).where(User.telegram_user_id == int(creator_id))
+            )
         ).scalar_one_or_none()
         organizer_username = organizer_user.username if organizer_user else None
 
@@ -2300,7 +2519,9 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
                 try:
                     user_id = await get_user_id_by_username(session, username)
                     if user_id:
-                        result = await session.execute(select(User).where(User.user_id == int(user_id)))
+                        result = await session.execute(
+                            select(User).where(User.user_id == int(user_id))
+                        )
                         invitee_user = result.scalar_one_or_none()
                         if invitee_user and invitee_user.telegram_user_id:
                             sent = await send_event_invitation_dm(
@@ -2343,13 +2564,16 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
                     dm_failed += 1
         else:
             await _safe_edit_message(
-                query, "ℹ️ For private events, please specify invitees. Use @username (comma-separated)."
+                query,
+                "ℹ️ For private events, please specify invitees. Use @username (comma-separated).",
             )
             return
 
         # Also send to admin/creator
         try:
-            sent = await send_event_invitation_dm(context, int(creator_id), data, int(event.event_id))
+            sent = await send_event_invitation_dm(
+                context, int(creator_id), data, int(event.event_id)
+            )
             if sent:
                 logger.info(
                     "DM sent to admin %s for private event %s (admin)",
@@ -2378,7 +2602,11 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
     context.user_data.pop("private_event_flow", None)
 
     keyboard = [
-        [InlineKeyboardButton("View Event", callback_data=encode_callback("det", event.event_id))],
+        [
+            InlineKeyboardButton(
+                "View Event", callback_data=encode_callback("det", event.event_id)
+            )
+        ],
     ]
 
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -2386,7 +2614,11 @@ async def finalize_private_event(query: CallbackQuery, context: ContextTypes.DEF
     # Use human-readable formatters
     scheduled_time = format_scheduled_time(data.get("scheduled_time"))
     commit_by_text = format_commit_by(commit_by)
-    invitees_summary = "all group members" if data.get("invite_all_members") else f"{len(invitees)} users"
+    invitees_summary = (
+        "all group members"
+        if data.get("invite_all_members")
+        else f"{len(invitees)} users"
+    )
     location_text = format_location_type(data.get("location_type"))
     budget_text = format_budget_level(data.get("budget_level"))
     transport_text = format_transport_mode(data.get("transport_mode"))

@@ -77,7 +77,9 @@ class LLMClient:
 
         try:
             response = await self._call_llm(prompt)
-            return validate_llm_output(ConflictResolution, response, fallback_factory=fallback, logger=logger)
+            return validate_llm_output(
+                ConflictResolution, response, fallback_factory=fallback, logger=logger
+            )
         except Exception as e:
             logger.exception("Conflict resolution failed: %s", e)
             return fallback()
@@ -93,7 +95,9 @@ class LLMClient:
 
         try:
             response = await self._call_llm(prompt)
-            validated = validate_llm_output(ConstraintAnalysis, response, fallback_factory=fallback, logger=logger)
+            validated = validate_llm_output(
+                ConstraintAnalysis, response, fallback_factory=fallback, logger=logger
+            )
             return [c.dict() for c in validated.get("conflicts", [])]
         except Exception:
             return []
@@ -124,7 +128,12 @@ class LLMClient:
         # LLM either succeeds or returns empty dict - no pattern matching fallbacks
         try:
             response = await self._call_llm(prompt)
-            return validate_llm_output(ConstraintInference, response, fallback_factory=lambda: {}, logger=logger)
+            return validate_llm_output(
+                ConstraintInference,
+                response,
+                fallback_factory=lambda: {},
+                logger=logger,
+            )
         except Exception:
             logger.warning("Constraint inference failed, no fallback available")
             return {}
@@ -220,11 +229,16 @@ class LLMClient:
             if "invite all" in lowered or "@all" in lowered:
                 patch["invite_all_members"] = True
 
-            min_match = re.search(r"\b(?:minimum|min|threshold|at least)(?:\s+(?:to|of))?\s+(\d{1,3})\b", lowered)
+            min_match = re.search(
+                r"\b(?:minimum|min|threshold|at least)(?:\s+(?:to|of))?\s+(\d{1,3})\b",
+                lowered,
+            )
             if min_match:
                 patch["min_participants"] = int(min_match.group(1))
 
-            target_match = re.search(r"\b(?:capacity|target|up to|fit)\s+(\d{1,3})\b", lowered)
+            target_match = re.search(
+                r"\b(?:capacity|target|up to|fit)\s+(\d{1,3})\b", lowered
+            )
             if target_match:
                 patch["target_participants"] = int(target_match.group(1))
 
@@ -235,7 +249,9 @@ class LLMClient:
             if duration_match:
                 value = int(duration_match.group(1))
                 unit = duration_match.group(2)
-                patch["duration_minutes"] = value * 60 if "hour" in unit or "hr" in unit else value
+                patch["duration_minutes"] = (
+                    value * 60 if "hour" in unit or "hr" in unit else value
+                )
 
             datetime_match = re.search(
                 r"\b(\d{4}-\d{2}-\d{2})[ t](\d{1,2}:\d{2})\b",
@@ -268,7 +284,12 @@ class LLMClient:
                         today = datetime.now().date()
                         patch["scheduled_time_iso"] = f"{today}T{hour:02d}:00"
 
-            if "clear time" in lowered or "no time" in lowered or "time tbd" in lowered or "flexible" in lowered:
+            if (
+                "clear time" in lowered
+                or "no time" in lowered
+                or "time tbd" in lowered
+                or "flexible" in lowered
+            ):
                 patch["clear_time"] = True
 
             handles = re.findall(r"@([A-Za-z][A-Za-z0-9_]{4,31})", message_text)
@@ -305,31 +326,54 @@ class LLMClient:
                 ]
             ):
                 patch["location_type"] = "home"
-            elif any(token in lowered for token in ["park", "outdoor", "outside", "garden", "field"]):
+            elif any(
+                token in lowered
+                for token in ["park", "outdoor", "outside", "garden", "field"]
+            ):
                 patch["location_type"] = "outdoor"
-            elif any(token in lowered for token in ["cafe", "restaurant", "coffee shop", "diner"]):
+            elif any(
+                token in lowered
+                for token in ["cafe", "restaurant", "coffee shop", "diner"]
+            ):
                 patch["location_type"] = "cafe"
-            elif any(token in lowered for token in ["office", "workspace", "workplace", "meeting room"]):
+            elif any(
+                token in lowered
+                for token in ["office", "workspace", "workplace", "meeting room"]
+            ):
                 patch["location_type"] = "office"
             elif any(token in lowered for token in ["gym", "fitness", "workout place"]):
                 patch["location_type"] = "gym"
 
             # Budget level detection
-            if any(token in lowered for token in ["free", "no cost", "cheap", "budget"]):
+            if any(
+                token in lowered for token in ["free", "no cost", "cheap", "budget"]
+            ):
                 patch["budget_level"] = "free"
-            elif any(token in lowered for token in ["low cost", "inexpensive", "affordable"]):
+            elif any(
+                token in lowered for token in ["low cost", "inexpensive", "affordable"]
+            ):
                 patch["budget_level"] = "low"
-            elif any(token in lowered for token in ["moderate", "mid-range", "medium cost"]):
+            elif any(
+                token in lowered for token in ["moderate", "mid-range", "medium cost"]
+            ):
                 patch["budget_level"] = "medium"
-            elif any(token in lowered for token in ["expensive", "premium", "high-end", "luxury"]):
+            elif any(
+                token in lowered
+                for token in ["expensive", "premium", "high-end", "luxury"]
+            ):
                 patch["budget_level"] = "high"
 
             # Transport mode detection
             if "walking" in lowered or "walk" in lowered:
                 patch["transport_mode"] = "walk"
-            elif any(token in lowered for token in ["public transit", "bus", "train", "metro", "subway"]):
+            elif any(
+                token in lowered
+                for token in ["public transit", "bus", "train", "metro", "subway"]
+            ):
                 patch["transport_mode"] = "public_transit"
-            elif any(token in lowered for token in ["driving", "drive", "car", "by car"]):
+            elif any(
+                token in lowered for token in ["driving", "drive", "car", "by car"]
+            ):
                 patch["transport_mode"] = "drive"
 
             return patch
@@ -355,14 +399,14 @@ class LLMClient:
         - min_participants: If a minimum is discussed (e.g., "need at least 4"), use that. Otherwise infer from context (small gathering → 3, big party → 6+).
         - target_participants: If ideal capacity is discussed, use it. Otherwise set a comfortable target at or above the minimum.
         - duration_minutes: If duration is discussed (e.g., "for a couple hours" → 120, "quick meetup" → 60). Otherwise infer from context.
-        
+
         CRITICAL RULES FOR invite_all_members:
         - DEFAULT to TRUE unless the message EXPLICITLY excludes others
         - Set FALSE ONLY for explicit privacy language: "just alice", "private meetup", "don't tell others", "only bob and me"
         - Mentioning specific people does NOT mean private — it means they're emphasized/key attendees
         - "@alice let's play games" → invite_all_members: TRUE (open invitation, Alice is just the organizer/contact)
         - "Just alice and bob, private dinner" → invite_all_members: FALSE (explicit privacy)
-        
+
         - invitees: List ALL people mentioned as potential attendees (with @ prefix, lowercase)
         - key_attendees: List people who are emphasized/important to the event (organizers, contacts, conditional attendees). This is SEPARATE from privacy — mentions go here without affecting invite_all_members.
         - date_preset: "today", "tomorrow", "weekend", "nextweek", or "custom" — infer from relative time references
@@ -430,7 +474,10 @@ class LLMClient:
         """
         try:
             response = await self._call_llm(
-                prompt, max_tokens=LLM_MAX_TOKENS_LARGE, temperature=0.1, system=MEDIATOR_SYSTEM
+                prompt,
+                max_tokens=LLM_MAX_TOKENS_LARGE,
+                temperature=0.1,
+                system=MEDIATOR_SYSTEM,
             )
             parsed = json.loads(response)
             event_type = str(parsed.get("event_type", "social")).strip().lower()
@@ -438,7 +485,9 @@ class LLMClient:
                 event_type = "social"
             duration = int(parsed.get("duration_minutes", 120))
             min_participants = int(parsed.get("min_participants", 3))
-            target_participants = int(parsed.get("target_participants", max(min_participants, 5)))
+            target_participants = int(
+                parsed.get("target_participants", max(min_participants, 5))
+            )
             invitees = parsed.get("invitees", [])
             if not isinstance(invitees, list):
                 invitees = []
@@ -543,14 +592,22 @@ class LLMClient:
             time_window = parsed.get("time_window")
             if isinstance(time_window, str) and time_window.strip():
                 time_window = time_window.strip().lower()
-                valid_windows = {"early-morning", "morning", "afternoon", "evening", "night"}
+                valid_windows = {
+                    "early-morning",
+                    "morning",
+                    "afternoon",
+                    "evening",
+                    "night",
+                }
                 if time_window not in valid_windows:
                     time_window = None
             else:
                 time_window = None
 
             return {
-                "description": str(parsed.get("description", message_text or "Group planned event")).strip()[:500],
+                "description": str(
+                    parsed.get("description", message_text or "Group planned event")
+                ).strip()[:500],
                 "event_type": event_type,
                 "scheduled_time": parsed.get("scheduled_time_iso"),
                 "collapse_at": collapse_at.isoformat() if collapse_at else None,
@@ -563,7 +620,9 @@ class LLMClient:
                 "invite_all_members": bool(parsed.get("invite_all_members", True)),
                 "invitees": normalized_invitees,
                 "key_attendees": normalized_key_attendees,
-                "planning_notes": [str(n).strip()[:300] for n in notes if str(n).strip()],
+                "planning_notes": [
+                    str(n).strip()[:300] for n in notes if str(n).strip()
+                ],
                 "date_preset": date_preset,
                 "time_window": time_window,
                 "location_type": location_type,
@@ -613,7 +672,9 @@ class LLMClient:
         schema_lines = []
         for name, meta in ACTIONS.items():
             req = ", ".join(meta["required_params"]) or "none"
-            schema_lines.append(f'  "{name}": {meta["description"]} | required: [{req}]')
+            schema_lines.append(
+                f'  "{name}": {meta["description"]} | required: [{req}]'
+            )
         schema_str = "\n".join(schema_lines)
 
         prompt = f"""You are a Telegram group coordination assistant.
@@ -671,7 +732,9 @@ If a required param like event_id is missing, set it to null — do not guess.
                 "assistant_response": "I had trouble understanding that. Use /events to see what's happening.",
             }
 
-    def _trim_to_token_budget(self, history: list[dict], budget: int = 800) -> list[dict]:
+    def _trim_to_token_budget(
+        self, history: list[dict], budget: int = 800
+    ) -> list[dict]:
         """Trim history to approximate token budget, keeping most recent messages."""
         result = []
         total_tokens = 0
@@ -728,7 +791,11 @@ If a required param like event_id is missing, set it to null — do not guess.
             target_username = str(target_username).strip().lstrip("@") or None
 
         constraint_type = params.get("constraint_type")
-        if constraint_type and constraint_type not in {"if_joins", "if_attends", "unless_joins"}:
+        if constraint_type and constraint_type not in {
+            "if_joins",
+            "if_attends",
+            "unless_joins",
+        }:
             constraint_type = None
 
         return {
@@ -769,11 +836,15 @@ If a required param like event_id is missing, set it to null — do not guess.
 
     async def _call_llm_large(self, prompt: str, system: str | None = None) -> str:
         """Context-heavy prompts (long history) need more output tokens for valid JSON."""
-        return await self._call_llm(prompt, max_tokens=LLM_MAX_TOKENS_LARGE, system=system)
+        return await self._call_llm(
+            prompt, max_tokens=LLM_MAX_TOKENS_LARGE, system=system
+        )
 
     async def _call_llm_small(self, prompt: str, system: str | None = None) -> str:
         """Simple classification tasks need fewer tokens."""
-        return await self._call_llm(prompt, max_tokens=LLM_MAX_TOKENS_SMALL, system=system)
+        return await self._call_llm(
+            prompt, max_tokens=LLM_MAX_TOKENS_SMALL, system=system
+        )
 
     async def check_availability(self) -> Tuple[bool, str]:
         """Check if the configured LLM endpoint is reachable."""

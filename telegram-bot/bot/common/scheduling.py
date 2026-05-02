@@ -12,7 +12,9 @@ DEFAULT_DURATION_MINUTES = 120
 ACTIVE_STATES = {"proposed", "interested", "confirmed", "locked"}
 
 
-async def _user_in_event(session: AsyncSession, event_id: int, telegram_user_id: int) -> bool:
+async def _user_in_event(
+    session: AsyncSession, event_id: int, telegram_user_id: int
+) -> bool:
     """Check whether a user is participant in event (new system)."""
     result = await session.execute(
         select(EventParticipant).where(

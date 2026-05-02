@@ -38,7 +38,9 @@ class WorkerQueue:
         """Start worker tasks."""
         logger.info("Starting %d worker tasks", self.num_workers)
         for i in range(self.num_workers):
-            worker = asyncio.create_task(self._worker(f"worker-{i}"), name=f"worker-{i}")
+            worker = asyncio.create_task(
+                self._worker(f"worker-{i}"), name=f"worker-{i}"
+            )
             self.workers.append(worker)
 
     async def _worker(self, name: str) -> None:
@@ -86,7 +88,9 @@ class WorkerQueue:
             return False
 
         try:
-            await asyncio.wait_for(self.queue.put((callback, args, kwargs)), timeout=0.1)  # Fail fast if queue is full
+            await asyncio.wait_for(
+                self.queue.put((callback, args, kwargs)), timeout=0.1
+            )  # Fail fast if queue is full
             return True
         except asyncio.TimeoutError:
             logger.warning("Worker queue is full, task rejected")
@@ -114,7 +118,9 @@ class WorkerQueue:
         await asyncio.gather(*self.workers, return_exceptions=True)
         self.workers.clear()
 
-        logger.info("Worker queue shutdown complete. Processed %d tasks.", self._tasks_processed)
+        logger.info(
+            "Worker queue shutdown complete. Processed %d tasks.", self._tasks_processed
+        )
 
     def get_stats(self) -> dict[str, Any]:
         """Get queue statistics."""
@@ -211,7 +217,9 @@ def submit_to_worker(
         submit_to_worker(send_notification, user_id=123, message="Hello!")
     """
     worker_queue = get_worker_queue()
-    return asyncio.get_event_loop().run_until_complete(worker_queue.submit(callback, *args, **kwargs))
+    return asyncio.get_event_loop().run_until_complete(
+        worker_queue.submit(callback, *args, **kwargs)
+    )
 
 
 async def submit_to_worker_async(

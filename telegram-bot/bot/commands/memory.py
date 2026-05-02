@@ -36,7 +36,9 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     try:
         if not context.args:
-            await update.message.reply_text("Usage: /memory [event_id]\n\n" "Example: /memory 123")
+            await update.message.reply_text(
+                "Usage: /memory [event_id]\n\n" "Example: /memory 123"
+            )
             return
 
         try:
@@ -49,7 +51,9 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             # Get event
             from sqlalchemy import select
 
-            result = await session.execute(select(Event).where(Event.event_id == event_id))
+            result = await session.execute(
+                select(Event).where(Event.event_id == event_id)
+            )
             event = result.scalar_one_or_none()
 
             if not event:
@@ -72,7 +76,9 @@ async def memory(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             # Add lineage if present
             if memory_weave.lineage_event_ids:
-                lineage_str = ", ".join(str(eid) for eid in memory_weave.lineage_event_ids)
+                lineage_str = ", ".join(
+                    str(eid) for eid in memory_weave.lineage_event_ids
+                )
                 response += f"\n\n_Part of a series: {lineage_str}_"
 
             await update.message.reply_text(response, parse_mode="HTML")
@@ -110,31 +116,38 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             from sqlalchemy import select
             from db.models import Group
 
-            result = await session.execute(select(Group).where(Group.telegram_group_id == update.effective_chat.id))
+            result = await session.execute(
+                select(Group).where(Group.telegram_group_id == update.effective_chat.id)
+            )
             group = result.scalar_one_or_none()
 
             if not group:
-                await update.message.reply_text("This group is not registered yet.\n" "Use /start to register.")
+                await update.message.reply_text(
+                    "This group is not registered yet.\n" "Use /start to register."
+                )
                 return
 
             # Get recent memories
             memory_service = EventMemoryService(context.bot, session)
-            memories = await memory_service.get_recent_memories(group.group_id, limit=10)
+            memories = await memory_service.get_recent_memories(
+                group.group_id, limit=10
+            )
 
             if not memories:
                 await update.message.reply_text(
-                    "No memory weaves yet.\n\n" "Memories will appear here after events complete."
+                    "No memory weaves yet.\n\n"
+                    "Memories will appear here after events complete."
                 )
                 return
 
             # Build response
-            response_parts = [f"📿 <b>Recent memories for {group.group_name or 'this group'}</b>"]
+            response_parts = [
+                f"📿 <b>Recent memories for {group.group_name or 'this group'}</b>"
+            ]
 
             for memory in memories:
                 event = memory.event
-                event_title = (
-                    f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
-                )
+                event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
 
                 # Show first fragment preview
                 preview = ""
@@ -142,7 +155,9 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                     first_fragment = memory.fragments[0].get("text", "")[:50]
                     if first_fragment:
                         preview = (
-                            f'\n  "{first_fragment}..."' if len(first_fragment) >= 50 else f'\n  "{first_fragment}"'
+                            f'\n  "{first_fragment}..."'
+                            if len(first_fragment) >= 50
+                            else f'\n  "{first_fragment}"'
                         )
 
                 # Show hashtags
@@ -201,14 +216,18 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         memory_text = " ".join(context.args[1:])
 
         if len(memory_text) < 3:
-            await update.message.reply_text("Please share a bit more detail (at least 3 characters).")
+            await update.message.reply_text(
+                "Please share a bit more detail (at least 3 characters)."
+            )
             return
 
         async with get_session(context.bot_data.get("db_url")) as session:
             # Get event
             from sqlalchemy import select
 
-            result = await session.execute(select(Event).where(Event.event_id == event_id))
+            result = await session.execute(
+                select(Event).where(Event.event_id == event_id)
+            )
             event = result.scalar_one_or_none()
 
             if not event:
@@ -246,7 +265,8 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await session.commit()
 
             await update.message.reply_text(
-                "✓ Memory added!\n\n" "Thank you for sharing. This will be woven into the group's memory of the event."
+                "✓ Memory added!\n\n"
+                "Thank you for sharing. This will be woven into the group's memory of the event."
             )
 
             logger.info(
@@ -283,11 +303,15 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             from sqlalchemy import select
             from db.models import Group
 
-            result = await session.execute(select(Group).where(Group.telegram_group_id == update.effective_chat.id))
+            result = await session.execute(
+                select(Group).where(Group.telegram_group_id == update.effective_chat.id)
+            )
             group = result.scalar_one_or_none()
 
             if not group:
-                await update.message.reply_text("This group is not registered yet.\n" "Use /start to register.")
+                await update.message.reply_text(
+                    "This group is not registered yet.\n" "Use /start to register."
+                )
                 return
 
             # Generate digest
@@ -323,11 +347,15 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 stats = digest_data["stats"]
                 response_parts.append("\n📊 <b>This Week</b>")
                 if stats.get("events_completed"):
-                    response_parts.append(f"• {stats['events_completed']} events completed")
+                    response_parts.append(
+                        f"• {stats['events_completed']} events completed"
+                    )
                 if stats.get("participants"):
                     response_parts.append(f"• {stats['participants']} participants")
                 if stats.get("memory_fragments"):
-                    response_parts.append(f"• {stats['memory_fragments']} memories shared")
+                    response_parts.append(
+                        f"• {stats['memory_fragments']} memories shared"
+                    )
 
             if not response_parts:
                 await update.message.reply_text(
@@ -351,7 +379,9 @@ async def weekly_digest(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         clear_correlation_context()
 
 
-async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def handle_digest_callback(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
     """
     Handle callback queries from weekly digest inline keyboard.
 
@@ -372,7 +402,9 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
         from db.models import Group
 
         # Get group
-        result = await session.execute(select(Group).where(Group.telegram_group_id == query.message.chat_id))
+        result = await session.execute(
+            select(Group).where(Group.telegram_group_id == query.message.chat_id)
+        )
         group = result.scalar_one_or_none()
 
         if not group:
@@ -384,7 +416,10 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
             from db.models import Event
 
             result = await session.execute(
-                select(Event).where(Event.group_id == group.group_id).order_by(Event.scheduled_time.desc()).limit(10)
+                select(Event)
+                .where(Event.group_id == group.group_id)
+                .order_by(Event.scheduled_time.desc())
+                .limit(10)
             )
             events = result.scalars().all()
 
@@ -395,7 +430,11 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
             response = "📅 <b>Recent Events</b>\n\n"
             for event in events:
                 status = event.status.value if event.status else "unknown"
-                time_str = event.scheduled_time.strftime("%d %b %H:%M") if event.scheduled_time else "TBD"
+                time_str = (
+                    event.scheduled_time.strftime("%d %b %H:%M")
+                    if event.scheduled_time
+                    else "TBD"
+                )
                 response += f"• {event.event_type} • {time_str} [{status}]\n"
 
             await query.edit_message_text(response, parse_mode="HTML")
@@ -418,9 +457,7 @@ async def handle_digest_callback(update: Update, context: ContextTypes.DEFAULT_T
             response = "📿 <b>Recent Memories</b>\n\n"
             for memory in memories:
                 event = memory.event
-                event_title = (
-                    f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
-                )
+                event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
                 fragment_count = len(memory.fragments) if memory.fragments else 0
                 response += f"• {event_title} ({fragment_count} fragments)\n"
 

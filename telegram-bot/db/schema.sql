@@ -1,5 +1,5 @@
 -- Database schema for Telegram Coordination Bot
--- 
+--
 -- SCHEMA DEFINITION - Single Source of Truth
 -- ============================================
 -- This file documents the complete database schema for the coordination bot.

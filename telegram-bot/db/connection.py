@@ -27,14 +27,18 @@ _sync_engines: dict[str, Any] = {}
 def create_engine(db_url: str) -> AsyncEngine:
     """Create or retrieve cached async database engine."""
     if db_url not in _engines:
-        _engines[db_url] = create_async_engine(db_url, echo=False, pool_pre_ping=True, pool_size=10, max_overflow=20)
+        _engines[db_url] = create_async_engine(
+            db_url, echo=False, pool_pre_ping=True, pool_size=10, max_overflow=20
+        )
     return _engines[db_url]
 
 
 def get_sync_engine(db_url: str) -> Any:
     """Create or retrieve cached sync database engine (for migrations)."""
     if db_url not in _sync_engines:
-        _sync_engines[db_url] = create_sync_engine(db_url, echo=False, pool_pre_ping=True, pool_size=5, max_overflow=10)
+        _sync_engines[db_url] = create_sync_engine(
+            db_url, echo=False, pool_pre_ping=True, pool_size=5, max_overflow=10
+        )
     return _sync_engines[db_url]
 
 

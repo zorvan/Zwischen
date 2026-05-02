@@ -140,7 +140,8 @@ class EventEnrichmentService:
         current_count = await self._count_user_hashtags(event_id, telegram_user_id)
         if current_count >= MAX_HASHTAGS_PER_USER:
             raise HashtagLimitError(
-                f"Maximum {MAX_HASHTAGS_PER_USER} hashtags per event. " "Remove an existing hashtag to add a new one."
+                f"Maximum {MAX_HASHTAGS_PER_USER} hashtags per event. "
+                "Remove an existing hashtag to add a new one."
             )
 
         # Normalize hashtag
@@ -157,7 +158,8 @@ class EventEnrichmentService:
             telegram_user_id=telegram_user_id,
             enrichment_type="hashtag",
             content=normalized,
-            is_public=existing_count >= HASHTAG_PUBLIC_THRESHOLD - 1,  # Will be public if this makes 2+
+            is_public=existing_count
+            >= HASHTAG_PUBLIC_THRESHOLD - 1,  # Will be public if this makes 2+
         )
 
         self.session.add(enrichment)
@@ -367,7 +369,9 @@ class EventEnrichmentService:
             raise ContentValidationError("Content must be a non-empty string")
 
         if len(content) > MAX_IDEA_LENGTH:
-            raise ContentValidationError(f"Ideas must be {MAX_IDEA_LENGTH} characters or less")
+            raise ContentValidationError(
+                f"Ideas must be {MAX_IDEA_LENGTH} characters or less"
+            )
 
     @staticmethod
     def _validate_memory_content(content: str) -> None:
@@ -377,7 +381,9 @@ class EventEnrichmentService:
 
         word_count = len(content.split())
         if word_count > MAX_MEMORY_WORDS:
-            raise ContentValidationError(f"Memories must be {MAX_MEMORY_WORDS} words or less (you have {word_count})")
+            raise ContentValidationError(
+                f"Memories must be {MAX_MEMORY_WORDS} words or less (you have {word_count})"
+            )
 
     @staticmethod
     def _normalize_hashtag(hashtag: str) -> str:

@@ -55,7 +55,9 @@ async def check_group_membership(
     logger.info("")
     logger.info("%s", _sep())
     logger.info("🔍 check_group_membership")
-    logger.info("   group_id=%d  user_id=%d  chat_id=%r", group_id, user_id, telegram_chat_id)
+    logger.info(
+        "   group_id=%d  user_id=%d  chat_id=%r", group_id, user_id, telegram_chat_id
+    )
 
     result = await session.execute(select(Group).where(Group.group_id == group_id))
     group = result.scalar_one_or_none()
@@ -74,7 +76,9 @@ async def check_group_membership(
     _info("  group.telegram_group_id", str(group.telegram_group_id))
     _info("  incoming telegram_chat_id", str(telegram_chat_id))
 
-    if telegram_chat_id is not None and int(group.telegram_group_id) == int(telegram_chat_id):
+    if telegram_chat_id is not None and int(group.telegram_group_id) == int(
+        telegram_chat_id
+    ):
         member_list = group.member_list or []
         if uid not in [int(m) for m in member_list]:
             group.member_list = [*member_list, uid]
@@ -122,7 +126,10 @@ async def check_group_membership(
     _info("Step 4", "Telegram API get_chat_member")
     if bot is not None:
         try:
-            _info("  calling get_chat_member", f"chat_id={group.telegram_group_id} user_id={uid}")
+            _info(
+                "  calling get_chat_member",
+                f"chat_id={group.telegram_group_id} user_id={uid}",
+            )
             member = await asyncio.wait_for(
                 bot.get_chat_member(
                     chat_id=group.telegram_group_id,
@@ -171,7 +178,9 @@ async def check_event_visibility_and_get_event(
     logger.info("")
     logger.info("%s", _sep())
     logger.info("🔍 check_event_visibility_and_get_event")
-    logger.info("   event_id=%d  user_id=%d  chat_id=%r", event_id, user_id, telegram_chat_id)
+    logger.info(
+        "   event_id=%d  user_id=%d  chat_id=%r", event_id, user_id, telegram_chat_id
+    )
 
     result = await session.execute(
         select(Event, Group)
@@ -195,7 +204,10 @@ async def check_event_visibility_and_get_event(
     # ── Check 1: Organizer / Admin ───────────────────────────
     _info("Check 1", "Organizer / Admin check")
     _info("  event.organizer_telegram_user_id", str(event.organizer_telegram_user_id))
-    _info("  event.emergency_admin_telegram_user_id", str(event.emergency_admin_telegram_user_id))
+    _info(
+        "  event.emergency_admin_telegram_user_id",
+        str(event.emergency_admin_telegram_user_id),
+    )
     _info("  requesting user_id", str(uid))
 
     if event.organizer_telegram_user_id == uid:
@@ -221,7 +233,9 @@ async def check_event_visibility_and_get_event(
     _info("  group.telegram_group_id", str(group.telegram_group_id))
     _info("  incoming telegram_chat_id", str(telegram_chat_id))
 
-    if telegram_chat_id is not None and int(group.telegram_group_id) == int(telegram_chat_id):
+    if telegram_chat_id is not None and int(group.telegram_group_id) == int(
+        telegram_chat_id
+    ):
         member_list = group.member_list or []
         if uid not in [int(m) for m in member_list]:
             group.member_list = [*member_list, uid]
@@ -289,7 +303,10 @@ async def check_event_visibility_and_get_event(
     _info("Check 6", "Telegram API get_chat_member")
     if bot is not None:
         try:
-            _info("  calling get_chat_member", f"chat_id={group.telegram_group_id} user_id={uid}")
+            _info(
+                "  calling get_chat_member",
+                f"chat_id={group.telegram_group_id} user_id={uid}",
+            )
             member = await asyncio.wait_for(
                 bot.get_chat_member(
                     chat_id=group.telegram_group_id,
@@ -447,7 +464,10 @@ async def check_can_modify_event(
     if participant:
         return True, None  # Will be logged as emergency modification
 
-    return False, "Only organizer, admin, or confirmed participants can modify this event"
+    return (
+        False,
+        "Only organizer, admin, or confirmed participants can modify this event",
+    )
 
 
 async def check_can_submit_private_note(
@@ -465,7 +485,9 @@ async def check_can_submit_private_note(
     Returns:
         (is_authorized, error_message)
     """
-    event_result = await session.execute(select(Event).where(Event.event_id == event_id))
+    event_result = await session.execute(
+        select(Event).where(Event.event_id == event_id)
+    )
     event = event_result.scalar_one_or_none()
 
     if not event:

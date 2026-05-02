@@ -82,7 +82,9 @@ STATE_EXPLANATIONS = {
 }
 
 # Mapping from event state to the set of allowed next states (for reference)
-ALLOWED_NEXT_STATES: Dict[str, set] = {k: set(v) for k, v in EVENT_STATE_TRANSITIONS.items()}
+ALLOWED_NEXT_STATES: Dict[str, set] = {
+    k: set(v) for k, v in EVENT_STATE_TRANSITIONS.items()
+}
 
 
 def can_transition(current_state: str, target_state: str) -> bool:
@@ -178,7 +180,11 @@ def build_event_panel_actions(
     Returns:
         Dict mapping all known action names to True/False visibility flags
     """
-    available = set(get_available_actions(user_status, event_state, is_organizer, confirmed_count, min_participants))
+    available = set(
+        get_available_actions(
+            user_status, event_state, is_organizer, confirmed_count, min_participants
+        )
+    )
 
     # All known actions in the system
     all_actions = {

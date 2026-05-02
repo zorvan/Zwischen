@@ -34,7 +34,7 @@ class GroupSettings(Base):
     group_id = Column(Integer, ForeignKey("groups.group_id"), primary_key=True)
     enable_live_cards = Column(Boolean, default=True)
     memory_first_skip_enabled = Column(Boolean, default=True)
-    lineage_selection_method = Column(String, default="llm", 
+    lineage_selection_method = Column(String, default="llm",
                                        check=In(["fixed", "llm"]))
     max_hashtags = Column(Integer, default=5)
     created_at = Column(TIMESTAMPTZ, default=datetime.utcnow)
@@ -87,7 +87,7 @@ logger = logging.getLogger("coord_bot.services.live_card")
 class EventLiveCardService:
     """
     Manages live event status cards in group chat.
-    
+
     v3.3 Design:
     - Cards appear when event is proposed
     - Auto-update on participant changes
@@ -102,7 +102,7 @@ class EventLiveCardService:
     async def create_live_card(self, event: Event, hashtags: Optional[list[str]] = None) -> EventLiveCard:
         """
         Create live status card for a new event.
-        
+
         Posts initial card to group chat, stores reference.
         """
         # Get group settings
@@ -145,7 +145,7 @@ class EventLiveCardService:
     async def update_live_card(self, event: Event) -> Optional[EventLiveCard]:
         """
         Update live card after participant changes.
-        
+
         Updates: participant count, confirmed count, hashtags
         """
         card = await self._get_live_card(event.event_id)
@@ -193,7 +193,7 @@ class EventLiveCardService:
     async def delete_live_card(self, event_id: int) -> bool:
         """
         Delete live card when event locks/completes/cancels.
-        
+
         Also deletes from DB.
         """
         card = await self._get_live_card(event_id)
@@ -217,7 +217,7 @@ class EventLiveCardService:
     async def add_reaction(self, event_id: int, emoji: str) -> dict:
         """
         Add bot reaction to live card.
-        
+
         Returns updated reaction counts.
         """
         card = await self._get_live_card(event_id)
@@ -226,7 +226,7 @@ class EventLiveCardService:
 
         # Categorize sentiment
         sentiment = self._categorize_sentiment(emoji)
-        
+
         # Update reaction counts
         counts = card.reaction_counts or {}
         current = counts.get(sentiment, 0)
@@ -276,7 +276,7 @@ class EventLiveCardService:
             f"👥 {participant_count or 0}/{event.min_participants} joined\n"
             f"✅ {confirmed_count or 0} confirmed"
         )
-        
+
         return text
 
     def _categorize_sentiment(self, emoji: str) -> str:
@@ -310,12 +310,12 @@ class EventLiveCardService:
             select(GroupSettings).where(GroupSettings.group_id == group_id)
         )
         settings = result.scalar_one_or_none()
-        
+
         if not settings:
             settings = GroupSettings(group_id=group_id)
             self.session.add(settings)
             await self.session.commit()
-        
+
         return settings
 ```
 
@@ -352,7 +352,7 @@ logger = logging.getLogger("coord_bot.services.hashtags")
 class EventHashtagService:
     """
     Manages event hashtags.
-    
+
     v3.3 Design:
     - Hashtags = event identity (permanent)
     - Format: #[a-z0-9_]+
@@ -373,7 +373,7 @@ class EventHashtagService:
     ) -> tuple[bool, list[str]]:
         """
         Validate hashtags format and count.
-        
+
         Returns: (is_valid, list_of_errors)
         """
         errors = []
@@ -388,7 +388,7 @@ class EventHashtagService:
             tag_lower = tag.lower()
             if not self.HASH_PATTERN.match(tag_lower):
                 errors.append(f"Invalid format: {tag}. Must be #{a-z0-9_}+")
-            
+
             if len(tag) > 30:
                 errors.append(f"Too long: {tag}. Max 30 characters")
 
@@ -401,7 +401,7 @@ class EventHashtagService:
     ) -> Event:
         """
         Assign hashtags to event (during formation).
-        
+
         Hashtags are stored in `formation_hashtag` column.
         """
         # Validate
@@ -424,7 +424,7 @@ class EventHashtagService:
     async def freeze_hashtags(self, event: Event) -> Event:
         """
         Freeze hashtags when event locks.
-        
+
         Moves hashtags from `formation_hashtag` to `locked_hashtag`.
         """
         if event.formation_hashtag:
@@ -435,7 +435,7 @@ class EventHashtagService:
             await self.session.refresh(event)
 
             logger.info(f"Frozen hashtags for event {event.event_id}")
-        
+
         return event
 
     async def query_by_hashtag(
@@ -445,11 +445,11 @@ class EventHashtagService:
     ) -> list[Event]:
         """
         Query events by hashtag.
-        
+
         Searches both formation and locked hashtags.
         """
         hashtag_lower = hashtag.lower()
-        
+
         result = await self.session.execute(
             select(Event)
             .where(
@@ -458,7 +458,7 @@ class EventHashtagService:
                  Event.locked_hashtag.contains([hashtag_lower]))
             )
         )
-        
+
         return result.scalars().all()
 
     async def get_hashtags_for_event(
@@ -470,7 +470,7 @@ class EventHashtagService:
             select(Event).where(Event.event_id == event_id)
         )
         event = result.scalar_one_or_none()
-        
+
         if not event:
             return []
 
@@ -479,7 +479,7 @@ class EventHashtagService:
             hashtags.extend(event.formation_hashtag)
         if event.locked_hashtag:
             hashtags.extend(event.locked_hashtag)
-        
+
         return hashtags
 ```
 
@@ -511,7 +511,7 @@ logger = logging.getLogger("coord_bot.reaction_tracker")
 class ReactionTracker:
     """
     Tracks bot reactions to live cards.
-    
+
     v3.3 Design:
     - Only bot's reactions counted
     - Sentiment types: enthusiasm, interest, acknowledgment, timing_concern
@@ -545,7 +545,7 @@ class ReactionTracker:
     def count_reactions(cls, message: Message) -> dict[str, int]:
         """
         Count bot's reactions on a message.
-        
+
         Returns dict: {"enthusiasm": N, "interest": N, ...}
         """
         counts = {
@@ -606,7 +606,7 @@ async def start_event_flow(
             "hashtags": hashtags or [],  # NEW
         },
     }
-    
+
     # ... rest of existing code ...
 ```
 
@@ -621,14 +621,14 @@ async def post_live_card(
 ) -> None:
     """Post live card for event."""
     from bot.services.event_live_card_service import EventLiveCardService
-    
+
     message = update.effective_message
     if not message or not update.effective_chat:
         return
 
     chat = update.effective_chat
     bot = update.get_bot()
-    
+
     async with get_session(settings.db_url) as session:
         service = EventLiveCardService(bot, session)
         await service.create_live_card(event, hashtags=hashtags or [])
@@ -653,7 +653,7 @@ Update participant change handlers to update live card:
 async def handle_join_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle join callback."""
     # ... existing join logic ...
-    
+
     # Update live card
     await update_live_card_on_change(context, event_id)
 
@@ -661,7 +661,7 @@ async def handle_join_callback(update: Update, context: ContextTypes.DEFAULT_TYP
 async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle confirm callback."""
     # ... existing confirm logic ...
-    
+
     # Update live card
     await update_live_card_on_change(context, event_id)
 
@@ -669,21 +669,21 @@ async def handle_confirm_callback(update: Update, context: ContextTypes.DEFAULT_
 async def update_live_card_on_change(context: ContextTypes.DEFAULT_TYPE, event_id: int) -> None:
     """Update live card after participant change."""
     from bot.services.event_live_card_service import EventLiveCardService
-    
+
     bot = context.bot
     session = context.bot_data.get("db_session")
-    
+
     if not session:
         return
-    
+
     service = EventLiveCardService(bot, session)
-    
+
     # Get event
     result = await session.execute(
         select(Event).where(Event.event_id == event_id)
     )
     event = result.scalar_one_or_none()
-    
+
     if event:
         await service.update_live_card(event)
 ```
@@ -700,19 +700,19 @@ Update the lock/completion/cancellation methods:
 async def lock_event(self, event: Event, user_id: int) -> Event:
     """Lock event - finalize attendance and post announcements."""
     # ... existing lock logic ...
-    
+
     # Freeze hashtags
     from bot.services.event_hashtag_service import EventHashtagService
     async with get_session(settings.db_url) as session:
         hashtag_service = EventHashtagService(session)
         event = await hashtag_service.freeze_hashtags(event)
-    
+
     # Delete live card
     from bot.services.event_live_card_service import EventLiveCardService
     async with get_session(settings.db_url) as session:
         card_service = EventLiveCardService(bot, session)
         await card_service.delete_live_card(event.event_id)
-    
+
     # ... existing materialization logic ...
 ```
 
@@ -736,7 +736,7 @@ async def test_create_live_card():
     bot = AsyncMock()
     session = AsyncMock()
     service = EventLiveCardService(bot, session)
-    
+
     event = MagicMock()
     event.event_id = 1
     event.group_id = 100
@@ -745,10 +745,10 @@ async def test_create_live_card():
     event.scheduled_time = datetime(2024, 1, 1, 18, 0)
     event.collapse_at = datetime(2024, 1, 2, 18, 0)
     event.min_participants = 5
-    
+
     # Test
     card = await service.create_live_card(event)
-    
+
     assert card.event_id == 1
     assert card.participant_count == 0
     bot.send_message.assert_called_once()

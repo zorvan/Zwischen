@@ -77,7 +77,8 @@ def validate_constraint_type(value: str) -> str:
     normalized = value.strip().lower()
     if normalized not in VALID_CONSTRAINT_TYPES:
         raise ValueError(
-            f"Unknown constraint type: {value!r}. " f"Valid types: {', '.join(sorted(VALID_CONSTRAINT_TYPES))}"
+            f"Unknown constraint type: {value!r}. "
+            f"Valid types: {', '.join(sorted(VALID_CONSTRAINT_TYPES))}"
         )
     return normalized
 
@@ -103,7 +104,10 @@ def validate_log_action(value: str) -> str:
 
     normalized = value.strip().lower()
     if normalized not in VALID_LOG_ACTIONS:
-        raise ValueError(f"Unknown log action: {value!r}. " f"Valid actions: {', '.join(sorted(VALID_LOG_ACTIONS))}")
+        raise ValueError(
+            f"Unknown log action: {value!r}. "
+            f"Valid actions: {', '.join(sorted(VALID_LOG_ACTIONS))}"
+        )
     return normalized
 
 
@@ -173,7 +177,10 @@ class ParticipantService:
                 participant.status = ParticipantStatus.joined
                 participant.joined_at = datetime.utcnow()
                 participant.cancelled_at = None
-                logger.info("Participant rejoined event", extra={"event_id": event_id, "user": telegram_user_id})
+                logger.info(
+                    "Participant rejoined event",
+                    extra={"event_id": event_id, "user": telegram_user_id},
+                )
                 return participant, True
 
             if participant.status == ParticipantStatus.joined:
@@ -237,7 +244,9 @@ class ParticipantService:
             return participant, False
 
         if participant.status == ParticipantStatus.cancelled:
-            raise ParticipantError(f"User {telegram_user_id} cannot confirm after cancelling")
+            raise ParticipantError(
+                f"User {telegram_user_id} cannot confirm after cancelling"
+            )
 
         participant.status = ParticipantStatus.confirmed
         participant.confirmed_at = datetime.utcnow()
@@ -274,7 +283,9 @@ class ParticipantService:
         participant = result.scalar_one_or_none()
 
         if not participant:
-            raise ParticipantNotFoundError(f"User {telegram_user_id} is not a participant of event {event_id}")
+            raise ParticipantNotFoundError(
+                f"User {telegram_user_id} is not a participant of event {event_id}"
+            )
 
         if participant.status == ParticipantStatus.cancelled:
             return participant, False
@@ -309,7 +320,10 @@ class ParticipantService:
 
         if participant and participant.status == ParticipantStatus.confirmed:
             participant.status = ParticipantStatus.no_show
-            logger.warning("Participant marked as no-show", extra={"event_id": event_id, "user": telegram_user_id})
+            logger.warning(
+                "Participant marked as no-show",
+                extra={"event_id": event_id, "user": telegram_user_id},
+            )
 
     async def get_participant(
         self,
@@ -346,7 +360,9 @@ class ParticipantService:
         Returns dict with: joined, confirmed, cancelled, total
         """
         result = await self.session.execute(
-            select(EventParticipant.status, func.count(EventParticipant.telegram_user_id))
+            select(
+                EventParticipant.status, func.count(EventParticipant.telegram_user_id)
+            )
             .where(EventParticipant.event_id == event_id)
             .group_by(EventParticipant.status)
         )
@@ -436,7 +452,9 @@ class ParticipantService:
         participant = result.scalar_one_or_none()
 
         if not participant:
-            raise ParticipantNotFoundError(f"User {telegram_user_id} is not a participant of event {event_id}")
+            raise ParticipantNotFoundError(
+                f"User {telegram_user_id} is not a participant of event {event_id}"
+            )
 
         if participant.status != ParticipantStatus.confirmed:
             return participant, False

@@ -7,7 +7,7 @@ Core AI coordination engine with hybrid approach:
 from typing import Any, Callable
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from db.models import Event, Constraint, Log
+from db.models import Event, Constraint
 
 
 class AICoordinationEngine:
@@ -22,12 +22,16 @@ class AICoordinationEngine:
         self.rules_engine = RuleBasedEngine()
         self.llm = LLMClient()
 
-    async def suggest_event_time(self, session: AsyncSession, event_id: int) -> dict[str, Any]:
+    async def suggest_event_time(
+        self, session: AsyncSession, event_id: int
+    ) -> dict[str, Any]:
         """3-layer decision logic for time suggestions."""
         event = await session.get(Event, event_id)
         if not event:
             return {"error": "Event not found"}
-        result = await session.execute(select(Constraint).where(Constraint.event_id == event_id))
+        result = await session.execute(
+            select(Constraint).where(Constraint.event_id == event_id)
+        )
         constraints = result.scalars().all()
 
         try:
@@ -37,7 +41,9 @@ class AICoordinationEngine:
                 return self.rules_engine.suggest_time_fallback(event)
             return {"error": str(e)}
 
-    async def _compute_suggestion(self, event: Event, constraints: list[Constraint]) -> dict[str, Any]:
+    async def _compute_suggestion(
+        self, event: Event, constraints: list[Constraint]
+    ) -> dict[str, Any]:
         """Compute AI suggestion using availability only. No user history."""
         availability = self.rules_engine.check_availability(event, constraints)
         confidence = self._calculate_confidence(availability)
@@ -58,13 +64,17 @@ class AICoordinationEngine:
 
         return sum(availability.values()) / len(availability)
 
-    async def check_constraint_compatibility(self, session: AsyncSession, event_id: int) -> dict[str, Any]:
+    async def check_constraint_compatibility(
+        self, session: AsyncSession, event_id: int
+    ) -> dict[str, Any]:
         """Check and resolve constraint conflicts."""
         event = await session.get(Event, event_id)
         if not event:
             return {"error": "Event not found"}
 
-        result = await session.execute(select(Constraint).where(Constraint.event_id == event_id))
+        result = await session.execute(
+            select(Constraint).where(Constraint.event_id == event_id)
+        )
         constraints = result.scalars().all()
 
         if len(constraints) < 5:
@@ -72,4 +82,7 @@ class AICoordinationEngine:
         else:
             conflicts = await self.llm.analyze_constraints(constraints)
 
-        return {"conflicts": conflicts, "suggestions": self.rules_engine.generate_compromises(conflicts)}
+        return {
+            "conflicts": conflicts,
+            "suggestions": self.rules_engine.generate_compromises(conflicts),
+        }

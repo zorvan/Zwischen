@@ -2,10 +2,13 @@
 
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
+from bot.common.i18n import t
+
 
 def build_threshold_markup(
     back_callback: str | None = None,
     prefix: str = "event",
+    lang: str = "en",
 ) -> InlineKeyboardMarkup:
     """Build compact threshold choices keyboard."""
     options = [
@@ -23,13 +26,20 @@ def build_threshold_markup(
             keyboard.append(row)
             row = []
     if back_callback:
-        keyboard.append([InlineKeyboardButton("✏️ Edit Previous", callback_data=back_callback)])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    t("keyboard_edit_previous", lang=lang), callback_data=back_callback
+                )
+            ]
+        )
     return InlineKeyboardMarkup(keyboard)
 
 
 def build_min_participants_markup(
     back_callback: str | None = None,
     prefix: str = "event",
+    lang: str = "en",
 ) -> InlineKeyboardMarkup:
     """
     v3.2: Build min_participants (absolute floor) keyboard.
@@ -49,7 +59,13 @@ def build_min_participants_markup(
             keyboard.append(row)
             row = []
     if back_callback:
-        keyboard.append([InlineKeyboardButton("✏️ Edit Previous", callback_data=back_callback)])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    t("keyboard_edit_previous", lang=lang), callback_data=back_callback
+                )
+            ]
+        )
     return InlineKeyboardMarkup(keyboard)
 
 
@@ -57,6 +73,7 @@ def build_target_participants_markup(
     current_min: int,
     back_callback: str | None = None,
     prefix: str = "event",
+    lang: str = "en",
 ) -> InlineKeyboardMarkup:
     """
     v3.2: Build target_participants (comfortable capacity) keyboard.
@@ -76,5 +93,11 @@ def build_target_participants_markup(
             keyboard.append(row)
             row = []
     if back_callback:
-        keyboard.append([InlineKeyboardButton("✏️ Edit Previous", callback_data=back_callback)])
+        keyboard.append(
+            [
+                InlineKeyboardButton(
+                    t("keyboard_edit_previous", lang=lang), callback_data=back_callback
+                )
+            ]
+        )
     return InlineKeyboardMarkup(keyboard)

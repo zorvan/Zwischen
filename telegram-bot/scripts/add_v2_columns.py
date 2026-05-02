@@ -22,7 +22,7 @@ async def run_migration():
     if db_url.startswith("postgresql+asyncpg://"):
         db_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
-    print(f"Connecting to database...")
+    print("Connecting to database...")
     conn = await asyncpg.connect(db_url)
 
     try:
@@ -48,7 +48,9 @@ async def run_migration():
         for col_name, col_def in columns_to_add:
             if col_name not in existing_columns:
                 print(f"  Adding column: {col_name}")
-                await conn.execute(f"ALTER TABLE events ADD COLUMN {col_name} {col_def}")
+                await conn.execute(
+                    f"ALTER TABLE events ADD COLUMN {col_name} {col_def}"
+                )
             else:
                 print(f"  Column already exists: {col_name}")
 

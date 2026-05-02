@@ -22,7 +22,7 @@ async def run_migration():
     if db_url.startswith("postgresql+asyncpg://"):
         db_url = db_url.replace("postgresql+asyncpg://", "postgresql://", 1)
 
-    print(f"Connecting to database...")
+    print("Connecting to database...")
     conn = await asyncpg.connect(db_url)
 
     try:
