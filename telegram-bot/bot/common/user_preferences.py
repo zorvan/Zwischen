@@ -83,6 +83,7 @@ async def create_or_update_user_preferences(
     budget_preference: Optional[str] = None,
     location_type_preference: Optional[str] = None,
     transport_preference: Optional[str] = None,
+    language_preference: Optional[str] = None,
     privacy_settings: Optional[Dict[str, Any]] = None,
 ) -> UserPreference:
     """Create or update user preferences."""
@@ -96,6 +97,7 @@ async def create_or_update_user_preferences(
             budget_preference=budget_preference or "any",
             location_type_preference=location_type_preference or "any",
             transport_preference=transport_preference or "any",
+            language_preference=language_preference,
             privacy_settings=privacy_settings or {},
         )
         session.add(preferences)
@@ -110,6 +112,8 @@ async def create_or_update_user_preferences(
             preferences.location_type_preference = location_type_preference
         if transport_preference:
             preferences.transport_preference = transport_preference
+        if language_preference:
+            preferences.language_preference = language_preference
         if privacy_settings:
             current_privacy = preferences.privacy_settings or {}
             current_privacy.update(privacy_settings)
@@ -373,3 +377,24 @@ def set_preference_private_mode(
         }
 
     return privacy_settings
+
+
+async def get_language_preference(
+    session: AsyncSession, telegram_user_id: int
+) -> Optional[str]:
+    """Get user's language preference from DB."""
+    preferences = await get_user_preferences(session, telegram_user_id)
+    if preferences and preferences.language_preference:
+        return preferences.language_preference
+    return None
+
+
+async def set_language_preference(
+    session: AsyncSession, telegram_user_id: int, lang: str
+) -> None:
+    """Set user's language preference."""
+    await create_or_update_user_preferences(
+        session=session,
+        telegram_user_id=telegram_user_id,
+        language_preference=lang,
+    )

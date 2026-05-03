@@ -14,7 +14,9 @@ async def check():
     async with engine.begin() as conn:
         result = await conn.execute(
             text(
-                "SELECT column_name FROM information_schema.columns WHERE table_name = 'events' AND column_name = 'admin_telegram_user_id';"
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'events' "
+                "AND column_name = 'admin_telegram_user_id';"
             )
         )
         row = result.fetchone()
@@ -26,7 +28,9 @@ async def check():
         print("\\nAll columns in events table:")
         result2 = await conn.execute(
             text(
-                "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'events' ORDER BY ordinal_position;"
+                "SELECT column_name, data_type FROM information_schema.columns "
+                "WHERE table_name = 'events' "
+                "ORDER BY ordinal_position;"
             )
         )
         columns = result2.fetchall()

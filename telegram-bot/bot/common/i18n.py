@@ -43,11 +43,35 @@ def set_language(lang: str) -> None:
     _load_locale(lang)
 
 
-def get_user_language(user: Any) -> str:
-    """Detect language from Telegram user object.
+async def get_user_language(
+    user: Any,
+    session: Any = None,
+    telegram_user_id: int = None,
+    user_data: dict | None = None,
+) -> str:
+    """Detect language from user_data cache, DB preference, then Telegram profile.
 
-    Falls back to 'en' if no language preference is set.
+    Priority:
+    1. user_data['language'] cache (set when user changes language)
+    2. DB language_preference (if session and telegram_user_id provided)
+    3. Telegram user.language_code
+    4. Default 'en'
     """
+    # Check user_data cache first (set by /language command)
+    if user_data and isinstance(user_data, dict):
+        cached_lang = user_data.get("language")
+        if cached_lang and cached_lang in SUPPORTED_LANGS:
+            return cached_lang
+
+    # Check DB preference first
+    if session is not None and telegram_user_id is not None:
+        from bot.common.user_preferences import get_language_preference
+
+        db_lang = await get_language_preference(session, telegram_user_id)
+        if db_lang and db_lang in SUPPORTED_LANGS:
+            return db_lang
+
+    # Fall back to Telegram profile language
     if hasattr(user, "language_code") and user.language_code:
         lang = user.language_code.lower()
         if lang.startswith("fa"):
@@ -76,7 +100,21 @@ def t(key: str, lang: str | None = None, **variables: Any) -> str:
         lang = DEFAULT_LANG
 
     translations = _load_locale(lang)
-    text = translations.get(key, translations.get("en", {}).get(key, "{" + key + "}"))
+    text = translations.get(key)
+    if text is None:
+        text = _load_locale("en").get(key)
+    if text is None:
+        text = "{" + key + "}"
+
+    # Escape Markdown special chars in the fallback key itself to prevent parse errors
+    if text == "{" + key + "}":
+        text = (
+            text.replace("[", "\\[")
+            .replace("]", "\\]")
+            .replace("_", "\\_")
+            .replace("*", "\\*")
+            .replace("`", "\\`")
+        )
 
     # Substitute variables: {name} -> Alice
     for var_key, var_value in variables.items():

@@ -106,7 +106,7 @@ async def _offer_event_selection(
     chat_id: int,
 ) -> None:
     """Query active events in this group and offer tap targets for disambiguation."""
-    user_lang = get_user_language(message.effective_user)
+    user_lang = await get_user_language(message.effective_user)
     if not settings.db_url:
         await message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
@@ -163,7 +163,7 @@ async def _send_group_events_list(
     reply_to_message,
 ) -> None:
     """Post a compact /events-style list for callback flows."""
-    user_lang = get_user_language(reply_to_message.effective_user)
+    user_lang = await get_user_language(reply_to_message.effective_user)
     if not settings.db_url:
         await reply_to_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
@@ -255,7 +255,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if stage in {"description", "time", "invitees", "final"}:
             return
 
-    user_lang = get_user_language(user)
+    user_lang = await get_user_language(user)
     bot_username = (context.bot.username or "").lower()
     has_bot_mention = bool(bot_username and f"@{bot_username}" in text.lower())
     is_reply_to_bot = _is_reply_to_bot_message(message, context)
@@ -489,7 +489,7 @@ async def handle_mention_callback(
         return
     await query.answer()
 
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     parts = query.data.split("_")
     if len(parts) != 3 or parts[0] != "mentionact":
@@ -558,7 +558,7 @@ async def handle_disambiguation_callbacks(
 
     data = query.data
     user = query.from_user
-    user_lang = get_user_language(user)
+    user_lang = await get_user_language(user)
     if not user:
         return
 
@@ -631,7 +631,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     data = query.data
     user = query.from_user
-    user_lang = get_user_language(user)
+    user_lang = await get_user_language(user)
 
     if data.startswith("modinput_"):
         parts = data.split("_")
@@ -782,7 +782,9 @@ async def handle_modify_message(
             t(
                 "mention_modification_cancelled",
                 lang=(
-                    get_user_language(message.from_user) if message.from_user else "en"
+                    await get_user_language(message.from_user)
+                    if message.from_user
+                    else "en"
                 ),
             )
         )
@@ -817,7 +819,9 @@ async def _submit_modify_request_via_message(
     requester_username: str | None,
 ) -> None:
     """Helper to submit modification request via message."""
-    user_lang = get_user_language(update.effective_user)
+    user_lang = await get_user_language(
+        update.effective_user, user_data=context.user_data
+    )
     pending_key = f"modreq_{request_id}"
     context.bot_data.setdefault("pending_modify_requests", {})[pending_key] = {
         "event_id": event_id,
@@ -870,7 +874,7 @@ async def _submit_modify_request_via_callback(
     requester_username: str | None,
 ) -> None:
     """Helper to submit modification request via callback."""
-    user_lang = get_user_language(update.callback_query.from_user)
+    user_lang = await get_user_language(update.callback_query.from_user)
     await update.callback_query.edit_message_text(
         t(
             "mention_modification_submitted",
@@ -935,7 +939,7 @@ async def _execute_inferred_action(
     reply_message,
 ) -> None:
     """Execute inferred action if supported."""
-    user_lang = get_user_language(reply_message.effective_user)
+    user_lang = await get_user_language(reply_message.effective_user)
     action_type = str(action.get("action_type", "")).strip().lower()
     event_id_raw = action.get("event_id")
     try:
@@ -1003,7 +1007,7 @@ async def _send_status(
     reply_message, event_id: int, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Send event status text in mention flow."""
-    user_lang = get_user_language(reply_message.effective_user)
+    user_lang = await get_user_language(reply_message.effective_user)
     if not settings.db_url:
         await reply_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
@@ -1045,7 +1049,7 @@ async def _send_event_details(
     reply_message, event_id: int, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
     """Send event details in mention flow."""
-    user_lang = get_user_language(reply_message.effective_user)
+    user_lang = await get_user_language(reply_message.effective_user)
     if not settings.db_url:
         await reply_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
@@ -1096,7 +1100,7 @@ async def _save_constraint_from_inferred(
     summary: str,
 ) -> None:
     """Persist inferred constraint after approvals."""
-    user_lang = get_user_language(reply_message.effective_user)
+    user_lang = await get_user_language(reply_message.effective_user)
     allowed = {"if_joins", "if_attends", "unless_joins"}
     if constraint_type not in allowed:
         await reply_message.reply_text(
@@ -1260,7 +1264,7 @@ async def _apply_participation_action(
     context: ContextTypes.DEFAULT_TYPE,
 ) -> None:
     """Apply join/confirm/cancel using shared attendance functions."""
-    user_lang = get_user_language(reply_message.effective_user)
+    user_lang = await get_user_language(reply_message.effective_user)
     if not settings.db_url:
         await reply_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
@@ -1449,7 +1453,7 @@ async def _apply_participation_action(
 
 async def _apply_lock_action(reply_message, event_id: int) -> None:
     """Lock event using shared attendance functions."""
-    user_lang = get_user_language(reply_message.effective_user)
+    user_lang = await get_user_language(reply_message.effective_user)
     if not settings.db_url:
         await reply_message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
@@ -1605,7 +1609,9 @@ async def _start_interactive_event_flow(
     if flow_data.get("location_type"):
         inferred_items.append(f"• Location: {flow_data['location_type']}")
 
-    user_lang = get_user_language(update.effective_user)
+    user_lang = await get_user_language(
+        update.effective_user, user_data=context.user_data
+    )
     if inferred_items:
         inferred_msg = t(
             "creation_inferred_details",
@@ -1631,7 +1637,9 @@ async def _handle_organize_event_direct(
     If the draft has sufficient information (at minimum a description), creates the event directly.
     Otherwise, starts the interactive event creation flow with pre-filled data from the draft.
     """
-    user_lang = get_user_language(update.effective_user)
+    user_lang = await get_user_language(
+        update.effective_user, user_data=context.user_data
+    )
     if not settings.db_url:
         await update.message.reply_text(t("error_db_unavailable", lang=user_lang))
         return
@@ -1805,6 +1813,7 @@ async def _handle_organize_event_direct(
         event = Event(
             group_id=group.group_id,
             event_type=event_type,
+            title=draft.get("title"),
             description=description,
             organizer_telegram_user_id=creator_id,
             emergency_admin_telegram_user_id=creator_id,

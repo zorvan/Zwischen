@@ -21,7 +21,7 @@ from sqlalchemy import select
 from telegram import Bot
 
 from bot.common.i18n import t
-from db.models import Event, EventMemory, EventParticipant, ParticipantStatus, User
+from db.models import Event, EventMemory, EventParticipant, ParticipantStatus
 
 logger = logging.getLogger("coord_bot.services.memory")
 
@@ -104,14 +104,13 @@ class EventMemoryService:
               Explicitly holds space for difficulty: "something that didn't
               quite go as planned".
         """
-        user_result = await self.session.execute(
-            select(User).where(User.telegram_user_id == participant.telegram_user_id)
-        )
-        user = user_result.scalar_one_or_none()
+        # Use telegram_user_id directly from participant (no User table lookup needed)
+        chat_id = participant.telegram_user_id
 
-        if not user or not user.telegram_user_id:
+        if not chat_id:
             logger.warning(
-                "Cannot find user for participant %s", participant.telegram_user_id
+                "Cannot send memory request - no telegram_user_id for participant %s",
+                participant.telegram_user_id,
             )
             return
 
@@ -136,19 +135,17 @@ class EventMemoryService:
 
         try:
             await self.bot.send_message(
-                chat_id=user.telegram_user_id,
+                chat_id=chat_id,
                 text=message,
                 # No parse_mode — plain text to avoid issues with user-contributed
                 # fragments containing HTML special characters
             )
             logger.info(
                 "Sent memory request",
-                extra={"event_id": event.event_id, "user": user.user_id},
+                extra={"event_id": event.event_id, "chat_id": chat_id},
             )
         except Exception as e:
-            logger.error(
-                "Failed to send memory request to user %s: %s", user.user_id, e
-            )
+            logger.error("Failed to send memory request to chat %s: %s", chat_id, e)
 
     async def collect_memory_fragment(
         self,
@@ -273,7 +270,10 @@ class EventMemoryService:
             )
             weave_text = self._chronological_weave(memory.fragments)
 
-        event_anchor = f"{event.event_type} • {event.scheduled_time.strftime('%d %b %Y') if event.scheduled_time else 'TBD'}"
+        event_anchor = (
+            f"{event.event_type} • "
+            f"{event.scheduled_time.strftime('%d %b %Y') if event.scheduled_time else 'TBD'}"
+        )
         header = f"📿 <b>How people remember: {event_anchor}</b>\n\n"
         full_weave = header + weave_text
 

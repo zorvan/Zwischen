@@ -111,7 +111,11 @@ async def handle_extend_deadline(
 
         await session.commit()
 
-        user_lang = get_user_language(query.from_user) if query.from_user else "en"
+        user_lang = (
+            await get_user_language(query.from_user, user_data=context.user_data)
+            if query.from_user
+            else "en"
+        )
         await query.edit_message_text(
             t(
                 "waitlist_deadline_extended",
@@ -152,7 +156,11 @@ async def handle_view_waitlist(
         event_result = await session.execute(
             select(Event).where(Event.event_id == event_id)
         )
-        user_lang = get_user_language(query.from_user) if query.from_user else "en"
+        user_lang = (
+            await get_user_language(query.from_user, user_data=context.user_data)
+            if query.from_user
+            else "en"
+        )
         event = event_result.scalar_one_or_none()
         if not event:
             await query.edit_message_text(t("waitlist_event_not_found", lang=user_lang))

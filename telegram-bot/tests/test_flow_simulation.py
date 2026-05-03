@@ -54,26 +54,57 @@ class Step:
 # After each click, the stage reflects WHERE WE'RE GOING TO (next stage)
 FLOW_STEPS: list[Step] = [
     # --- Description ---
-    Step("enter description", "دورهمی دوستانه", "type", {"description": "دورهمی دوستانه"}),
+    Step(
+        "enter description", "دورهمی دوستانه", "type", {"description": "دورهمی دوستانه"}
+    ),
     # --- Type ---
-    Step("select type:social", "event_type_social", "date_preset", {"event_type": "social"}),
+    Step(
+        "select type:social",
+        "event_type_social",
+        "date_preset",
+        {"event_type": "social"},
+    ),
     # --- Date preset ---
-    Step("select date:this weekend", "event_date_this_weekend", "time_window", {"date_preset": "this_weekend"}),
-    Step("select time:evening", "event_time_evening", "min_participants", {"time_window": "evening"}),
+    Step(
+        "select date:this weekend",
+        "event_date_this_weekend",
+        "time_window",
+        {"date_preset": "this_weekend"},
+    ),
+    Step(
+        "select time:evening",
+        "event_time_evening",
+        "min_participants",
+        {"time_window": "evening"},
+    ),
     # --- Min participants ---
     Step("select min:3", "event_min_3", "target_participants", {"min_participants": 3}),
     # --- Target participants ---
     Step("select target:5", "event_target_5", "duration", {"target_participants": 5}),
     # --- Duration ---
-    Step("select duration:60", "event_duration_60", "location", {"duration_minutes": 60}),
+    Step(
+        "select duration:60", "event_duration_60", "location", {"duration_minutes": 60}
+    ),
     # --- Location ---
-    Step("select location:cafe", "event_location_cafe", "budget", {"location_type": "cafe"}),
+    Step(
+        "select location:cafe",
+        "event_location_cafe",
+        "budget",
+        {"location_type": "cafe"},
+    ),
     # --- Budget ---
     Step("select budget:low", "event_budget_low", "transport", {"budget_level": "low"}),
     # --- Transport ---
-    Step("select transport:flexible", "event_transport_flexible", "invitees", {"transport_mode": "flexible"}),
+    Step(
+        "select transport:flexible",
+        "event_transport_flexible",
+        "invitees",
+        {"transport_mode": "flexible"},
+    ),
     # --- Invitees ---
-    Step("select invitees:all", "event_invite_all", "final", {"invite_all_members": True}),
+    Step(
+        "select invitees:all", "event_invite_all", "final", {"invite_all_members": True}
+    ),
     # --- Final ---
     Step("confirm event", "event_final_yes", "final", {}),
 ]
@@ -96,6 +127,7 @@ EDITABLE_STEPS = {
 # ---------------------------------------------------------------------------
 # Simulation engine – replays the steps against the real handler code
 # ---------------------------------------------------------------------------
+
 
 class FlowSimulator:
     """Replays callback clicks through _handle_callback_common logic."""
@@ -190,7 +222,9 @@ class FlowSimulator:
             event_flow["stage"] = "target_participants"
             flow_data["min_participants"] = min_val
             flow_data["target_participants"] = math.ceil(min_val * 1.5)
-            self.events.append(f"MIN->{min_val} target={flow_data['target_participants']}")
+            self.events.append(
+                f"MIN->{min_val} target={flow_data['target_participants']}"
+            )
             return event_flow
 
         # --- target participants -----------------------------------------
@@ -403,7 +437,9 @@ async def test_forward_flow() -> list[str]:
         actual_stage = flow["stage"]
         ok = actual_stage == step.expected_stage
         marker = "OK" if ok else "FAIL"
-        results.append(f"[{marker}] {step.name}: stage={actual_stage} (expected {step.expected_stage})")
+        results.append(
+            f"[{marker}] {step.name}: stage={actual_stage} (expected {step.expected_stage})"
+        )
 
     return results
 
@@ -433,7 +469,9 @@ async def test_back_navigation() -> list[str]:
     if stage == "threshold":
         results.append("[OK] Back from target_participants -> threshold stage")
     else:
-        results.append(f"[FAIL] Back from target_participants -> {stage} (expected threshold)")
+        results.append(
+            f"[FAIL] Back from target_participants -> {stage} (expected threshold)"
+        )
 
     # Select a new min value (this triggers the min_participants handler)
     await sim.click("event_min_4")
@@ -441,14 +479,18 @@ async def test_back_navigation() -> list[str]:
     if stage == "target_participants":
         results.append("[OK] After re-selecting min, stage=target_participants")
     else:
-        results.append(f"[FAIL] After re-selecting min, stage={stage} (expected target_participants)")
+        results.append(
+            f"[FAIL] After re-selecting min, stage={stage} (expected target_participants)"
+        )
 
     # Verify min was updated
     data = sim._get_flow_data(sim._get_event_flow())
     if data.get("min_participants") == 4:
         results.append("[OK] min_participants updated to 4")
     else:
-        results.append(f"[FAIL] min_participants={data.get('min_participants')} (expected 4)")
+        results.append(
+            f"[FAIL] min_participants={data.get('min_participants')} (expected 4)"
+        )
 
     # Go forward to final
     await sim.click("event_target_6")
@@ -476,42 +518,106 @@ async def test_edit_from_each_stage() -> list[str]:
     stages_to_test = [
         ("type", [desc, "event_type_social"]),
         ("date_preset", [desc, "event_type_social", "event_date_this_weekend"]),
-        ("time_window", [desc, "event_type_social", "event_date_this_weekend", "event_time_evening"]),
-        ("min_participants", [
-            desc, "event_type_social", "event_date_this_weekend",
-            "event_time_evening", "event_min_3",
-        ]),
-        ("target_participants", [
-            desc, "event_type_social", "event_date_this_weekend",
-            "event_time_evening", "event_min_3", "event_target_5",
-        ]),
-        ("duration", [
-            desc, "event_type_social", "event_date_this_weekend",
-            "event_time_evening", "event_min_3", "event_target_5",
-            "event_duration_60",
-        ]),
-        ("location", [
-            desc, "event_type_social", "event_date_this_weekend",
-            "event_time_evening", "event_min_3", "event_target_5",
-            "event_duration_60", "event_location_cafe",
-        ]),
-        ("budget", [
-            desc, "event_type_social", "event_date_this_weekend",
-            "event_time_evening", "event_min_3", "event_target_5",
-            "event_duration_60", "event_location_cafe", "event_budget_low",
-        ]),
-        ("transport", [
-            desc, "event_type_social", "event_date_this_weekend",
-            "event_time_evening", "event_min_3", "event_target_5",
-            "event_duration_60", "event_location_cafe", "event_budget_low",
-            "event_transport_flexible",
-        ]),
-        ("invitees", [
-            desc, "event_type_social", "event_date_this_weekend",
-            "event_time_evening", "event_min_3", "event_target_5",
-            "event_duration_60", "event_location_cafe", "event_budget_low",
-            "event_transport_flexible", "event_invite_all",
-        ]),
+        (
+            "time_window",
+            [
+                desc,
+                "event_type_social",
+                "event_date_this_weekend",
+                "event_time_evening",
+            ],
+        ),
+        (
+            "min_participants",
+            [
+                desc,
+                "event_type_social",
+                "event_date_this_weekend",
+                "event_time_evening",
+                "event_min_3",
+            ],
+        ),
+        (
+            "target_participants",
+            [
+                desc,
+                "event_type_social",
+                "event_date_this_weekend",
+                "event_time_evening",
+                "event_min_3",
+                "event_target_5",
+            ],
+        ),
+        (
+            "duration",
+            [
+                desc,
+                "event_type_social",
+                "event_date_this_weekend",
+                "event_time_evening",
+                "event_min_3",
+                "event_target_5",
+                "event_duration_60",
+            ],
+        ),
+        (
+            "location",
+            [
+                desc,
+                "event_type_social",
+                "event_date_this_weekend",
+                "event_time_evening",
+                "event_min_3",
+                "event_target_5",
+                "event_duration_60",
+                "event_location_cafe",
+            ],
+        ),
+        (
+            "budget",
+            [
+                desc,
+                "event_type_social",
+                "event_date_this_weekend",
+                "event_time_evening",
+                "event_min_3",
+                "event_target_5",
+                "event_duration_60",
+                "event_location_cafe",
+                "event_budget_low",
+            ],
+        ),
+        (
+            "transport",
+            [
+                desc,
+                "event_type_social",
+                "event_date_this_weekend",
+                "event_time_evening",
+                "event_min_3",
+                "event_target_5",
+                "event_duration_60",
+                "event_location_cafe",
+                "event_budget_low",
+                "event_transport_flexible",
+            ],
+        ),
+        (
+            "invitees",
+            [
+                desc,
+                "event_type_social",
+                "event_date_this_weekend",
+                "event_time_evening",
+                "event_min_3",
+                "event_target_5",
+                "event_duration_60",
+                "event_location_cafe",
+                "event_budget_low",
+                "event_transport_flexible",
+                "event_invite_all",
+            ],
+        ),
     ]
 
     for target_stage, clicks in stages_to_test:
@@ -528,7 +634,9 @@ async def test_edit_from_each_stage() -> list[str]:
         if flow["stage"] != target_stage:
             results.append(f"[OK] Edit from {target_stage} -> {flow['stage']}")
         else:
-            results.append(f"[FAIL] Edit from {target_stage} -> still {flow['stage']} (stuck!)")
+            results.append(
+                f"[FAIL] Edit from {target_stage} -> still {flow['stage']} (stuck!)"
+            )
 
     return results
 
@@ -589,8 +697,12 @@ async def test_target_participants_back_button_fix() -> None:
     new_stage = sim_new._get_event_flow()["stage"]
 
     print("\n=== target_participants 'Edit Previous' Fix Verification ===")
-    print(f"OLD callback (event_min_3) -> stage: {old_stage_after} (BUG: should have gone back)")
-    print(f"NEW callback (event_edit_threshold) -> stage: {new_stage} (CORRECT: went back to threshold)")
+    print(
+        f"OLD callback (event_min_3) -> stage: {old_stage_after} (BUG: should have gone back)"
+    )
+    print(
+        f"NEW callback (event_edit_threshold) -> stage: {new_stage} (CORRECT: went back to threshold)"
+    )
     print("=============================================================\n")
 
     assert new_stage == "threshold", f"Expected threshold after edit, got {new_stage}"

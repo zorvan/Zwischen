@@ -47,12 +47,18 @@ ACTIONS: Dict[str, Dict[str, Any]] = {
         "optional_params": [],
     },
     "create_event": {
-        "description": "User wants to organize, plan, or create a new event. Use when message expresses intent to gather, meet, or do something together.",
+        "description": (
+            "User wants to organize, plan, or create a new event. "
+            "Use when message expresses intent to gather, meet, or do something together."
+        ),
         "required_params": [],
         "optional_params": ["description", "event_type", "scheduled_time"],
     },
     "add_constraint": {
-        "description": "User wants to express a conditional participation constraint (if X joins, unless Y comes, etc.)",
+        "description": (
+            "User wants to express a conditional participation constraint "
+            "(if X joins, unless Y comes, etc.)"
+        ),
         "required_params": ["event_id", "constraint_type", "target_username"],
         "optional_params": [],
     },

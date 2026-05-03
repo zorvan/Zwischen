@@ -79,6 +79,7 @@ class Event(Base):
         Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), nullable=True
     )
     event_type = Column(String(100), nullable=False)
+    title = Column(String(300), nullable=True)
     description = Column(Text)
     organizer_telegram_user_id = Column(BigInteger)
     # NOTE: Renamed from admin_telegram_user_id in v3.5 for clarity
@@ -142,6 +143,7 @@ class UserPreference(Base):
     budget_preference = Column(String(50), default="any")
     location_type_preference = Column(String(100), default="any")
     transport_preference = Column(String(50), default="any")
+    language_preference = Column(String(10), default=None)
     privacy_settings = Column(JSON, default=dict)
     last_updated = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

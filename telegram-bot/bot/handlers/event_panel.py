@@ -13,6 +13,7 @@ Level 1: /events list -> Level 2: Event Panel -> Level 3: Sub-menus
 PRD v3.5 Section 4.3: Event Panel & Command Consolidation
 """
 import asyncio
+import logging
 import uuid
 from typing import Optional, List
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, CallbackQuery, Update
@@ -29,6 +30,19 @@ from bot.services.event_enrichment_service import EventEnrichmentService
 from db.models import Event
 from db.connection import get_session
 from config.settings import settings
+
+logger = logging.getLogger(__name__)
+
+
+def _escape_for_markdown(text: str) -> str:
+    """Escape Telegram Markdown v1 metacharacters in user-controlled text."""
+    return (
+        text.replace("[", "\\[")
+        .replace("]", "\\]")
+        .replace("_", "\\_")
+        .replace("*", "\\*")
+        .replace("`", "\\`")
+    )
 
 
 # =============================================================================
@@ -397,7 +411,7 @@ async def route_event_callback(
     if not query:
         return
 
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     logger.info("route_event_callback START: data=%r", query.data)
 
@@ -451,6 +465,7 @@ async def route_event_callback(
         CALLBACK_ACTIONS["logs"]: _handle_logs,
         CALLBACK_ACTIONS["close"]: _handle_close,
         CALLBACK_ACTIONS["modify"]: handle_modify_event,
+        CALLBACK_ACTIONS["complete"]: _handle_complete,
     }
 
     handler = handler_map.get(action)
@@ -486,7 +501,7 @@ async def _handle_view(
 
     db_url = settings.db_url or ""
     user_id = query.from_user.id if query.from_user else None
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
         # Fetch event to get its group (needed for RBAC when callback has no group_id)
@@ -565,9 +580,24 @@ async def _handle_view(
         )
         confirmed_count = confirmed_result.scalar() or 0
 
-        # Get public hashtags
+        # Get enrichment data for display
         enrichment_service = EventEnrichmentService(session)
-        hashtags = await enrichment_service.get_public_hashtags(event_id)
+
+        # Get all hashtags (including private)
+        all_hashtags = await enrichment_service.get_by_event(
+            event_id, enrichment_type="hashtag", include_private=True
+        )
+        ideas = await enrichment_service.get_by_event(
+            event_id, enrichment_type="idea", include_private=True
+        )
+        memories = await enrichment_service.get_by_event(
+            event_id, enrichment_type="memory", include_private=True
+        )
+
+        # Get unique hashtags (deduplicated, preserving order)
+        unique_hashtags = list(
+            dict.fromkeys(h.content for h in all_hashtags if h.content)
+        )
 
         # Get lineage fragment
         from bot.services.event_memory_service import EventMemoryService
@@ -598,7 +628,7 @@ async def _handle_view(
         lines = [f"{type_emoji} *{event.event_type.capitalize()}*", ""]
 
         if event.description:
-            lines.append(f"*{event.description}*")
+            lines.append(_escape_for_markdown(event.description))
             lines.append("")
 
         # Time
@@ -629,13 +659,26 @@ async def _handle_view(
         # Lineage fragment
         if lineage_fragment:
             lines.append(
-                t("event_panel_lineage", lang=user_lang, fragment=lineage_fragment)
+                t(
+                    "event_panel_lineage",
+                    lang=user_lang,
+                    fragment=_escape_for_markdown(lineage_fragment),
+                )
             )
             lines.append("")
 
-        # Hashtags
-        if hashtags:
-            lines.append(" ".join(hashtags))
+        # Enrichment data (hashtags, ideas, memories)
+        enrichment_lines = []
+        if unique_hashtags:
+            enrichment_lines.append(" ".join(unique_hashtags))
+        if ideas:
+            enrichment_lines.append(f"💡 {len(ideas)} idea(s) from members")
+        if memories:
+            enrichment_lines.append(f"📝 {len(memories)} memory(ies) shared")
+
+        if enrichment_lines:
+            lines.append("")
+            lines.extend(enrichment_lines)
             lines.append("")
 
         text = "\n".join(lines)
@@ -697,7 +740,7 @@ async def _handle_join(
     db_url = settings.db_url or ""
     telegram_user_id = query.from_user.id
     bot = context.bot
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     logger.info(
         "[JOIN_FLOW] Started | event_id=%s user_id=%s group_id=%s",
@@ -1010,7 +1053,7 @@ async def _handle_relinquish(
 
     db_url = settings.db_url or ""
     telegram_user_id = query.from_user.id
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
         participant_service = ParticipantService(session)
@@ -1064,7 +1107,7 @@ async def _handle_commit(
     db_url = settings.db_url or ""
     telegram_user_id = query.from_user.id
     bot = context.bot
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
         event_result = await session.execute(
@@ -1163,7 +1206,7 @@ async def _handle_lock(
     telegram_user_id = query.from_user.id
     bot = context.bot
     db_url = settings.db_url or ""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
         # Fetch event to get its group for RBAC
@@ -1241,6 +1284,7 @@ async def _handle_lock(
                 reason="Lock via event panel",
                 expected_version=event.version,
             )
+            await session.commit()
         except Exception:
             await query.answer(
                 t("error_db_unavailable", lang=user_lang), show_alert=True
@@ -1248,8 +1292,10 @@ async def _handle_lock(
             return
 
         participant_service = ParticipantService(session)
-        await participant_service.finalize_commitments(event_id)
-        await session.commit()
+        try:
+            await participant_service.finalize_commitments(event_id)
+        except Exception:
+            logger.error("Failed to finalize commitments for event %s", event_id)
 
         await query.answer(t("event_panel_lock_success", lang=user_lang))
         await _handle_view(query, context, event_id, group_id=rbac_chat_id)
@@ -1269,7 +1315,7 @@ async def _handle_unlock(
     telegram_user_id = query.from_user.id
     bot = context.bot
     db_url = settings.db_url or ""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
         # Fetch event to get its group for RBAC
@@ -1356,6 +1402,104 @@ async def _handle_unlock(
         await _handle_view(query, context, event_id, group_id=rbac_chat_id)
 
 
+async def _handle_complete(
+    query: CallbackQuery,
+    context: ContextTypes.DEFAULT_TYPE,
+    event_id: int,
+    group_id: Optional[int] = None,
+) -> None:
+    """Handle complete event action (organizer only)."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import selectinload
+    from bot.services.event_lifecycle_service import EventLifecycleService
+
+    telegram_user_id = query.from_user.id
+    bot = context.bot
+    db_url = settings.db_url or ""
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
+
+    async with get_session(db_url) as session:
+        event_result = await session.execute(
+            select(Event)
+            .options(selectinload(Event.group))
+            .where(Event.event_id == event_id)
+        )
+        event = event_result.scalar_one_or_none()
+
+        if not event:
+            await query.answer(
+                t("event_panel_event_not_found", lang=user_lang), show_alert=True
+            )
+            return
+
+        if group_id is not None:
+            rbac_chat_id = group_id
+        elif event.group and event.group.telegram_group_id is not None:
+            rbac_chat_id = event.group.telegram_group_id
+        else:
+            rbac_chat_id = query.message.chat_id if query.message else None
+
+        from bot.common.rbac import check_event_visibility_and_get_event
+
+        is_visible, event, group, error_msg = (
+            await check_event_visibility_and_get_event(
+                session,
+                event_id,
+                telegram_user_id,
+                telegram_chat_id=rbac_chat_id,
+                bot=bot,
+            )
+        )
+
+        if not is_visible:
+            await query.edit_message_text(
+                t(
+                    "event_panel_event_not_visible",
+                    lang=user_lang,
+                    error_msg=error_msg
+                    or t("event_panel_event_not_found", lang=user_lang),
+                )
+            )
+            return
+
+        if event.state != "locked":
+            await query.answer(
+                t("event_panel_lock_not_confirmed", lang=user_lang),
+                show_alert=True,
+            )
+            return
+
+        is_organizer = event.organizer_telegram_user_id == telegram_user_id or (
+            event.emergency_admin_telegram_user_id
+            and event.emergency_admin_telegram_user_id == telegram_user_id
+        )
+        if not is_organizer:
+            await query.answer(
+                t("event_panel_lock_not_organizer", lang=user_lang), show_alert=True
+            )
+            return
+
+        lifecycle_service = EventLifecycleService(bot, session)
+        try:
+            event, _ = await lifecycle_service.transition_with_lifecycle(
+                event_id=event_id,
+                target_state="completed",
+                actor_telegram_user_id=telegram_user_id,
+                source="callback",
+                reason="Complete via event panel",
+                expected_version=event.version,
+            )
+            await session.commit()
+        except Exception:
+            await query.answer(
+                t("error_db_unavailable", lang=user_lang), show_alert=True
+            )
+            return
+
+        await query.answer(t("event_panel_lock_success", lang=user_lang))
+        await _handle_view(query, context, event_id, group_id=rbac_chat_id)
+
+
 async def _handle_refresh(
     query: CallbackQuery,
     context: ContextTypes.DEFAULT_TYPE,
@@ -1363,7 +1507,11 @@ async def _handle_refresh(
     group_id: Optional[int] = None,
 ) -> None:
     """Handle refresh action."""
-    user_lang = get_user_language(query.from_user) if query.from_user else "en"
+    user_lang = (
+        await get_user_language(query.from_user, user_data=context.user_data)
+        if query.from_user
+        else "en"
+    )
     await query.answer(t("event_panel_refresh", lang=user_lang))
     await _handle_view(query, context, event_id, group_id=group_id)
 
@@ -1404,7 +1552,7 @@ async def handle_enrich_menu(
     group_id: Optional[int] = None,
 ) -> None:
     """Show the Enrich sub-menu."""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     text = (
         f"💡 *Enrich Event #{event_id}*\n\n"
         "Add ideas, hashtags, or memories to make this event better.\n\n"
@@ -1431,7 +1579,7 @@ async def handle_add_idea_prompt(
     group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add an idea."""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     await query.edit_message_text(
         text=t("enrich_add_idea_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
@@ -1451,7 +1599,7 @@ async def handle_add_hashtag_prompt(
     group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add a hashtag."""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     await query.edit_message_text(
         text=t("enrich_add_hashtag_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
@@ -1471,7 +1619,7 @@ async def handle_add_memory_prompt(
     group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add a memory."""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     await query.edit_message_text(
         text=t("enrich_add_memory_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
@@ -1491,7 +1639,7 @@ async def handle_view_contributions(
     group_id: Optional[int] = None,
 ) -> None:
     """Show user's contributions to this event."""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     db_url = settings.db_url or ""
 
     async with get_session(db_url) as session:
@@ -1511,9 +1659,7 @@ async def handle_view_contributions(
             emoji = {"idea": "💡", "hashtag": "#️⃣", "memory": "📝"}.get(
                 c.enrichment_type, "•"
             )
-            text += (
-                f"{emoji} *{c.enrichment_type.capitalize()}*: {c.content[:50]}...\n\n"
-            )
+            text += f"{emoji} *{c.enrichment_type.capitalize()}*: {_escape_for_markdown(c.content[:50])}...\n\n"
 
     buttons = [
         [
@@ -1545,7 +1691,7 @@ async def handle_constraint_menu(
     group_id: Optional[int] = None,
 ) -> None:
     """Show the Constraint sub-menu."""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     text = (
         f"📅 *Constraints for Event #{event_id}*\n\n"
         "Set conditions for your participation:\n\n"
@@ -1571,7 +1717,7 @@ async def handle_add_constraint_prompt(
     group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add a constraint."""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     await query.edit_message_text(
         text=t("constraint_add_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
@@ -1591,7 +1737,7 @@ async def handle_add_constraint_unless_prompt(
     group_id: Optional[int] = None,
 ) -> None:
     """Prompt user to add an 'unless' constraint."""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     await query.edit_message_text(
         text=t("constraint_add_unless_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
@@ -1611,7 +1757,7 @@ async def handle_suggest_time(
     group_id: Optional[int] = None,
 ) -> None:
     """Handle suggest time action."""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     await query.edit_message_text(
         text=t("constraint_suggest_time_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
@@ -1633,7 +1779,7 @@ async def _handle_logs(
     from db.models import Log as LogModel, User
 
     db_url = settings.db_url or ""
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     async with get_session(db_url) as session:
         result = await session.execute(
             select(LogModel, User)
@@ -1687,7 +1833,11 @@ async def _handle_close(
     group_id: Optional[int] = None,
 ) -> None:
     """Close event details view."""
-    user_lang = get_user_language(query.from_user) if query.from_user else "en"
+    user_lang = (
+        await get_user_language(query.from_user, user_data=context.user_data)
+        if query.from_user
+        else "en"
+    )
     await query.edit_message_text(
         t("event_panel_close", lang=user_lang, event_id=event_id)
     )
@@ -1703,7 +1853,7 @@ async def handle_modify_event(
     from db.models import Event
 
     user = query.from_user
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     if not settings.db_url:
         await query.edit_message_text(t("error_db_unavailable", lang=user_lang))
         return

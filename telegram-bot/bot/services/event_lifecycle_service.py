@@ -129,12 +129,21 @@ class EventLifecycleService:
         )
 
         if target_state == "locked" and self.materialization_service:
-            # Announce event locked
-            if group_chat_id:
-                participants = await self._get_confirmed_participants(event.event_id)
-                await self.materialization_service.announce_event_locked(
-                    event, participants, group_chat_id
+            try:
+                # Announce event locked
+                if group_chat_id:
+                    participants = await self._get_confirmed_participants(
+                        event.event_id
+                    )
+                    await self.materialization_service.announce_event_locked(
+                        event, participants, group_chat_id
+                    )
+            except Exception:
+                logger.exception(
+                    "[LIFECYCLE] Failed to announce event locked | event_id=%s",
+                    event.event_id,
                 )
+                raise
 
         elif target_state == "completed":
             # Track completion in stats

@@ -111,6 +111,7 @@
   "event_details_uncommit": "لغو تایید",
   "event_details_confirm": "تایید",
   "event_details_step_back": "بازگشت",
+  "event_details_back_to_panel": "بازگشت به رویداد",
   "event_details_lock": "قفل",
   "event_details_unlock": "باز کردن قفل",
   "event_details_complete": "تکمیل رویداد",
@@ -510,5 +511,8 @@
   "error_must_join_first": "❌ باید قبل از تعهد به رویداد بپیوندید.",
   "error_db_config_placeholder": "TELEGRAM_TOKEN هنوز یک مقدار پیش‌فرض است. قبل از شروع ربات، یک توکن واقعی BotFather را در .env تنظیم کنید.",
   "error_db_config_invalid": "TELEGRAM_TOKEN به نظر یک توکن ربات تلگرام معتبر نمی‌رسد. انتظار '<bot_id>:<secret>' داشتیم.",
-  "error_db_config_production": "WEBHOOK_URL باید زمانی که ENVIRONMENT=production است تنظیم شود."
+  "error_db_config_production": "WEBHOOK_URL باید زمانی که ENVIRONMENT=production است تنظیم شود.",
+  "language_select_title": "🌐 <b>انتخاب زبان</b>\n\nزبان مورد نظر خود را برای رابط ربات انتخاب کنید.",
+  "language_changed": "{flag} <b>زبان به {native} تغییر یافت!</b>\n\nربات اکنون از این زبان برای همه پیام‌ها استفاده خواهد کرد.",
+  "language_invalid": "❌ انتخاب زبان نامعتبر است."
 }

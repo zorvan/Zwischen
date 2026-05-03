@@ -30,7 +30,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     user_lang = (
-        get_user_language(update.message.from_user)
+        await get_user_language(update.message.from_user)
         if update.message.from_user
         else "en"
     )
@@ -159,7 +159,11 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     pref_type = parts[2]  # time, activity, etc.
     pref_value = parts[3]  # the selected value
 
-    user_lang = get_user_language(query.from_user) if query.from_user else "en"
+    user_lang = (
+        await get_user_language(query.from_user, user_data=context.user_data)
+        if query.from_user
+        else "en"
+    )
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
         user = query.from_user

@@ -179,7 +179,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     user_lang = (
-        get_user_language(update.message.from_user)
+        await get_user_language(update.message.from_user)
         if update.message.from_user
         else "en"
     )

@@ -349,7 +349,11 @@ async def handle_modify_request_callback(
     event_id = pending.get("event_id")
     change_text = pending.get("change_text")
 
-    user_lang = get_user_language(query.from_user) if query.from_user else "en"
+    user_lang = (
+        await get_user_language(query.from_user, user_data=context.user_data)
+        if query.from_user
+        else "en"
+    )
     if query.from_user.id != admin_id:
         await query.answer(
             t("modify_event_only_admin", lang=user_lang), show_alert=True

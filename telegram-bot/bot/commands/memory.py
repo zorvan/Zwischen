@@ -147,7 +147,13 @@ async def recall(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
             for memory in memories:
                 event = memory.event
-                event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                if event.title:
+                    event_title = event.title
+                else:
+                    event_title = (
+                        f"{event.event_type} • "
+                        f"{event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                    )
 
                 # Show first fragment preview
                 preview = ""
@@ -457,7 +463,13 @@ async def handle_digest_callback(
             response = "📿 <b>Recent Memories</b>\n\n"
             for memory in memories:
                 event = memory.event
-                event_title = f"{event.event_type} • {event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                if event.title:
+                    event_title = event.title
+                else:
+                    event_title = (
+                        f"{event.event_type} • "
+                        f"{event.scheduled_time.strftime('%d %b') if event.scheduled_time else 'TBD'}"
+                    )
                 fragment_count = len(memory.fragments) if memory.fragments else 0
                 response += f"• {event_title} ({fragment_count} fragments)\n"
 
