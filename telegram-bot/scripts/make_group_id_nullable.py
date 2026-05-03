@@ -23,7 +23,8 @@ async def run_migration():
 
     try:
         current_nullable = await conn.fetchval(
-            "SELECT is_nullable FROM information_schema.columns WHERE table_name = 'events' AND column_name = 'group_id'"
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_name = 'events' AND column_name = 'group_id'"
         )
         print(f"Current group_id nullable: {current_nullable}")
 

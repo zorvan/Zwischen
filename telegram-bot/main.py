@@ -35,6 +35,7 @@ from bot.commands import (
     personal_attendance_mirror,
     about,
     preferences,
+    language,
 )
 from bot.handlers import (
     event_panel,
@@ -247,6 +248,7 @@ def main():
         "my_history": my_history.handle,
         "about": about.handle,
         "preferences": preferences.handle,
+        "language": language.handle,
     }
 
     for command, handler in command_map.items():
@@ -314,8 +316,13 @@ def main():
         (r"^private_event_final_", event_creation.private_handle_callback),
         (r"^private_event_cancel_no$", event_creation.private_handle_callback),
         (r"^private_event_back_to_type$", event_creation.private_handle_callback),
-        (r"^private_event_back_to_time_window$", event_creation.private_handle_callback),
+        (
+            r"^private_event_back_to_time_window$",
+            event_creation.private_handle_callback,
+        ),
         (r"^private_event_back_to_transport$", event_creation.private_handle_callback),
+        # Language preference
+        (r"^lang_", language.handle_callback),
         # v3.5: Event panel callbacks (ev:{id}:action format)
         (r"^ev:", event_panel.route_event_callback),
         (r"^mnpick_", mentions.handle_disambiguation_callbacks),

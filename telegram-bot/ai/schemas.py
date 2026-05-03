@@ -98,6 +98,7 @@ class EventDraftFromContext(BaseModel):
     """Schema for event draft generated from chat context."""
 
     description: str = Field(max_length=500, default="Group planned event")
+    title: str = Field(max_length=100, default="")
     event_type: Literal["social", "sports", "work"] = "social"
     scheduled_time: Optional[str] = Field(max_length=25, default=None)
     duration_minutes: int = Field(ge=30, le=720, default=120)

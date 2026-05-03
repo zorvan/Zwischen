@@ -126,8 +126,9 @@ def get_available_actions(
     if event_state in ("cancelled", "completed"):
         return actions
 
-    # Locked state: organizer can unlock or complete; participants can only view
+    # Locked state: organizer can unlock or complete; participants can enrich
     if event_state == "locked":
+        actions.extend(["enrich", "constraint"])
         if is_organizer:
             actions.append("unlock")
             actions.append("complete")

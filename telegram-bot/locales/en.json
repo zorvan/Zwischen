@@ -111,6 +111,7 @@
   "event_details_uncommit": "Uncommit",
   "event_details_confirm": "Confirm",
   "event_details_step_back": "Step Back",
+  "event_details_back_to_panel": "Back to Event",
   "event_details_lock": "Lock",
   "event_details_unlock": "Unlock",
   "event_details_complete": "Complete Event",
@@ -627,5 +628,8 @@
   "event_details_event_not_found": "❌ Event not found.",
   "event_panel_time_forming": "📅 Time forming...",
   "event_panel_participants": "👥 {count} / {needed} needed",
-  "event_panel_lineage": "↩ Last time: \"{fragment}\""
+  "event_panel_lineage": "↩ Last time: \"{fragment}\"",
+  "language_select_title": "🌐 <b>Select Language</b>\n\nChoose your preferred language for the bot interface.",
+  "language_changed": "{flag} <b>Language changed to {native}!</b>\n\nThe bot will now use this language for all messages.",
+  "language_invalid": "❌ Invalid language selection."
 }

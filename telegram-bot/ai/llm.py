@@ -394,34 +394,55 @@ class LLMClient:
         If multiple people are mentioned, add them to invitees.
         NEVER return null for description — summarize the intent.
 
-        CRITICAL: Extract ALL parameters from the conversation. Do NOT use defaults unless the conversation is completely silent on that topic.
-        - event_type: "social" for hangouts/games/meetups, "sports" for athletic activities, "work" for professional/coding sessions
-        - min_participants: If a minimum is discussed (e.g., "need at least 4"), use that. Otherwise infer from context (small gathering → 3, big party → 6+).
-        - target_participants: If ideal capacity is discussed, use it. Otherwise set a comfortable target at or above the minimum.
-        - duration_minutes: If duration is discussed (e.g., "for a couple hours" → 120, "quick meetup" → 60). Otherwise infer from context.
+        TITLE GENERATION:
+        - Generate a short, expressive, witty title (max 80 chars) that captures the essence of the event
+        - The title should be catchy and fun — like a party invitation headline
+        - Examples: "Friday Night FIFA Clash", "Saturday Soccer Showdown", "Coding & Coffee Morning"
+        - If no good title can be inferred, leave it empty and the description will be used instead
+
+        CRITICAL: Extract ALL parameters from the conversation. Do NOT use defaults
+        unless the conversation is completely silent on that topic.
+        - event_type: "social" for hangouts/games/meetups,
+          "sports" for athletic activities, "work" for professional/coding sessions
+        - min_participants: If a minimum is discussed (e.g., "need at least 4"),
+          use that. Otherwise infer from context
+          (small gathering → 3, big party → 6+).
+        - target_participants: If ideal capacity is discussed, use it.
+          Otherwise set a comfortable target at or above the minimum.
+        - duration_minutes: If duration is discussed
+          (e.g., "for a couple hours" → 120, "quick meetup" → 60).
+          Otherwise infer from context.
 
         CRITICAL RULES FOR invite_all_members:
         - DEFAULT to TRUE unless the message EXPLICITLY excludes others
-        - Set FALSE ONLY for explicit privacy language: "just alice", "private meetup", "don't tell others", "only bob and me"
+        - Set FALSE ONLY for explicit privacy language:
+          "just alice", "private meetup", "don't tell others", "only bob and me"
         - Mentioning specific people does NOT mean private — it means they're emphasized/key attendees
         - "@alice let's play games" → invite_all_members: TRUE (open invitation, Alice is just the organizer/contact)
         - "Just alice and bob, private dinner" → invite_all_members: FALSE (explicit privacy)
 
         - invitees: List ALL people mentioned as potential attendees (with @ prefix, lowercase)
-        - key_attendees: List people who are emphasized/important to the event (organizers, contacts, conditional attendees). This is SEPARATE from privacy — mentions go here without affecting invite_all_members.
+        - key_attendees: List people who are emphasized/important to the event
+          (organizers, contacts, conditional attendees).
+          This is SEPARATE from privacy — mentions go here
+          without affecting invite_all_members.
         - date_preset: "today", "tomorrow", "weekend", "nextweek", or "custom" — infer from relative time references
         - time_window: "early-morning", "morning", "afternoon", "evening", "night" — infer from time-of-day hints
         - location_type: If a venue type is discussed (home, outdoor, cafe, office, gym), set it. Otherwise omit.
         - budget_level: If cost is discussed (free, cheap, expensive), set it. Otherwise omit.
         - transport_mode: If transport is discussed (walk, public_transit, drive), set it. Otherwise omit.
         - scheduled_time_iso: If a specific date+time is discussed, set it as YYYY-MM-DDTHH:MM. Otherwise null.
-        - collapse_at_iso: Auto-cancel deadline. If scheduling_mode is flexible or time is unknown, set to ~7 days from now. Otherwise null.
+        - collapse_at_iso: Auto-cancel deadline.
+          If scheduling_mode is flexible or time is unknown,
+          set to ~7 days from now. Otherwise null.
 
         CRITICAL: Extract location/context from the conversation.
-        - If a location is mentioned (e.g., "Amin's house", "the park", "gym downtown"), weave it into the description naturally.
+        - If a location is mentioned (e.g., "Amin's house",
+          "the park", "gym downtown"), weave it into the description naturally.
         - If a specific venue is discussed, include it in the description.
         - Do NOT default to generic locations like "cafe" unless explicitly mentioned.
-        - The description should read like a natural invitation: "Board games at Amin's house" not "Social event at Cafe".
+        - The description should read like a natural invitation:
+          "Board games at Amin's house" not "Social event at Cafe".
 
         CRITICAL: Extract constraints from the conversation.
         - If someone says "I'll come if X comes" → constraint: if_joins for X
@@ -441,6 +462,7 @@ class LLMClient:
 
         Output JSON only:
         {{
+          "title": "Catchy short title for the event",
           "description": "short natural text with location if mentioned",
           "event_type": "social|sports|work",
           "scheduled_time_iso": "YYYY-MM-DDTHH:MM or null",
@@ -605,6 +627,7 @@ class LLMClient:
                 time_window = None
 
             return {
+                "title": str(parsed.get("title", "")).strip()[:100] or None,
                 "description": str(
                     parsed.get("description", message_text or "Group planned event")
                 ).strip()[:500],
@@ -632,6 +655,7 @@ class LLMClient:
             }
         except Exception:
             return {
+                "title": None,
                 "description": (message_text or "Group planned event").strip()[:500],
                 "event_type": "social",
                 "scheduled_time": None,

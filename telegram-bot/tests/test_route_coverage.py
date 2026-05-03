@@ -76,7 +76,11 @@ PRIVATE_HANDLER_PATTERNS = [
     ("private_event_type_", False, "event type buttons"),
     ("private_event_date_preset_", False, "date preset buttons"),
     ("private_event_date_pick_", False, "date pick buttons"),
-    ("private_event_cal_", False, "calendar navigation (covers cal_ignore, cal_day, cal_nav)"),
+    (
+        "private_event_cal_",
+        False,
+        "calendar navigation (covers cal_ignore, cal_day, cal_nav)",
+    ),
     ("private_event_time_window_", False, "time window buttons"),
     ("private_event_time_manual", True, "manual time entry button"),
     ("private_event_time_option_", False, "time option buttons"),
@@ -134,7 +138,9 @@ def pattern_matches_callback(regex: str, callback_data: str) -> bool:
     return re.match(regex, callback_data) is not None
 
 
-def is_covered(pattern: str, is_exact: bool, registered: list[str], prefix: str) -> bool:
+def is_covered(
+    pattern: str, is_exact: bool, registered: list[str], prefix: str
+) -> bool:
     """Check if a handler pattern is covered by registered routes."""
     # Generate test callback data that the handler would check
     if is_exact:
@@ -146,7 +152,9 @@ def is_covered(pattern: str, is_exact: bool, registered: list[str], prefix: str)
         parts = pattern.split("_", 2)
         if len(parts) >= 3:
             broader = f"{parts[0]}_{parts[1]}_"
-            if any(pattern_matches_callback(r, broader + "anything") for r in registered):
+            if any(
+                pattern_matches_callback(r, broader + "anything") for r in registered
+            ):
                 return True
         return False
     else:

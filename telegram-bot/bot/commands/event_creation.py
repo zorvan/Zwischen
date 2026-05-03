@@ -973,10 +973,16 @@ async def private_handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle callback queries for public event creation flow."""
-    logger.info("handle_callback entered | data=%s", update.callback_query.data if update.callback_query else "None")
+    logger.info(
+        "handle_callback entered | data=%s",
+        update.callback_query.data if update.callback_query else "None",
+    )
     try:
         await _handle_callback_common(update, context, mode="public")
-        logger.info("handle_callback completed successfully | data=%s", update.callback_query.data if update.callback_query else "None")
+        logger.info(
+            "handle_callback completed successfully | data=%s",
+            update.callback_query.data if update.callback_query else "None",
+        )
     except Exception as e:
         logger.error("handle_callback failed | error=%s", e, exc_info=True)
         query = update.callback_query
@@ -1968,6 +1974,7 @@ async def finalize_event(
         event = Event(
             group_id=group_id,
             event_type=data.get("event_type", "general"),
+            title=data.get("title"),
             description=data.get("description"),
             organizer_telegram_user_id=creator_id,
             emergency_admin_telegram_user_id=creator_id,
@@ -2086,29 +2093,42 @@ async def finalize_event(
         )
 
         if invite_all and group and context.bot and group.telegram_group_id:
+            # Try cached members first
             cached_members = group.member_list or []
-            logger.info(
-                "[INVITATION_FLOW] Using cached member_list | event_id=%s cached_count=%d",
-                event.event_id,
-                len(cached_members),
-            )
-            for member_id in cached_members:
-                if member_id is not None:
-                    recipient_telegram_ids.add(int(member_id))
-
-            if recipient_telegram_ids:
+            if cached_members:
                 logger.info(
-                    "[INVITATION_FLOW] Recipients resolved from cache | event_id=%s recipient_count=%d",
+                    "[INVITATION_FLOW] Using cached member_list | event_id=%s cached_count=%d",
                     event.event_id,
-                    len(recipient_telegram_ids),
+                    len(cached_members),
                 )
+                for member_id in cached_members:
+                    if member_id is not None:
+                        recipient_telegram_ids.add(int(member_id))
             else:
-                logger.warning(
-                    "[INVITATION_FLOW] EMPTY member_list - no invitations will be sent | event_id=%s group_id=%s. "
-                    "This happens when no users have interacted with the bot in this group yet.",
+                # Fetch real Telegram group members
+                logger.info(
+                    "[INVITATION_FLOW] Cached member_list empty, fetching from Telegram API | event_id=%s",
                     event.event_id,
-                    group_id,
                 )
+                try:
+                    members = await context.bot.get_chat_members(
+                        group.telegram_group_id
+                    )
+                    for member in members:
+                        if member.user.id:
+                            recipient_telegram_ids.add(member.user.id)
+                    logger.info(
+                        "[INVITATION_FLOW] Fetched %d real members from Telegram | event_id=%s",
+                        len(recipient_telegram_ids),
+                        event.event_id,
+                    )
+                except Exception as e:
+                    logger.error(
+                        "[INVITATION_FLOW] Failed to fetch Telegram members | event_id=%s error=%s",
+                        event.event_id,
+                        str(e),
+                        exc_info=True,
+                    )
 
         # Source 3: Explicit invitees (always added, regardless of invite_all)
         explicit_tg_ids = set()
@@ -2450,6 +2470,7 @@ async def finalize_private_event(
         event = Event(
             group_id=None,
             event_type=data.get("event_type", "general"),
+            title=data.get("title"),
             description=data.get("description"),
             organizer_telegram_user_id=creator_id,
             scheduled_time=candidate_time,

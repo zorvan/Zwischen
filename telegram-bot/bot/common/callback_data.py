@@ -53,6 +53,7 @@ CALLBACK_ACTIONS = {
     "logs": "logs",  # View event logs
     "close": "close",  # Close event details view
     "modify": "modify",  # Modify event
+    "complete": "complete",  # Complete event (organizer)
 }
 
 

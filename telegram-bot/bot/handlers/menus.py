@@ -32,7 +32,7 @@ async def handle_menu_callback(
     if not query:
         return
 
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     try:
         await asyncio.wait_for(query.answer(), timeout=5.0)
@@ -295,7 +295,7 @@ async def _show_event_detail(
 
     db_url = settings.db_url or ""
     user_id = query.from_user.id
-    user_lang = get_user_language(query.from_user)
+    user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
         # Check event visibility based on group membership
@@ -614,7 +614,9 @@ async def _handle_enrichment_message(
 
     text = update.message.text or ""
     user_id = update.effective_user.id
-    user_lang = get_user_language(update.effective_user)
+    user_lang = await get_user_language(
+        update.effective_user, user_data=context.user_data
+    )
 
     async with get_session(settings.db_url) as session:
         enrichment_service = EventEnrichmentService(session)
@@ -622,8 +624,17 @@ async def _handle_enrichment_message(
         try:
             if action == "add_idea":
                 await enrichment_service.add_idea(event_id, user_id, text)
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            t("event_details_back_to_panel", lang=user_lang),
+                            callback_data=f"ev:{event_id}:view",
+                        )
+                    ]
+                ]
                 await update.message.reply_text(
-                    t("enrichment_idea_saved", lang=user_lang)
+                    t("enrichment_idea_saved", lang=user_lang),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                 )
 
             elif action == "add_hashtag":
@@ -631,14 +642,32 @@ async def _handle_enrichment_message(
                 if not hashtag.startswith("#"):
                     hashtag = f"#{hashtag}"
                 await enrichment_service.add_hashtag(event_id, user_id, hashtag)
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            t("event_details_back_to_panel", lang=user_lang),
+                            callback_data=f"ev:{event_id}:view",
+                        )
+                    ]
+                ]
                 await update.message.reply_text(
-                    t("enrichment_hashtag_saved", lang=user_lang)
+                    t("enrichment_hashtag_saved", lang=user_lang),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                 )
 
             elif action == "add_memory":
                 await enrichment_service.add_memory(event_id, user_id, text)
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            t("event_details_back_to_panel", lang=user_lang),
+                            callback_data=f"ev:{event_id}:view",
+                        )
+                    ]
+                ]
                 await update.message.reply_text(
-                    t("enrichment_memory_saved", lang=user_lang)
+                    t("enrichment_memory_saved", lang=user_lang),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                 )
 
             elif action in {"add_constraint", "add_constraint_unless"}:
@@ -668,8 +697,17 @@ async def _handle_enrichment_message(
                     .where(Event.event_id == event_id)
                     .values(planning_prefs=planning_prefs)
                 )
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            t("event_details_back_to_panel", lang=user_lang),
+                            callback_data=f"ev:{event_id}:view",
+                        )
+                    ]
+                ]
                 await update.message.reply_text(
-                    t("enrichment_constraint_saved", lang=user_lang)
+                    t("enrichment_constraint_saved", lang=user_lang),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                 )
 
             elif action == "suggest_time":
@@ -699,8 +737,17 @@ async def _handle_enrichment_message(
                 )
                 await session.flush()
 
+                keyboard = [
+                    [
+                        InlineKeyboardButton(
+                            t("event_details_back_to_panel", lang=user_lang),
+                            callback_data=f"ev:{event_id}:view",
+                        )
+                    ]
+                ]
                 await update.message.reply_text(
-                    t("enrichment_time_saved", lang=user_lang)
+                    t("enrichment_time_saved", lang=user_lang),
+                    reply_markup=InlineKeyboardMarkup(keyboard),
                 )
 
             await session.commit()
@@ -712,8 +759,17 @@ async def _handle_enrichment_message(
                 action,
                 e,
             )
+            keyboard = [
+                [
+                    InlineKeyboardButton(
+                        t("event_details_back_to_panel", lang=user_lang),
+                        callback_data=f"ev:{event_id}:view",
+                    )
+                ]
+            ]
             await update.message.reply_text(
-                t("enrichment_save_failed", lang=user_lang, error=str(e)[:200])
+                t("enrichment_save_failed", lang=user_lang, error=str(e)[:200]),
+                reply_markup=InlineKeyboardMarkup(keyboard),
             )
 
     # Clear enrichment state
@@ -759,5 +815,7 @@ async def handle_creation_message(
         )
     except Exception as e:
         logger.exception("Error in handle_creation_message: %s", e)
-        user_lang = get_user_language(update.effective_user)
+        user_lang = await get_user_language(
+            update.effective_user, user_data=context.user_data
+        )
         await update.message.reply_text(t("enrichment_error", lang=user_lang))

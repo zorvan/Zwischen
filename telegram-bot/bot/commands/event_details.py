@@ -28,7 +28,11 @@ async def show_details(
     group_id: int | None = None,
 ) -> None:
     user_id = query.from_user.id if query.from_user else None
-    user_lang = get_user_language(query.from_user) if query.from_user else "en"
+    user_lang = (
+        await get_user_language(query.from_user, user_data=context.user_data)
+        if query.from_user
+        else "en"
+    )
     chat_id = getattr(getattr(query, "message", None), "chat_id", None)
     chat_type = getattr(
         getattr(getattr(query, "message", None), "chat", None), "type", None
@@ -98,7 +102,11 @@ async def _show_status(
     from bot.common.event_presenters import format_status_message
 
     user_id = query.from_user.id if query.from_user else None
-    user_lang = get_user_language(query.from_user) if query.from_user else "en"
+    user_lang = (
+        await get_user_language(query.from_user, user_data=context.user_data)
+        if query.from_user
+        else "en"
+    )
     chat_id = getattr(getattr(query, "message", None), "chat_id", None)
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
@@ -396,8 +404,8 @@ async def _build_details_markup(
                 callback_data=f"ev:{event.event_id}:commit",
             ),
             InlineKeyboardButton(
-                t("event_details_step_back", lang=lang),
-                callback_data=f"ev:{event.event_id}:cancel",
+                t("event_details_back_to_panel", lang=lang),
+                callback_data=f"ev:{event.event_id}:view",
             ),
         ]
     keyboard = [

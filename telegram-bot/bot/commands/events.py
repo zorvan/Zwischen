@@ -17,7 +17,7 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     user_lang = (
-        get_user_language(update.message.from_user)
+        await get_user_language(update.message.from_user)
         if update.message.from_user
         else "en"
     )
@@ -163,7 +163,11 @@ async def handle_create_callback(
     if not query:
         return
 
-    user_lang = get_user_language(query.from_user) if query.from_user else "en"
+    user_lang = (
+        await get_user_language(query.from_user, user_data=context.user_data)
+        if query.from_user
+        else "en"
+    )
     await query.answer()
 
     # Memory-first: Ask user what they want to do

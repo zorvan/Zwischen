@@ -14,7 +14,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     args = context.args or []
     payload = args[0] if args else ""
-    user_lang = get_user_language(update.effective_user)
+    user_lang = await get_user_language(
+        update.effective_user, user_data=context.user_data
+    )
 
     # Handle deep links
     if payload.startswith("avail_"):

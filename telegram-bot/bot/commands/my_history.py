@@ -218,12 +218,15 @@ async def _format_history_response(
         }.get(participant.status, "•")
 
         # Event title
-        event_title = f"{event.event_type.title()}"
-        if event.description:
-            desc_preview = event.description[:40]
-            if len(event.description) > 40:
-                desc_preview += "..."
-            event_title += f": {desc_preview}"
+        if event.title:
+            event_title = event.title
+        else:
+            event_title = f"{event.event_type.title()}"
+            if event.description:
+                desc_preview = event.description[:40]
+                if len(event.description) > 40:
+                    desc_preview += "..."
+                event_title += f": {desc_preview}"
 
         # Memory indicator
         memory_indicator = " 📿" if h["has_memory"] else ""
