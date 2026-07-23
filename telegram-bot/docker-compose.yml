@@ -25,10 +25,15 @@ services:
       - ENVIRONMENT=${ENVIRONMENT:-development}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
       - BOT_PERSISTENCE_PATH=/data/bot_data.pkl
+      # Shared conversation state and rate limits. Without this each instance
+      # keeps its own, so a second replica would split both.
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       db:
         # Wait for readiness, not just container start. The bot also retries
         # internally, but this avoids a noisy boot.
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - coordination-network
@@ -63,6 +68,24 @@ services:
       - coordination-network
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    # appendonly so in-flight conversation state survives a restart. It is
+    # not the system of record -- PostgreSQL is -- but losing it mid-flow
+    # drops whatever event people were part-way through creating.
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    volumes:
+      - redis_data:/data
+    networks:
+      - coordination-network
+    restart: unless-stopped
+
 networks:
   coordination-network:
     driver: bridge
@@ -70,3 +93,4 @@ networks:
 volumes:
   postgres_data:
   bot_state:
+  redis_data:

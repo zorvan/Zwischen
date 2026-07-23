@@ -38,6 +38,12 @@ class Settings:
         self.db_pool_timeout: int = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
         self.db_echo: bool = os.environ.get("DB_ECHO", "false").lower() == "true"
 
+        # Shared state (conversation flows, rate limits). Unset means
+        # in-process state, which is correct for one instance and silently
+        # wrong for several -- see core/state.py.
+        self.redis_url: str | None = os.environ.get("REDIS_URL") or None
+        self.state_namespace: str = os.environ.get("STATE_NAMESPACE", "zwischen")
+
         # AI/LLM
         self.ai_endpoint: str = os.environ.get(
             "AI_ENDPOINT", "http://127.0.0.1:8080/v1/"
