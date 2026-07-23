@@ -36,7 +36,7 @@ ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
 
 # The revision that reproduces the pre-Alembic schema exactly. A database
 # containing these tables but no alembic_version is stamped here.
-BASELINE_REVISION = "b49a2ae8a644"
+BASELINE_REVISION = "2120cd3866bc"
 
 # Tables that must exist for a database to count as "already provisioned".
 _CORE_TABLES = ("events", "users", "groups", "event_participants")
@@ -165,8 +165,10 @@ def _describe_diff(diff) -> str:
         return f"{kind}: {diff[1].name}"
     if kind in ("add_column", "remove_column"):
         return f"{kind}: {diff[2]}.{diff[3].name}"
-    if kind == "modify_type":
-        return f"modify_type: {diff[2]}.{diff[3]} {diff[5]} -> {diff[6]}"
+    # modify_type / modify_nullable / modify_default share a shape:
+    # (kind, schema, table, column, opts, old_value, new_value)
+    if kind.startswith("modify_") and len(diff) >= 7:
+        return f"{kind}: {diff[2]}.{diff[3]} {diff[5]} -> {diff[6]}"
     if kind in ("add_index", "remove_index", "add_constraint", "remove_constraint"):
         obj = diff[1]
         name = getattr(obj, "name", None)
@@ -175,5 +177,6 @@ def _describe_diff(diff) -> str:
         # Unnamed constraints report name=None; the table and columns are what
         # actually identify them to a human.
         label = name or (f"{table}({columns})" if table else str(obj))
-        return f"{kind}: {label}"
+        detail = f" on {table}({columns})" if name and table else ""
+        return f"{kind}: {label}{detail}"
     return str(kind)

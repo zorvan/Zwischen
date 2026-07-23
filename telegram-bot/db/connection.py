@@ -77,17 +77,28 @@ async def get_session(db_url: str):
 
 
 async def check_db_connection(db_url: str) -> tuple[bool, str]:
-    """Check if database connection is available."""
-    from sqlalchemy import text
+    """Check if database connection is available.
 
+    Uses a throwaway NullPool engine rather than the module-level cache.
+    Cached asyncpg engines stay bound to the event loop that created them, so
+    reusing one from a different loop fails with "attached to a different
+    loop" -- which this function would then report as "database unavailable",
+    a false negative in the check that gates startup and the drift tooling.
+    """
+    from sqlalchemy import text
+    from sqlalchemy.pool import NullPool
+
+    engine = None
     try:
-        engine = create_engine(db_url)
-        Session = create_session(engine)
-        async with Session() as session:
-            await session.execute(text("SELECT 1"))
+        engine = create_async_engine(db_url, poolclass=NullPool)
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
         return True, "Database connection OK"
     except Exception as e:
         return False, f"Database connection failed: {type(e).__name__}: {e}"
+    finally:
+        if engine is not None:
+            await engine.dispose()
 
 
 async def retry_operation(
