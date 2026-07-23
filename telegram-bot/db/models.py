@@ -81,7 +81,11 @@ class User(Base):
     # DEPRECATED: superseded by user_identities. Retained through the expand
     # phase so the bot keeps working while call sites migrate; dropped in the
     # contract migration once nothing reads it.
-    telegram_user_id = Column(BigInteger, unique=True, nullable=False)
+    #
+    # Nullable, because a user who signs up through the web or a mobile app
+    # has no Telegram account. Uniqueness still holds for the rows that do
+    # have one -- PostgreSQL does not treat NULLs as equal.
+    telegram_user_id = Column(BigInteger, unique=True, nullable=True)
     username = Column(String(255), unique=True)
     display_name = Column(String(255))
     # NOTE: expertise_per_activity removed in v3.5 (behavioral scoring deprecated per spec)
