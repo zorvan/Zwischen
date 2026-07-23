@@ -156,10 +156,11 @@ reset_local_db() {
 
   wait_for_db_health
 
-  echo "Applying db/schema.sql to local database"
-  docker exec -i "$DB_CONTAINER_NAME" psql \
-    -U "$POSTGRES_USER" \
-    -d "$POSTGRES_DB" < db/schema.sql
+  # Schema is no longer applied from db/schema.sql here. Alembic migrations
+  # run at startup (see db/migrate.py) and are the single source of truth;
+  # loading schema.sql first would create tables that may not match the
+  # models, leaving the database silently drifted from migration history.
+  echo "Schema will be created by Alembic migrations on bot startup"
 }
 
 start_bot() {

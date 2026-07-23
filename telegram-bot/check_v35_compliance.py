@@ -180,6 +180,14 @@ def check_deprecated_commands() -> None:
 
     for rel_path, func_name in deprecated.items():
         file_path = ROOT / rel_path
+
+        # A deleted command is more compliant than a redirecting one. Several
+        # of these files are now gone, and opening them unconditionally made
+        # this whole script die with FileNotFoundError.
+        if not file_path.exists():
+            check(f"{rel_path} removed", True)
+            continue
+
         with open(file_path) as f:
             content = f.read()
 

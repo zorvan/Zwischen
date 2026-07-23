@@ -3,6 +3,12 @@
 *.db
 dump*.sql
 
+# Runtime state. bot_data.pkl is live PicklePersistence conversation state:
+# it is rewritten by the running bot, so tracking it keeps the tree dirty and
+# commits real user data.
+bot_data.pkl
+*.pkl
+
 # Environment
 .env
 .env.local

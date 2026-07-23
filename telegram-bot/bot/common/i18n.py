@@ -46,7 +46,7 @@ def set_language(lang: str) -> None:
 async def get_user_language(
     user: Any,
     session: Any = None,
-    telegram_user_id: int = None,
+    telegram_user_id: int | None = None,
     user_data: dict | None = None,
 ) -> str:
     """Detect language from user_data cache, DB preference, then Telegram profile.

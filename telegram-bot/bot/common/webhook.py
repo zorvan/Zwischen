@@ -146,7 +146,7 @@ def get_worker_queue() -> WorkerQueue:
     return _worker_queue
 
 
-async def setup_webhook(
+def setup_webhook(
     application: Application,
     webhook_url: str,
     webhook_port: int = 8443,
@@ -155,7 +155,14 @@ async def setup_webhook(
     allowed_updates: Optional[list[str]] = None,
 ) -> None:
     """
-    Setup webhook for production deployment.
+    Run the bot in webhook mode. Blocks until the application stops.
+
+    This is deliberately a *synchronous* function. Application.run_webhook() is
+    a blocking call that owns the event loop for its lifetime, exactly like
+    run_polling(). It is not a coroutine, so the previous
+    `await application.run_webhook(...)` raised
+    "TypeError: 'NoneType' object can't be awaited" and production webhook mode
+    could never start.
 
     Args:
         application: Telegram application instance
@@ -165,14 +172,9 @@ async def setup_webhook(
         webhook_secret: Secret token for webhook verification
         allowed_updates: List of update types to receive
     """
-    # Start worker queue
-    worker_queue = get_worker_queue()
-    await worker_queue.start()
-
-    # Setup webhook
     logger.info("Setting up webhook: %s (port %d)", webhook_url, webhook_port)
 
-    await application.run_webhook(
+    application.run_webhook(
         listen=webhook_host,
         port=webhook_port,
         url_path="telegram-webhook",
@@ -183,29 +185,33 @@ async def setup_webhook(
 
 
 async def shutdown_webhook(application: Application) -> None:
-    """Gracefully shutdown webhook and worker queue."""
+    """Gracefully shutdown the worker queue and delete the webhook.
+
+    run_webhook() already handles application stop/shutdown itself, so this
+    only tears down what we own on top of it.
+    """
     logger.info("Shutting down webhook")
 
-    # Shutdown worker queue
     worker_queue = get_worker_queue()
     await worker_queue.shutdown(wait=True)
 
-    # Stop application
-    await application.stop()
-
-    # Delete webhook from Telegram
     await application.bot.delete_webhook()
 
     logger.info("Webhook shutdown complete")
 
 
-def submit_to_worker(
+async def submit_to_worker(
     callback: Callable,
     *args: Any,
     **kwargs: Any,
 ) -> bool:
     """
-    Submit task to worker queue.
+    Submit a task to the worker queue.
+
+    Must be awaited. The previous synchronous version called
+    loop.run_until_complete() on the *running* loop, which raises
+    "RuntimeError: This event loop is already running" from any async caller —
+    the only place it could ever have been called from.
 
     Usage:
         from bot.common.webhook import submit_to_worker
@@ -213,20 +219,11 @@ def submit_to_worker(
         async def send_notification(user_id, message):
             await bot.send_message(chat_id=user_id, text=message)
 
-        # Submit to worker
-        submit_to_worker(send_notification, user_id=123, message="Hello!")
+        await submit_to_worker(send_notification, user_id=123, message="Hello!")
     """
     worker_queue = get_worker_queue()
-    return asyncio.get_event_loop().run_until_complete(
-        worker_queue.submit(callback, *args, **kwargs)
-    )
-
-
-async def submit_to_worker_async(
-    callback: Callable,
-    *args: Any,
-    **kwargs: Any,
-) -> bool:
-    """Async version of submit_to_worker."""
-    worker_queue = get_worker_queue()
     return await worker_queue.submit(callback, *args, **kwargs)
+
+
+# Backwards-compatible alias for the previously async-named variant.
+submit_to_worker_async = submit_to_worker

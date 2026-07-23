@@ -16,6 +16,7 @@ from bot.common.rbac import check_group_membership, check_event_visibility_and_g
 from config.settings import settings
 from db.connection import get_session
 from db.models import Event, Group, EventParticipant
+from bot.common.safe_edit import safe_edit_message
 
 logger = logging.getLogger("coord_bot.menus")
 
@@ -98,7 +99,8 @@ async def _show_main_menu(
     query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
 ) -> None:
     """Show the main menu."""
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t("main_menu_welcome", lang=user_lang),
         reply_markup=build_main_menu(lang=user_lang),
         parse_mode="HTML",
@@ -163,7 +165,8 @@ async def _show_my_events(
 
         if not sorted_events:
             try:
-                await query.edit_message_text(
+                await safe_edit_message(
+                    query,
                     t("menu_my_events_no_events", lang=user_lang),
                     reply_markup=build_main_menu(lang=user_lang),
                     parse_mode="HTML",
@@ -187,7 +190,8 @@ async def _show_my_events(
                 return
             else:
                 try:
-                    await query.edit_message_text(
+                    await safe_edit_message(
+                        query,
                         t("menu_my_events_no_events", lang=user_lang),
                         reply_markup=build_back_to_menu_keyboard(lang=user_lang),
                         parse_mode="HTML",
@@ -278,7 +282,8 @@ async def _show_my_events(
         )
 
         try:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 "\n".join(lines),
                 reply_markup=InlineKeyboardMarkup(keyboard),
                 parse_mode="Markdown",
@@ -312,7 +317,8 @@ async def _show_event_detail(
 
         if not is_visible:
             try:
-                await query.edit_message_text(
+                await safe_edit_message(
+                    query,
                     t(
                         "event_details_event_not_visible",
                         lang=user_lang,
@@ -355,7 +361,8 @@ async def _show_event_detail(
         status_message += "\n\n" + t("menu_event_detail_hint", lang=user_lang)
 
         try:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 status_message,
                 reply_markup=build_event_detail_keyboard(
                     event_id=event_id,
@@ -369,7 +376,8 @@ async def _show_event_detail(
             if "Can't parse entities" in str(e):
                 # Fallback to plain text if Markdown parsing fails
                 try:
-                    await query.edit_message_text(
+                    await safe_edit_message(
+                        query,
                         status_message.replace("*", "").replace("_", ""),
                         reply_markup=build_event_detail_keyboard(
                             event_id=event_id,
@@ -390,7 +398,8 @@ async def _show_event_detail(
 
 async def _show_help(query, context: ContextTypes.DEFAULT_TYPE, user_lang: str) -> None:
     """Show help menu."""
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t("menu_help_title", lang=user_lang),
         reply_markup=build_help_keyboard(lang=user_lang),
         parse_mode="HTML",
@@ -410,7 +419,8 @@ async def _show_help_topic(
     key = topics.get(topic, "menu_help_topic_not_found")
     text = t(key, lang=user_lang)
 
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text,
         reply_markup=build_help_keyboard(lang=user_lang),
         parse_mode="HTML",
@@ -422,7 +432,8 @@ async def _redirect_to_profile(
     query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
 ) -> None:
     """Redirect to profile command."""
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t("menu_redirect_profile", lang=user_lang),
         reply_markup=build_back_to_menu_keyboard(lang=user_lang),
     )
@@ -432,7 +443,8 @@ async def _redirect_to_history(
     query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
 ) -> None:
     """Redirect to history command."""
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t("menu_redirect_history", lang=user_lang),
         reply_markup=build_back_to_menu_keyboard(lang=user_lang),
     )
@@ -462,7 +474,8 @@ async def _redirect_to_organize(
         ],
     ]
 
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t("menu_redirect_organize", lang=user_lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="HTML",
@@ -495,7 +508,8 @@ async def _redirect_to_modify(
     query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
 ) -> None:
     """Redirect to modify command."""
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t("menu_redirect_modify", lang=user_lang),
         reply_markup=build_back_to_menu_keyboard(lang=user_lang),
     )
@@ -505,7 +519,8 @@ async def _redirect_to_groups(
     query, context: ContextTypes.DEFAULT_TYPE, user_lang: str
 ) -> None:
     """Redirect to groups command."""
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t("menu_redirect_groups", lang=user_lang),
         reply_markup=build_back_to_menu_keyboard(lang=user_lang),
     )
@@ -540,7 +555,8 @@ async def _handle_create_new_event(
         ],
     ]
 
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t("menu_create_new_event", lang=user_lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="HTML",

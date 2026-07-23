@@ -2,21 +2,14 @@
 
 `Zwischen` is a coordination system for small groups. The repository currently centers on a production-oriented Telegram bot that helps groups form events, track participation, surface coordination state, and carry memory from one gathering into the next.
 
-The broader project also includes planning tracks for richer client surfaces:
-
-- `telegram-bot/`: the implemented core product
-- `telegram-mini-app/`: pre-build product and architecture questions for a Telegram Mini App
-- `web-mobile-app/`: pre-build product and architecture questions for a standalone mobile/web app
-
 ## Repository Status
 
-Today, the Telegram bot is the runnable part of the repo. The Mini App and mobile app directories are intentionally still in definition mode; they currently contain decision documents rather than application code.
+Today, the Telegram bot is the only runnable part of the repo. Client surfaces beyond Telegram (Mini App, mobile) are not present in the tree; their planning documents were removed and only the versioned product docs under `telegram-bot/docs/` remain.
 
 That means this repository is best understood as:
 
 - an active backend and bot implementation
 - a growing product/design knowledge base
-- a staging ground for future client surfaces
 
 ## What The Telegram Bot Does
 
@@ -37,7 +30,7 @@ Core capabilities in the current codebase include:
 The product philosophy and detailed behavior live most clearly in:
 
 - [telegram-bot/README.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/README.md)
-- [telegram-bot/docs/v3.2/coordination-engine-PRD-v3.2.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3.2/coordination-engine-PRD-v3.2.md)
+- [telegram-bot/docs/v3/v3.2/coordination-engine-PRD-v3.2.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3/v3.2/coordination-engine-PRD-v3.2.md)
 
 ## High-Level Architecture
 
@@ -55,13 +48,6 @@ Main implementation area.
 - `tests/`: unit, integration, contract, scenario, and broader regression coverage
 - `docs/`: versioned product/design documentation
 
-### `telegram-mini-app/`
-
-Currently contains [telegram-mini-app/MINI_APP_QUESTIONS.md](/home/zorvan/Work/projects/Zwischen/telegram-mini-app/MINI_APP_QUESTIONS.md), a decision framework for building a Telegram Mini App without drifting from the bot's philosophy or architecture.
-
-### `web-mobile-app/`
-
-Currently contains [web-mobile-app/MOBILE_APP_QUESTIONS.md](/home/zorvan/Work/projects/Zwischen/web-mobile-app/MOBILE_APP_QUESTIONS.md), a decision framework for a standalone mobile/app surface layered on the same coordination system.
 
 ## Quick Start
 
@@ -126,10 +112,48 @@ There is also a targeted quality script:
 ./scripts/check_quality.sh
 ```
 
+Tests needing a live PostgreSQL are marked `integration` and skip when none is
+reachable. To run only those, or to exclude them:
+
+```bash
+pytest -m integration
+pytest -m "not integration"
+```
+
 Useful references:
 
 - [telegram-bot/tests/](/home/zorvan/Work/projects/Zwischen/telegram-bot/tests)
 - [telegram-bot/scripts/check_quality.sh](/home/zorvan/Work/projects/Zwischen/telegram-bot/scripts/check_quality.sh)
+
+## Database Migrations
+
+Schema changes are managed with Alembic. Migrations run automatically at
+startup, so a normal deploy needs no manual step.
+
+```bash
+# after editing db/models.py
+alembic revision --autogenerate -m "describe the change"
+alembic upgrade head          # applied automatically on boot too
+alembic downgrade -1          # roll back one revision
+alembic history               # see what exists
+```
+
+`db/models.py` is the single source of truth. `db/schema.sql` is reference
+documentation only and is no longer applied to any database.
+
+**Adopting an existing database.** A database created before Alembic has all
+the tables but no migration history. On first boot it is *stamped* with the
+baseline revision — recorded as already-current, not re-executed — so adoption
+is a no-op that cannot touch your data. Before that first boot, confirm the
+live schema actually matches the models:
+
+```bash
+python -m scripts.check_schema_drift
+```
+
+Exit code 0 means clean. If it lists differences (likely if columns were ever
+added by hand), resolve them first: either update `db/models.py` to match
+reality, or generate a migration that brings the database in line.
 
 ## Infrastructure Notes
 
@@ -138,24 +162,33 @@ Useful references:
 - The runtime dependency switches DB driver by Python version:
   - `asyncpg` for Python `< 3.14`
   - `psycopg` for Python `>= 3.14`
-- A Docker-based local stack exists in [telegram-bot/docker-compose.yml](/home/zorvan/Work/projects/Zwischen/telegram-bot/docker-compose.yml), though the shell scripts are the clearest local entrypoint in the current repo.
+- The AI backend is Google Gemini via its **OpenAI-compatible** endpoint (`https://generativelanguage.googleapis.com/v1beta/openai/`). `AI_ENDPOINT` must be that compatibility base URL, not Gemini's native `:generateContent` URL.
+- [telegram-bot/docker-compose.yml](/home/zorvan/Work/projects/Zwischen/telegram-bot/docker-compose.yml) runs the full stack (bot + PostgreSQL). The shell scripts remain the fastest path for host-native development.
+
+## Running With Docker
+
+```bash
+cd telegram-bot
+cp .env.example .env        # fill in TELEGRAM_TOKEN and AI_API_KEY
+docker compose up --build
+```
+
+The bot waits for PostgreSQL to become healthy, creates its schema on first
+boot, and stores conversation state in the `bot_state` volume.
 
 ## Documentation Map
 
 - Product overview: [telegram-bot/README.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/README.md)
-- Current PRD: [telegram-bot/docs/v3.2/coordination-engine-PRD-v3.2.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3.2/coordination-engine-PRD-v3.2.md)
-- User flows: [telegram-bot/docs/v3.2/USER_FLOWS_v3.2.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3.2/USER_FLOWS_v3.2.md)
-- Implementation notes: [telegram-bot/docs/v2/IMPLEMENTATION.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v2/IMPLEMENTATION.md)
+- Current PRD: [telegram-bot/docs/v3/v3.2/coordination-engine-PRD-v3.2.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3/v3.2/coordination-engine-PRD-v3.2.md)
+- User flows: [telegram-bot/docs/v3/v3.2/USER_FLOWS_v3.2.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3/v3.2/USER_FLOWS_v3.2.md)
+- Rebuild spec (v3.5): [telegram-bot/docs/v3/v3.5/Coordination_Engine_v3.5_Rebuild_Specification.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3/v3.5/Coordination_Engine_v3.5_Rebuild_Specification.md)
 - Database notes: [telegram-bot/db/README.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/db/README.md)
-- Mini App planning: [telegram-mini-app/MINI_APP_QUESTIONS.md](/home/zorvan/Work/projects/Zwischen/telegram-mini-app/MINI_APP_QUESTIONS.md)
-- Mobile app planning: [web-mobile-app/MOBILE_APP_QUESTIONS.md](/home/zorvan/Work/projects/Zwischen/web-mobile-app/MOBILE_APP_QUESTIONS.md)
 
 ## Current Reality
 
-This repository is not yet a full multi-client platform. It is a solid Telegram-first coordination system with adjacent planning documents for what might come next.
+This repository is not yet a full multi-client platform. It is a Telegram-first coordination system with a versioned product/design knowledge base for what might come next.
 
 If you are starting work here, the practical default is:
 
 1. begin in `telegram-bot/`
 2. treat the bot and PostgreSQL schema as the source of truth
-3. use the Mini App and mobile app folders as design inputs, not implementation surfaces

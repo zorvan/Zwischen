@@ -1,10 +1,16 @@
 """
-OpenAI-compatible LLM client for Qwen3.
+OpenAI-compatible LLM client.
+
+Targets any OpenAI-compatible /chat/completions endpoint. Currently deployed
+against Google Gemini's OpenAI compatibility layer:
+    https://generativelanguage.googleapis.com/v1beta/openai/
+
 PRD v2 Priority 4: Production Hardening (TODO-016).
 - Schema validation for all LLM outputs
 - Type safety and value range validation
 """
 
+import asyncio
 import httpx
 import json
 import logging
@@ -24,13 +30,35 @@ logger = logging.getLogger(__name__)
 # v3.5: 0.1 for structured outputs (action routing, draft extraction)
 LLM_TEMPERATURE = 0.1
 
-# Max tokens: Standard sizes for different use cases
-LLM_MAX_TOKENS_STANDARD = 800  # For most inference tasks
-LLM_MAX_TOKENS_LARGE = 1200  # For complex tasks with context
-LLM_MAX_TOKENS_SMALL = 400  # For simple classification
+# Max tokens: budgets for different use cases.
+#
+# These must stay generous: reasoning ("thinking") models such as
+# gemini-flash-latest spend tokens on internal reasoning that count against
+# max_tokens but are NOT returned in message.content. If the budget is too
+# small the response comes back with finish_reason="length" and content=None,
+# which surfaces as a silent fallback rather than an answer. Measured overhead
+# for a trivial prompt is ~70-140 reasoning tokens, and it grows with prompt
+# complexity, so leave substantial headroom above the visible output size.
+LLM_MAX_TOKENS_STANDARD = 2048  # For most inference tasks
+LLM_MAX_TOKENS_LARGE = 4096  # For complex tasks with context
+LLM_MAX_TOKENS_SMALL = 1024  # For simple classification
 
 # Timeout for LLM calls (seconds)
 LLM_TIMEOUT = 60.0
+
+# Transient-failure retry policy for LLM calls.
+LLM_MAX_ATTEMPTS = 3
+LLM_RETRY_BASE_DELAY = 1.0  # seconds; doubled per attempt
+LLM_RETRY_STATUS = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+
+
+class LLMError(RuntimeError):
+    """Raised when the LLM endpoint cannot produce usable content.
+
+    Call sites catch this alongside other exceptions and fall back to
+    deterministic behaviour, so raising is always safe.
+    """
+
 
 MEDIATOR_SYSTEM = """You are a group coordination mediator embedded in a Telegram group.
 Your role is to help the group bring events into existence, not just parse commands.
@@ -43,17 +71,53 @@ For JSON output: set action_type to organize_event or organize_event_flexible wh
 trying to plan something; use opinion only for genuine questions or meta chat."""
 
 
+def normalize_base_url(endpoint: str) -> str:
+    """Normalize AI_ENDPOINT into a base URL httpx can join paths onto.
+
+    httpx appends relative paths to the base URL's *path*, so
+    "http://host/v1" + "/chat/completions" only yields
+    "http://host/v1/chat/completions" when the base path ends in a slash.
+    Without it the join silently produces a 404 URL, so enforce the slash.
+
+    Also detects Gemini's *native* endpoint
+    (".../v1beta/models/<model>:generateContent"), which is not
+    OpenAI-compatible and cannot serve /chat/completions. That form is
+    rewritten to Gemini's OpenAI compatibility base with a loud warning
+    rather than left to fail on every call.
+    """
+    url = (endpoint or "").strip()
+    if not url:
+        raise ValueError("AI_ENDPOINT is empty. Set it in .env.")
+
+    native = re.match(
+        r"^(https?://[^/]*generativelanguage\.googleapis\.com)/v[^/]+/models/.*:\w+$",
+        url,
+    )
+    if native:
+        corrected = f"{native.group(1)}/v1beta/openai/"
+        logger.warning(
+            "AI_ENDPOINT points at Gemini's native generateContent API (%s), which "
+            "is not OpenAI-compatible. Using %s instead. Update AI_ENDPOINT in .env "
+            "to silence this warning.",
+            url,
+            corrected,
+        )
+        return corrected
+
+    return url if url.endswith("/") else url + "/"
+
+
 class LLMClient:
-    """OpenAI SDK wrapper for Qwen3 (or any OpenAI-compatible API)."""
+    """Client for any OpenAI-compatible chat-completions API."""
 
     def __init__(self):
-        self.base_url = settings.ai_endpoint
+        self.base_url = normalize_base_url(settings.ai_endpoint)
         self.api_key = settings.ai_api_key
         self.model = settings.ai_model
         self.client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={"Authorization": f"Bearer {self.api_key}"},
-            timeout=60.0,
+            timeout=LLM_TIMEOUT,
         )
 
     async def resolve_conflicts(
@@ -841,22 +905,87 @@ If a required param like event_id is missing, set it to null — do not guess.
 
         v3.5: All LLM calls use consistent temperature and appropriate max_tokens
         based on task complexity (standard/large/small).
+
+        Retries transient failures (rate limits, 5xx, network errors) with
+        exponential backoff. Raises LLMError on exhaustion or on a response
+        that carries no usable content; every call site treats an exception as
+        "use the deterministic fallback".
         """
         messages: list[dict[str, str]] = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
-        response = await self.client.post(
-            "/chat/completions",
-            json={
-                "model": self.model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            },
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+
+        last_error: str = "unknown error"
+
+        for attempt in range(1, LLM_MAX_ATTEMPTS + 1):
+            try:
+                response = await self.client.post("/chat/completions", json=payload)
+            except (httpx.TransportError, httpx.InvalidURL) as exc:
+                last_error = f"{type(exc).__name__}: {exc}"
+                if attempt == LLM_MAX_ATTEMPTS:
+                    break
+                await self._sleep_before_retry(attempt, last_error)
+                continue
+
+            if response.status_code in LLM_RETRY_STATUS:
+                last_error = f"HTTP {response.status_code}: {response.text[:200]}"
+                if attempt == LLM_MAX_ATTEMPTS:
+                    break
+                await self._sleep_before_retry(attempt, last_error)
+                continue
+
+            response.raise_for_status()
+            return self._extract_content(response.json(), max_tokens)
+
+        raise LLMError(
+            f"LLM call failed after {LLM_MAX_ATTEMPTS} attempts: {last_error}"
         )
-        response.raise_for_status()
-        return response.json()["choices"][0]["message"]["content"]
+
+    @staticmethod
+    async def _sleep_before_retry(attempt: int, reason: str) -> None:
+        """Back off between LLM retries."""
+        delay = LLM_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+        logger.warning(
+            "LLM call failed (attempt %d/%d), retrying in %.1fs: %s",
+            attempt,
+            LLM_MAX_ATTEMPTS,
+            delay,
+            reason,
+        )
+        await asyncio.sleep(delay)
+
+    def _extract_content(self, body: Dict[str, Any], max_tokens: int) -> str:
+        """Pull message content out of a chat-completions response.
+
+        Reasoning models return content=None with finish_reason="length" when
+        the token budget was consumed by internal reasoning. That must not be
+        passed downstream as None, where json.loads() would raise an opaque
+        TypeError far from the cause.
+        """
+        try:
+            choice = body["choices"][0]
+            content = choice["message"].get("content")
+            finish_reason = choice.get("finish_reason")
+        except (KeyError, IndexError, TypeError) as exc:
+            raise LLMError(f"Malformed LLM response: {type(exc).__name__}: {exc}")
+
+        if content:
+            return content
+
+        if finish_reason == "length":
+            raise LLMError(
+                f"LLM returned no content (finish_reason=length, max_tokens={max_tokens}). "
+                "The model likely spent the whole budget on reasoning tokens; "
+                "raise the max_tokens budget for this call."
+            )
+        raise LLMError(f"LLM returned empty content (finish_reason={finish_reason!r})")
 
     async def _call_llm_large(self, prompt: str, system: str | None = None) -> str:
         """Context-heavy prompts (long history) need more output tokens for valid JSON."""

@@ -19,6 +19,7 @@ from bot.common.event_presenters import (
 from bot.services import ParticipantService
 from db.models import ParticipantStatus
 from bot.common.i18n import t, get_user_language
+from bot.common.safe_edit import safe_edit_message
 
 
 async def show_details(
@@ -49,13 +50,14 @@ async def show_details(
             )
         )
         if not is_visible:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 t(
                     "event_details_event_not_visible",
                     lang=user_lang,
                     error_msg=error_msg
                     or t("event_details_event_not_found", lang=user_lang),
-                )
+                ),
             )
             return
         logs = await _get_event_logs(session, event_id)
@@ -88,7 +90,8 @@ async def show_details(
                     ]
                 ]
             )
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             await format_event_details_message(
                 event_id, event, logs, constraints, context.bot
             ),
@@ -120,13 +123,14 @@ async def _show_status(
             )
         )
         if not is_visible:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 t(
                     "event_details_event_not_visible",
                     lang=user_lang,
                     error_msg=error_msg
                     or t("event_details_event_not_found", lang=user_lang),
-                )
+                ),
             )
             return
         log_count = await _get_event_log_count(session, event_id)
@@ -142,7 +146,8 @@ async def _show_status(
             event, user_id, bot_username, session, lang=user_lang
         )
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             await format_status_message(
                 event_id,
                 event,
@@ -167,8 +172,8 @@ async def _show_logs(query, event_id: int, lang: str = "en") -> None:
         )
         rows = result.all()
         if not rows:
-            await query.edit_message_text(
-                t("event_logs_empty", lang=lang, event_id=event_id)
+            await safe_edit_message(
+                query, t("event_logs_empty", lang=lang, event_id=event_id)
             )
             return
         msg = t("event_logs_title", lang=lang, event_id=event_id) + "\n\n"
@@ -203,8 +208,8 @@ async def _show_logs(query, event_id: int, lang: str = "en") -> None:
             ]
         ]
         try:
-            await query.edit_message_text(
-                msg, reply_markup=InlineKeyboardMarkup(keyboard)
+            await safe_edit_message(
+                query, msg, reply_markup=InlineKeyboardMarkup(keyboard)
             )
         except Exception as e:
             if "Message is not modified" in str(e):
@@ -221,7 +226,8 @@ async def _show_constraints(query, event_id: int, lang: str = "en") -> None:
         )
         constraints = result.scalars().all()
         if not constraints:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 t("event_constraints_title", lang=lang, event_id=event_id)
                 + "\n\n"
                 + t("event_constraints_empty", lang=lang),
@@ -297,8 +303,8 @@ async def _show_constraints(query, event_id: int, lang: str = "en") -> None:
             ]
         ]
         try:
-            await query.edit_message_text(
-                msg, reply_markup=InlineKeyboardMarkup(keyboard)
+            await safe_edit_message(
+                query, msg, reply_markup=InlineKeyboardMarkup(keyboard)
             )
         except Exception as e:
             if "Message is not modified" in str(e):

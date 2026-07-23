@@ -30,6 +30,7 @@ from bot.services.event_enrichment_service import EventEnrichmentService
 from db.models import Event
 from db.connection import get_session
 from config.settings import settings
+from bot.common.safe_edit import safe_edit_message
 
 logger = logging.getLogger(__name__)
 
@@ -436,7 +437,9 @@ async def route_event_callback(
 
     if action is None or event_id is None:
         # Invalid callback format
-        await query.edit_message_text(t("event_panel_invalid_callback", lang=user_lang))
+        await safe_edit_message(
+            query, t("event_panel_invalid_callback", lang=user_lang)
+        )
         return
 
     # Route to appropriate handler
@@ -476,8 +479,8 @@ async def route_event_callback(
     else:
         # Unknown action
         logger.info("route_event_callback unknown action: %r", action)
-        await query.edit_message_text(
-            t("event_panel_unknown_action", lang=user_lang, action=action)
+        await safe_edit_message(
+            query, t("event_panel_unknown_action", lang=user_lang, action=action)
         )
 
 
@@ -515,8 +518,8 @@ async def _handle_view(
         event = event_result.scalar_one_or_none()
 
         if not event:
-            await query.edit_message_text(
-                t("event_panel_event_not_found", lang=user_lang)
+            await safe_edit_message(
+                query, t("event_panel_event_not_found", lang=user_lang)
             )
             return
 
@@ -541,13 +544,14 @@ async def _handle_view(
             )
         )
         if not is_visible:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 t(
                     "event_panel_event_not_visible",
                     lang=user_lang,
                     error_msg=error_msg
                     or t("event_panel_event_not_found", lang=user_lang),
-                )
+                ),
             )
             return
 
@@ -696,7 +700,8 @@ async def _handle_view(
         )
 
         try:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 text=text,
                 reply_markup=InlineKeyboardMarkup(buttons),
                 parse_mode="Markdown",
@@ -1008,9 +1013,9 @@ async def _handle_join(
                 try:
                     await asyncio.wait_for(
                         query.answer(
-                            t("event_panel_join_already_joined", lang=user_lang),
-                            timeout=5.0,
-                        )
+                            t("event_panel_join_already_joined", lang=user_lang)
+                        ),
+                        timeout=5.0,
                     )
                 except asyncio.TimeoutError:
                     pass
@@ -1246,13 +1251,14 @@ async def _handle_lock(
         )
 
         if not is_visible:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 t(
                     "event_panel_event_not_visible",
                     lang=user_lang,
                     error_msg=error_msg
                     or t("event_panel_event_not_found", lang=user_lang),
-                )
+                ),
             )
             return
 
@@ -1353,13 +1359,14 @@ async def _handle_unlock(
         )
 
         if not is_visible:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 t(
                     "event_panel_event_not_visible",
                     lang=user_lang,
                     error_msg=error_msg
                     or t("event_panel_event_not_found", lang=user_lang),
-                )
+                ),
             )
             return
 
@@ -1452,13 +1459,14 @@ async def _handle_complete(
         )
 
         if not is_visible:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 t(
                     "event_panel_event_not_visible",
                     lang=user_lang,
                     error_msg=error_msg
                     or t("event_panel_event_not_found", lang=user_lang),
-                )
+                ),
             )
             return
 
@@ -1565,7 +1573,8 @@ async def handle_enrich_menu(
 
     buttons = build_enrich_submenu(event_id, group_id, user_lang=user_lang)
 
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text=text,
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode="Markdown",
@@ -1580,7 +1589,8 @@ async def handle_add_idea_prompt(
 ) -> None:
     """Prompt user to add an idea."""
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text=t("enrich_add_idea_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
@@ -1600,7 +1610,8 @@ async def handle_add_hashtag_prompt(
 ) -> None:
     """Prompt user to add a hashtag."""
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text=t("enrich_add_hashtag_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
@@ -1620,7 +1631,8 @@ async def handle_add_memory_prompt(
 ) -> None:
     """Prompt user to add a memory."""
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text=t("enrich_add_memory_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
@@ -1672,7 +1684,8 @@ async def handle_view_contributions(
         ]
     ]
 
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text=text,
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode="Markdown",
@@ -1703,7 +1716,8 @@ async def handle_constraint_menu(
 
     buttons = build_constraint_submenu(event_id, group_id, user_lang=user_lang)
 
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text=text,
         reply_markup=InlineKeyboardMarkup(buttons),
         parse_mode="Markdown",
@@ -1718,7 +1732,8 @@ async def handle_add_constraint_prompt(
 ) -> None:
     """Prompt user to add a constraint."""
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text=t("constraint_add_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
@@ -1738,7 +1753,8 @@ async def handle_add_constraint_unless_prompt(
 ) -> None:
     """Prompt user to add an 'unless' constraint."""
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text=t("constraint_add_unless_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
@@ -1758,7 +1774,8 @@ async def handle_suggest_time(
 ) -> None:
     """Handle suggest time action."""
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         text=t("constraint_suggest_time_prompt", lang=user_lang, event_id=event_id),
         parse_mode="Markdown",
     )
@@ -1789,8 +1806,8 @@ async def _handle_logs(
         )
         rows = result.all()
         if not rows:
-            await query.edit_message_text(
-                t("event_logs_empty", lang=user_lang, event_id=event_id)
+            await safe_edit_message(
+                query, t("event_logs_empty", lang=user_lang, event_id=event_id)
             )
             return
         msg = t("event_logs_title", lang=user_lang, event_id=event_id) + "\n\n"
@@ -1821,8 +1838,8 @@ async def _handle_logs(
             t("panel_back", lang=user_lang),
             callback_data=encode_callback("det", event_id, group_id),
         )
-        await query.edit_message_text(
-            msg, reply_markup=InlineKeyboardMarkup([[back_btn]])
+        await safe_edit_message(
+            query, msg, reply_markup=InlineKeyboardMarkup([[back_btn]])
         )
 
 
@@ -1838,8 +1855,8 @@ async def _handle_close(
         if query.from_user
         else "en"
     )
-    await query.edit_message_text(
-        t("event_panel_close", lang=user_lang, event_id=event_id)
+    await safe_edit_message(
+        query, t("event_panel_close", lang=user_lang, event_id=event_id)
     )
 
 
@@ -1855,15 +1872,15 @@ async def handle_modify_event(
     user = query.from_user
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
     if not settings.db_url:
-        await query.edit_message_text(t("error_db_unavailable", lang=user_lang))
+        await safe_edit_message(query, t("error_db_unavailable", lang=user_lang))
         return
 
     async with get_session(settings.db_url) as session:
         result = await session.execute(select(Event).where(Event.event_id == event_id))
         event = result.scalar_one_or_none()
         if not event:
-            await query.edit_message_text(
-                t("event_panel_event_not_found", lang=user_lang)
+            await safe_edit_message(
+                query, t("event_panel_event_not_found", lang=user_lang)
             )
             return
 
@@ -1906,7 +1923,8 @@ async def handle_modify_event(
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             t("modify_choose_method", lang=user_lang),
             reply_markup=reply_markup,
             parse_mode="Markdown",

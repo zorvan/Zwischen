@@ -27,11 +27,19 @@ repos:
       - id: flake8
         args: ["--max-line-length=120"]
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.17.1
+  # mypy runs against the project's own telegram-bot/mypy.ini rather than a
+  # second, stricter ad-hoc flag set. mypy.ini encodes deliberate per-module
+  # relaxations (SQLAlchemy Column-vs-scalar, dynamic Telegram update objects);
+  # the mirrors-mypy hook ignored it and reported 282 pre-existing errors, so
+  # this hook could never pass. It must also run from telegram-bot/, because
+  # mypy.ini sets `mypy_path = .`.
+  - repo: local
     hooks:
       - id: mypy
-        additional_dependencies:
-          - types-requests
-          - sqlalchemy>=2.0
-        args: [--ignore-missing-imports, --warn-unreachable, --exclude=telegram-bot/telegram-bot, --explicit-package-bases]
+        name: mypy (telegram-bot)
+        language: system
+        pass_filenames: false
+        files: ^telegram-bot/.*\.py$
+        entry: >-
+          bash -c 'cd telegram-bot
+          && "${MYPY_PYTHON:-.venv/bin/python}" -m mypy --config-file=mypy.ini .'

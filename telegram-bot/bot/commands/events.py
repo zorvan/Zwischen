@@ -9,6 +9,7 @@ from db.connection import get_session
 from db.models import Event, Group
 from bot.common.rbac import check_group_membership
 from bot.common.i18n import t, get_user_language
+from bot.common.safe_edit import safe_edit_message
 
 
 async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -192,7 +193,8 @@ async def handle_create_callback(
         ],
     ]
 
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t("menu_create_new_event", lang=user_lang),
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown",

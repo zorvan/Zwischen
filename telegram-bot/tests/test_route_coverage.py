@@ -113,8 +113,17 @@ def extract_registered_patterns(filepath: str) -> dict[str, list[str]]:
     private_patterns = []
 
     # Match patterns like: (r"^event_type_", event_creation.handle_callback),
+    #
+    # re.DOTALL matters: black wraps long registrations across lines, e.g.
+    #     (
+    #         r"^private_event_back_to_time_window$",
+    #         event_creation.private_handle_callback,
+    #     ),
+    # A single-line-only regex silently misses those and reports a registered
+    # route as MISSING. The trailing comma is likewise optional.
     pattern = re.compile(
-        r'\(r"([^"]+)",\s*(event_creation\.(?:handle|private_handle)_callback)\)',
+        r'\(\s*r"([^"]+)",\s*(event_creation\.(?:handle|private_handle)_callback)\s*,?\s*\)',
+        re.DOTALL,
     )
 
     for match in pattern.finditer(content):
@@ -170,8 +179,12 @@ def is_covered(
         return False
 
 
-def test_callback_route_coverage() -> list[str]:
-    """Verify all handler callback patterns are registered in main.py."""
+def collect_route_coverage() -> tuple[list[str], list[str]]:
+    """Check every handler callback pattern against main.py's registrations.
+
+    Returns (report_lines, errors). Kept separate from the test function so the
+    CLI entrypoint can print the full report while pytest just asserts.
+    """
     results: list[str] = []
     errors: list[str] = []
 
@@ -204,7 +217,17 @@ def test_callback_route_coverage() -> list[str]:
     else:
         results.append("PASS: All callback patterns are properly registered")
 
-    return results
+    return results, errors
+
+
+def test_callback_route_coverage() -> None:
+    """Every callback pattern the handlers expect must be routed in main.py.
+
+    Previously this returned a list instead of asserting, so pytest reported
+    it as passing even while its own output said FAIL.
+    """
+    _, errors = collect_route_coverage()
+    assert not errors, "Unregistered callback patterns:\n" + "\n".join(errors)
 
 
 # ---------------------------------------------------------------------------
@@ -218,15 +241,14 @@ def main() -> None:
     print("=" * 60)
     print()
 
-    results = test_callback_route_coverage()
+    results, errors = collect_route_coverage()
     for r in results:
         print(r)
 
     print()
     print("=" * 60)
 
-    has_errors = any("MISSING" in r for r in results)
-    if has_errors:
+    if errors:
         print("RESULT: FAIL - Some callback patterns are not registered")
         print("=" * 60)
         sys.exit(1)

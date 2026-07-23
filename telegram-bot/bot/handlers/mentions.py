@@ -46,6 +46,7 @@ from db.connection import get_session
 from db.models import Constraint, Event, Group, Log, User
 from db.users import get_or_create_user_id, get_user_id_by_username
 from bot.common.i18n import t, get_user_language
+from bot.common.safe_edit import safe_edit_message
 
 logger = logging.getLogger("coord_bot.mentions")
 
@@ -499,7 +500,7 @@ async def handle_mention_callback(
     pending_root = context.bot_data.get("pending_mention_actions", {})
     pending = pending_root.get(pending_id)
     if not pending:
-        await query.edit_message_text(t("mention_approval_expired", lang=user_lang))
+        await safe_edit_message(query, t("mention_approval_expired", lang=user_lang))
         return
 
     required = set(int(x) for x in pending.get("required_user_ids", []))
@@ -513,27 +514,28 @@ async def handle_mention_callback(
 
     if decision == "reject":
         pending_root.pop(pending_id, None)
-        await query.edit_message_text(t("mention_approval_declined", lang=user_lang))
+        await safe_edit_message(query, t("mention_approval_declined", lang=user_lang))
         return
 
     approved = set(int(x) for x in pending.get("approved_user_ids", []))
     approved.add(clicker)
     pending["approved_user_ids"] = sorted(approved)
     if approved != required:
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             t(
                 "mention_approval_recorded",
                 lang=user_lang,
                 approved=len(approved),
                 total=len(required),
-            )
+            ),
         )
         return
 
     pending_root.pop(pending_id, None)
     action = pending.get("action", {})
     requester_id = int(pending.get("requester_id"))
-    await query.edit_message_text(t("mention_approval_all_received", lang=user_lang))
+    await safe_edit_message(query, t("mention_approval_all_received", lang=user_lang))
     message = query.message
     if not message:
         return
@@ -566,21 +568,21 @@ async def handle_disambiguation_callbacks(
         rest = data[7:]
         idx = rest.rfind("_")
         if idx <= 0:
-            await query.edit_message_text(
-                t("mention_invalid_selection", lang=user_lang)
+            await safe_edit_message(
+                query, t("mention_invalid_selection", lang=user_lang)
             )
             return
         try:
             event_id = int(rest[:idx])
             code = rest[idx + 1 :]
         except ValueError:
-            await query.edit_message_text(
-                t("mention_invalid_selection", lang=user_lang)
+            await safe_edit_message(
+                query, t("mention_invalid_selection", lang=user_lang)
             )
             return
         action_type = _PICK_CODE_TO_ACTION.get(code)
         if not action_type:
-            await query.edit_message_text(t("mention_unknown_action", lang=user_lang))
+            await safe_edit_message(query, t("mention_unknown_action", lang=user_lang))
             return
         action = {
             "action_type": action_type,
@@ -590,7 +592,7 @@ async def handle_disambiguation_callbacks(
             "assistant_response": "",
         }
         try:
-            await query.edit_message_text(t("mention_working", lang=user_lang))
+            await safe_edit_message(query, t("mention_working", lang=user_lang))
         except Exception:
             pass
         if not query.message:
@@ -615,7 +617,8 @@ async def handle_disambiguation_callbacks(
         return
 
     if data == "mention_ask_help":
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             t("mention_help_tips", lang=user_lang),
             parse_mode="Markdown",
         )
@@ -646,14 +649,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         modify_request = context.user_data.pop(pending_key, None)
 
         if not modify_request:
-            await query.edit_message_text(
-                t("mention_modification_expired", lang=user_lang)
+            await safe_edit_message(
+                query, t("mention_modification_expired", lang=user_lang)
             )
             return
 
         if action == "cancel":
-            await query.edit_message_text(
-                t("mention_modification_cancelled", lang=user_lang)
+            await safe_edit_message(
+                query, t("mention_modification_cancelled", lang=user_lang)
             )
             return
 
@@ -662,7 +665,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         if action == "write":
             # Ask user to provide modification text
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 t("mention_modification_write_prompt", lang=user_lang),
                 parse_mode="Markdown",
             )
@@ -683,8 +687,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
                 event = result.scalar_one_or_none()
                 if not event:
-                    await query.edit_message_text(
-                        t("mention_constraint_event_not_found", lang=user_lang)
+                    await safe_edit_message(
+                        query, t("mention_constraint_event_not_found", lang=user_lang)
                     )
                     return
 
@@ -754,8 +758,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
                 )
                 return
 
-        await query.edit_message_text(
-            t("mention_unknown_modification_action", lang=user_lang)
+        await safe_edit_message(
+            query, t("mention_unknown_modification_action", lang=user_lang)
         )
         return
 
