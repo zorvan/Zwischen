@@ -112,10 +112,48 @@ There is also a targeted quality script:
 ./scripts/check_quality.sh
 ```
 
+Tests needing a live PostgreSQL are marked `integration` and skip when none is
+reachable. To run only those, or to exclude them:
+
+```bash
+pytest -m integration
+pytest -m "not integration"
+```
+
 Useful references:
 
 - [telegram-bot/tests/](/home/zorvan/Work/projects/Zwischen/telegram-bot/tests)
 - [telegram-bot/scripts/check_quality.sh](/home/zorvan/Work/projects/Zwischen/telegram-bot/scripts/check_quality.sh)
+
+## Database Migrations
+
+Schema changes are managed with Alembic. Migrations run automatically at
+startup, so a normal deploy needs no manual step.
+
+```bash
+# after editing db/models.py
+alembic revision --autogenerate -m "describe the change"
+alembic upgrade head          # applied automatically on boot too
+alembic downgrade -1          # roll back one revision
+alembic history               # see what exists
+```
+
+`db/models.py` is the single source of truth. `db/schema.sql` is reference
+documentation only and is no longer applied to any database.
+
+**Adopting an existing database.** A database created before Alembic has all
+the tables but no migration history. On first boot it is *stamped* with the
+baseline revision — recorded as already-current, not re-executed — so adoption
+is a no-op that cannot touch your data. Before that first boot, confirm the
+live schema actually matches the models:
+
+```bash
+python -m scripts.check_schema_drift
+```
+
+Exit code 0 means clean. If it lists differences (likely if columns were ever
+added by hand), resolve them first: either update `db/models.py` to match
+reality, or generate a migration that brings the database in line.
 
 ## Infrastructure Notes
 

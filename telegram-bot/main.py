@@ -47,7 +47,8 @@ from bot.handlers import (
 )
 from ai.llm import LLMClient
 from bot.common.i18n import init as init_i18n
-from db.connection import create_engine, init_db, wait_for_db
+from db.connection import wait_for_db
+from db.migrate import run_migrations
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -109,18 +110,14 @@ async def check_llm_availability(logger: logging.Logger) -> None:
         await llm.close()
 
 
-async def bootstrap_database(logger: logging.Logger, db_url: str) -> None:
-    """Wait for the database, then create tables and enum types.
+async def await_database(logger: logging.Logger, db_url: str) -> None:
+    """Wait for the database to accept connections.
 
     Waiting first means a cold start alongside its database (compose, k8s)
     converges instead of crash-looping.
     """
     await wait_for_db(db_url)
     logger.info("Startup DB check: Database connection OK")
-    logger.info("Initializing database...")
-    engine = create_engine(db_url)
-    await init_db(engine)
-    logger.info("Database initialization complete")
 
 
 async def run_scheduled_tasks(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -176,7 +173,11 @@ def main():
     if settings.db_url:
         # Settings.__init__ already normalized the driver, so every consumer
         # (handlers, services, scheduler) shares this exact URL.
-        loop.run_until_complete(bootstrap_database(logger, settings.db_url))
+        loop.run_until_complete(await_database(logger, settings.db_url))
+        # Alembic drives its own event loop (db/migrations/env.py calls
+        # asyncio.run), so it runs in a worker thread. That keeps it from
+        # closing or detaching the loop that run_polling() needs afterwards.
+        loop.run_until_complete(asyncio.to_thread(run_migrations, settings.db_url))
     else:
         logger.warning("DB_URL is not set. Database-backed features are unavailable.")
 
