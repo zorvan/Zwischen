@@ -5,6 +5,9 @@ dist/
 coverage/
 .env
 .env.*
+# .env.example carries no secrets and is the documented setup path (README
+# and docker-compose both point at it), so it must be tracked.
+!.env.example
 .idea/
 .vscode/
 *.swp
