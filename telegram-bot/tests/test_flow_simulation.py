@@ -141,18 +141,18 @@ class FlowSimulator:
     # -- helpers that mirror the real handler logic -------------------------
 
     def _get_event_flow(self) -> dict[str, Any]:
-        raw = self.context.user_data.get("event_flow")
+        raw: dict[str, Any] | Any = self.context.user_data.get("event_flow")
         if not isinstance(raw, dict):
-            raw: dict[str, Any] = {"stage": "description", "data": {}}
+            raw = {"stage": "description", "data": {}}
             self.context.user_data["event_flow"] = raw
         return raw
 
     def _get_flow_data(self, event_flow: dict) -> dict[str, Any]:
-        d = event_flow.get("data")
-        if not isinstance(d, dict):
-            d: dict[str, Any] = {}
-            event_flow["data"] = d
-        return d
+        data: dict[str, Any] | Any = event_flow.get("data")
+        if not isinstance(data, dict):
+            data = {}
+            event_flow["data"] = data
+        return data
 
     # -- the core simulation (mirrors _handle_callback_common branches) -----
 

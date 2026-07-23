@@ -7,6 +7,8 @@ PRD v2: Updated for production hardening.
 import os
 from dotenv import load_dotenv
 
+from db.url import normalize_db_url
+
 
 load_dotenv()
 
@@ -18,8 +20,9 @@ class Settings:
         # Telegram
         self.telegram_token: str | None = os.environ.get("TELEGRAM_TOKEN")
 
-        # Database
-        self.db_url: str | None = os.environ.get("DB_URL")
+        # Database. Normalized here so every consumer (handlers, services,
+        # scheduler) gets an async-driver URL, not just the startup path.
+        self.db_url: str | None = normalize_db_url(os.environ.get("DB_URL"))
 
         # AI/LLM
         self.ai_endpoint: str = os.environ.get(
@@ -27,6 +30,13 @@ class Settings:
         )
         self.ai_model: str = os.environ.get("AI_MODEL", "qwen/qwen3-coder-next")
         self.ai_api_key: str = os.environ.get("AI_API_KEY", "dummy-key")
+
+        # Where PicklePersistence stores conversation state. Must point at a
+        # mounted volume in containers, otherwise in-flight event-creation
+        # flows are lost on every restart.
+        self.persistence_path: str = os.environ.get(
+            "BOT_PERSISTENCE_PATH", "bot_data.pkl"
+        )
 
         # Logging
         self.log_level: str = os.environ.get("LOG_LEVEL", "INFO")

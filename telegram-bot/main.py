@@ -5,6 +5,7 @@ PRD v3: Pure mediation through timing, framing, visibility, language, sequence, 
 """
 import asyncio
 import logging
+from pathlib import Path
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -46,7 +47,7 @@ from bot.handlers import (
 )
 from ai.llm import LLMClient
 from bot.common.i18n import init as init_i18n
-from db.connection import check_db_connection, create_engine, init_db
+from db.connection import create_engine, init_db, wait_for_db
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -108,15 +109,18 @@ async def check_llm_availability(logger: logging.Logger) -> None:
         await llm.close()
 
 
-async def check_db_availability(logger: logging.Logger, db_url: str) -> None:
-    """Check database availability on startup and log status."""
-    if not db_url.startswith("postgresql+asyncpg://"):
-        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-    is_available, message = await check_db_connection(db_url)
-    if is_available:
-        logger.info("Startup DB check: %s", message)
-    else:
-        logger.warning("Startup DB check: %s", message)
+async def bootstrap_database(logger: logging.Logger, db_url: str) -> None:
+    """Wait for the database, then create tables and enum types.
+
+    Waiting first means a cold start alongside its database (compose, k8s)
+    converges instead of crash-looping.
+    """
+    await wait_for_db(db_url)
+    logger.info("Startup DB check: Database connection OK")
+    logger.info("Initializing database...")
+    engine = create_engine(db_url)
+    await init_db(engine)
+    logger.info("Database initialization complete")
 
 
 async def run_scheduled_tasks(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -161,30 +165,27 @@ def main():
     if settings.environment == "production" and not settings.webhook_url:
         raise ValueError("WEBHOOK_URL must be set when ENVIRONMENT=production.")
 
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+    # Create the loop explicitly. asyncio.get_event_loop() with no running loop
+    # is deprecated (DeprecationWarning today, RuntimeError in future Python),
+    # and PTB needs this loop to still be the current one when run_polling()
+    # takes over below.
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
 
     loop.run_until_complete(check_llm_availability(logger))
     if settings.db_url:
-        if not settings.db_url.startswith("postgresql+asyncpg://"):
-            db_url = settings.db_url.replace(
-                "postgresql://", "postgresql+asyncpg://", 1
-            )
-        else:
-            db_url = settings.db_url
-        loop.run_until_complete(check_db_availability(logger, db_url))
-        # Initialize database schema (create tables and enum types if needed)
-        logger.info("Initializing database...")
-        engine = create_engine(db_url)
-        loop.run_until_complete(init_db(engine))
-        logger.info("Database initialization complete")
+        # Settings.__init__ already normalized the driver, so every consumer
+        # (handlers, services, scheduler) shares this exact URL.
+        loop.run_until_complete(bootstrap_database(logger, settings.db_url))
+    else:
+        logger.warning("DB_URL is not set. Database-backed features are unavailable.")
 
     # Build application with job queue for scheduled tasks
     # v3.5: Add persistence so user_data persists between updates (creation flow)
-    persistence = PicklePersistence(filepath="bot_data.pkl")
+    persistence_path = Path(settings.persistence_path)
+    persistence_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.info("Persistence file: %s", persistence_path)
+    persistence = PicklePersistence(filepath=persistence_path)
 
     application = (
         ApplicationBuilder()
@@ -400,23 +401,21 @@ def main():
         and hasattr(settings, "webhook_url")
         and settings.webhook_url
     ):
-        # Production: Use webhook with worker queue
+        # Production: Use webhook.
         logger.info("Starting in webhook mode: %s", settings.webhook_url)
-        from bot.common.webhook import setup_webhook, shutdown_webhook
+        from bot.common.webhook import setup_webhook
 
-        async def run_webhook():
-            await setup_webhook(
-                application,
-                webhook_url=settings.webhook_url,
-                webhook_port=settings.webhook_port,
-                webhook_host=settings.webhook_host,
-                webhook_secret=settings.webhook_secret,
-            )
-
-        try:
-            loop.run_until_complete(run_webhook())
-        except KeyboardInterrupt:
-            loop.run_until_complete(shutdown_webhook(application))
+        # setup_webhook blocks and owns the loop, exactly like run_polling().
+        # It must NOT be wrapped in run_until_complete: run_webhook() is a
+        # synchronous PTB call, and driving it through the loop raised
+        # TypeError before it could ever bind a port.
+        setup_webhook(
+            application,
+            webhook_url=settings.webhook_url,
+            webhook_port=settings.webhook_port,
+            webhook_host=settings.webhook_host,
+            webhook_secret=settings.webhook_secret,
+        )
     else:
         # Development: Use polling
         logger.info("Starting in polling mode")

@@ -1008,9 +1008,9 @@ async def _handle_join(
                 try:
                     await asyncio.wait_for(
                         query.answer(
-                            t("event_panel_join_already_joined", lang=user_lang),
-                            timeout=5.0,
-                        )
+                            t("event_panel_join_already_joined", lang=user_lang)
+                        ),
+                        timeout=5.0,
                     )
                 except asyncio.TimeoutError:
                     pass

@@ -76,7 +76,9 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle language selection callback."""
     query = update.callback_query
-    if not query or not query.data.startswith("lang_"):
+    # CallbackQuery.data is optional in the Bot API (game callbacks carry
+    # game_short_name instead), so it must be checked before use.
+    if not query or not query.data or not query.data.startswith("lang_"):
         return
 
     await query.answer()

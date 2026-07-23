@@ -1,23 +1,49 @@
+# Local/production stack for the coordination bot.
+#
+# Copy .env.example to .env and fill in TELEGRAM_TOKEN and AI_API_KEY.
+# Compose reads that same .env for ${...} substitution below.
+#
+# There is deliberately no "ai" service: the AI backend is Google Gemini, a
+# hosted API. The previous local `qwen/qwen2-7b-instruct` service referenced an
+# image that does not exist on Docker Hub, so `docker compose up` always failed.
+# To run a local OpenAI-compatible model instead, point AI_ENDPOINT at it.
+
 services:
   bot:
     build:
       context: .
       dockerfile: docker/Dockerfile
     environment:
-      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN}
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:?TELEGRAM_TOKEN is required}
       - DB_URL=postgresql://coord_user:coord_pass@db:5432/coord_db
-      - AI_ENDPOINT=http://ai:8080/v1/chat/completions
-      - AI_MODEL=${AI_MODEL:-qwen/qwen-2-7b-instruct}
-      - AI_API_KEY=${AI_API_KEY:-dummy-key}
+      # Must be an OpenAI-COMPATIBLE base URL; the client appends
+      # /chat/completions and /models. Gemini's compat layer lives under
+      # /v1beta/openai/ — its native ":generateContent" URL will not work.
+      - AI_ENDPOINT=${AI_ENDPOINT:-https://generativelanguage.googleapis.com/v1beta/openai/}
+      - AI_MODEL=${AI_MODEL:-gemini-flash-latest}
+      - AI_API_KEY=${AI_API_KEY:?AI_API_KEY is required}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - BOT_PERSISTENCE_PATH=/data/bot_data.pkl
     depends_on:
-      - db
-      - ai
+      db:
+        # Wait for readiness, not just container start. The bot also retries
+        # internally, but this avoids a noisy boot.
+        condition: service_healthy
     networks:
       - coordination-network
     volumes:
-      - .:/app
+      # Named volume, not a bind mount of the source tree. Bind-mounting "."
+      # shadowed the image's code with the host checkout, which made the build
+      # meaningless and dragged the host .venv and .env into the container.
+      - bot_state:/data
     restart: unless-stopped
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   db:
     image: postgres:15
@@ -25,21 +51,14 @@ services:
       - POSTGRES_USER=coord_user
       - POSTGRES_PASSWORD=coord_pass
       - POSTGRES_DB=coord_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U coord_user -d coord_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - coordination-network
-    restart: unless-stopped
-
-  ai:
-    image: qwen/qwen2-7b-instruct
-    ports:
-      - "8080:8080"
-    environment:
-      - MODEL_NAME=qwen2-7b-instruct
-      - PORT=8080
-    volumes:
-      - ai_models:/models
     networks:
       - coordination-network
     restart: unless-stopped
@@ -50,4 +69,4 @@ networks:
 
 volumes:
   postgres_data:
-  ai_models:
+  bot_state:

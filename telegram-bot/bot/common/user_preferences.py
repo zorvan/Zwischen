@@ -385,7 +385,9 @@ async def get_language_preference(
     """Get user's language preference from DB."""
     preferences = await get_user_preferences(session, telegram_user_id)
     if preferences and preferences.language_preference:
-        return preferences.language_preference
+        # str() unwraps the SQLAlchemy Column descriptor type for the checker;
+        # the loaded instance attribute is already a plain string.
+        return str(preferences.language_preference)
     return None
 
 

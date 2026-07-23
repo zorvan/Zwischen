@@ -13,5 +13,6 @@ asyncpg>=0.30,<0.31 ; python_version < "3.14"
 psycopg[binary]>=3.2,<3.3 ; python_version >= "3.14"
 
 # LLM / HTTP
-openai>=1.12,<2
+# The LLM client (ai/llm.py) speaks the OpenAI-compatible REST API over httpx
+# directly; the `openai` SDK was declared but never imported.
 httpx>=0.28,<0.29

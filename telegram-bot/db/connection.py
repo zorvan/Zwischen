@@ -3,6 +3,7 @@ Database connection module for async operations.
 PRD v2: Updated with sync engine support for migrations.
 """
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Callable, Any
@@ -15,6 +16,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy import create_engine as create_sync_engine
 from db.models import Base
+from db.url import normalize_db_url
 
 
 logger = logging.getLogger("coord_bot.db")
@@ -22,6 +24,20 @@ logger = logging.getLogger("coord_bot.db")
 # Cache engines by URL to avoid recreating them
 _engines: dict[str, AsyncEngine] = {}
 _sync_engines: dict[str, Any] = {}
+
+
+# Re-exported so callers can normalize without reaching past db.connection.
+__all__ = [
+    "create_engine",
+    "get_sync_engine",
+    "create_session",
+    "get_session",
+    "check_db_connection",
+    "normalize_db_url",
+    "wait_for_db",
+    "retry_operation",
+    "init_db",
+]
 
 
 def create_engine(db_url: str) -> AsyncEngine:
@@ -105,6 +121,42 @@ async def retry_operation(
                 type(e).__name__,
             )
             await asyncio.sleep(retry_delay * (2**attempt))
+
+
+async def wait_for_db(
+    db_url: str,
+    max_attempts: int = 30,
+    base_delay: float = 1.0,
+    max_delay: float = 10.0,
+) -> None:
+    """Block until the database accepts connections.
+
+    Containers routinely start before PostgreSQL is ready. Without this the
+    process dies on an unhandled connection error at boot and relies on the
+    orchestrator's restart loop to paper over it.
+
+    Raises the last connection error if the database never becomes reachable.
+    """
+    delay = base_delay
+    for attempt in range(1, max_attempts + 1):
+        ok, message = await check_db_connection(db_url)
+        if ok:
+            if attempt > 1:
+                logger.info("Database reachable after %d attempts", attempt)
+            return
+        if attempt == max_attempts:
+            raise RuntimeError(
+                f"Database unreachable after {max_attempts} attempts: {message}"
+            )
+        logger.warning(
+            "Database not ready (attempt %d/%d), retrying in %.1fs: %s",
+            attempt,
+            max_attempts,
+            delay,
+            message,
+        )
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, max_delay)
 
 
 async def init_db(engine: AsyncEngine) -> None:

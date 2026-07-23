@@ -12,7 +12,10 @@ import os
 import sys
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from telegram import Bot
 
 # Add parent directory to path for local imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -51,6 +54,15 @@ TEST_SUFFIX = uuid.uuid4().hex[:8]
 # ---------------------------------------------------------------------------
 # Mock Bot (no Telegram library needed)
 # ---------------------------------------------------------------------------
+
+
+def make_bot() -> "Bot":
+    """Build a MockBot typed as telegram.Bot.
+
+    The substitution is intentional (no API calls in tests); the cast states
+    that once here instead of leaving an arg-type error at every call site.
+    """
+    return cast("Bot", MockBot())
 
 
 class MockBot:
@@ -179,7 +191,7 @@ async def transition(
 async def test_full_lifecycle() -> list[str]:
     """Test the complete lifecycle: proposed -> interested -> confirmed -> locked -> completed."""
     results: list[str] = []
-    bot = MockBot()
+    bot = make_bot()
 
     print("\n=== Test: Full Lifecycle ===")
     try:
@@ -287,7 +299,7 @@ async def test_lock_rollback_bug() -> list[str]:
     that can fail.
     """
     results: list[str] = []
-    bot = MockBot()
+    bot = make_bot()
 
     print("\n=== Test: Lock Rollback Bug Reproduction ===")
 
@@ -428,7 +440,7 @@ async def test_lock_rollback_bug() -> list[str]:
 async def test_unlock_transition() -> list[str]:
     """Test locked -> confirmed (unlock) transition."""
     results: list[str] = []
-    bot = MockBot()
+    bot = make_bot()
 
     print("\n=== Test: Unlock (locked -> confirmed) ===")
     try:
@@ -488,7 +500,7 @@ async def test_state_machine_validity() -> list[str]:
     print("\n=== Test: State Machine Validity ===")
 
     # Valid transitions from each state
-    valid_transitions = {
+    valid_transitions: dict[str, list[str]] = {
         "proposed": ["interested", "cancelled"],
         "interested": ["confirmed", "cancelled"],
         "confirmed": ["locked", "proposed", "cancelled"],
@@ -527,7 +539,7 @@ async def test_state_machine_validity() -> list[str]:
 async def test_participant_finalization() -> list[str]:
     """Test that finalize_commitments correctly sets participant statuses for a locked event."""
     results: list[str] = []
-    bot = MockBot()
+    bot = make_bot()
 
     print("\n=== Test: Participant Finalization on Lock ===")
     try:
@@ -588,7 +600,7 @@ async def test_participant_finalization() -> list[str]:
 async def test_concurrent_version_conflict() -> list[str]:
     """Test that optimistic concurrency control catches concurrent modifications."""
     results: list[str] = []
-    bot = MockBot()
+    bot = make_bot()
 
     print("\n=== Test: Optimistic Concurrency Control ===")
     try:
@@ -719,7 +731,7 @@ async def test_timezone_handling_in_materialization() -> list[str]:
 
     # Test 5: Full lifecycle with aware datetimes (reproduces the original bug scenario)
     print("\n[5] Full lifecycle with timezone-aware datetimes")
-    bot = MockBot()
+    bot = make_bot()
     try:
         async with get_session(DB_URL) as session:
             data = await setup_test_data(session)
