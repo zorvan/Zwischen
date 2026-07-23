@@ -9,6 +9,7 @@ from db.connection import get_session
 from db.models import User
 from bot.common.i18n import t, SUPPORTED_LANGS, DEFAULT_LANG
 from bot.common.user_preferences import set_language_preference
+from bot.common.safe_edit import safe_edit_message
 
 
 LANGUAGES = {
@@ -85,7 +86,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     lang_code = query.data.replace("lang_", "")
     if lang_code not in SUPPORTED_LANGS:
-        await query.edit_message_text(t("language_invalid", lang="en"))
+        await safe_edit_message(query, t("language_invalid", lang="en"))
         return
 
     db_url = settings.db_url or ""
@@ -111,7 +112,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         context.user_data["language"] = lang_code
 
     lang_info = LANGUAGES[lang_code]
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t(
             "language_changed",
             lang="en",

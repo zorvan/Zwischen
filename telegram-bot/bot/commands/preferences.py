@@ -15,6 +15,7 @@ from bot.common.user_preferences import (
     get_privacy_defaults,
 )
 from bot.common.i18n import t, get_user_language
+from bot.common.safe_edit import safe_edit_message
 
 
 TIME_PREFERENCES = ["any", "morning", "afternoon", "evening", "night"]
@@ -177,8 +178,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         db_user = result.scalar_one_or_none()
 
         if not db_user:
-            await query.edit_message_text(
-                t("preferences_user_not_found", lang=user_lang)
+            await safe_edit_message(
+                query, t("preferences_user_not_found", lang=user_lang)
             )
             return
 
@@ -191,7 +192,8 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
         await session.commit()
 
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             t("preferences_saved", lang=user_lang, type=pref_type, value=pref_value),
             parse_mode="Markdown",
         )

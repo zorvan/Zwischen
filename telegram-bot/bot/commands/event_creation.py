@@ -13,7 +13,7 @@ from telegram import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
 )
-from telegram.error import BadRequest, RetryAfter
+
 from telegram.ext import ContextTypes
 
 from sqlalchemy import select
@@ -44,6 +44,7 @@ from bot.common.scheduling import find_user_event_conflict
 from db.connection import get_session
 from db.models import Event, Group, User
 from db.users import get_user_id_by_username
+from bot.common.safe_edit import safe_edit_message
 
 
 logger = logging.getLogger("coord_bot.event_creation")
@@ -1008,36 +1009,12 @@ async def private_handle_callback(
 async def _safe_edit_message(query: CallbackQuery, text: str, **kwargs) -> bool:
     """Safely edit message, returning False if content is unchanged.
 
-    Handles Telegram API rate limits (Flood Control) with retry logic.
+    Thin alias kept for this module's ~65 existing call sites. The
+    implementation now lives in bot.common.safe_edit so every handler shares
+    one definition; that version additionally tolerates deleted messages,
+    caps the flood-control wait, and never lets a failed notification raise.
     """
-    try:
-        await query.edit_message_text(text, **kwargs)
-        return True
-    except BadRequest as e:
-        if "Message is not modified" in str(e):
-            await query.answer("ℹ️ Already up to date.")
-            return False
-        raise
-    except RetryAfter as e:
-        retry_after = e.retry_after
-        logger.warning(
-            f"Flood control triggered. Waiting {retry_after}s before retry..."
-        )
-        await asyncio.sleep(retry_after)
-        try:
-            await query.edit_message_text(text, **kwargs)
-            return True
-        except RetryAfter as e2:
-            logger.error(f"RetryAfter again after {retry_after}s, giving up: {e2}")
-            await query.answer(
-                "⏳ Too many requests. Please try again in a moment.", show_alert=True
-            )
-            return False
-        except BadRequest as e2:
-            if "Message is not modified" in str(e2):
-                await query.answer("ℹ️ Already up to date.")
-                return False
-            raise
+    return await safe_edit_message(query, text, **kwargs)
 
 
 async def _handle_callback_common(

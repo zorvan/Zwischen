@@ -69,19 +69,74 @@ def test_logging_configures() -> None:
     assert setup_logging(settings) is not None
 
 
-def test_locales_are_valid_json() -> None:
-    """Translation files parse and English is the complete key set."""
+def _load_locales() -> tuple[dict, dict[str, dict]]:
+    """Return (en, {name: translations}) for every locale file."""
     import json
     from pathlib import Path
 
     locales = Path(__file__).parent / "locales"
     en = json.loads((locales / "en.json").read_text(encoding="utf-8"))
+    others = {
+        p.stem: json.loads(p.read_text(encoding="utf-8"))
+        for p in sorted(locales.glob("*.json"))
+        if p.stem != "en"
+    }
+    return en, others
+
+
+def test_locales_are_valid_json() -> None:
+    """Translation files parse and English is the complete key set."""
+    en, others = _load_locales()
     assert en, "en.json is empty"
 
-    for path in locales.glob("*.json"):
-        data = json.loads(path.read_text(encoding="utf-8"))
+    for name, data in others.items():
         extra = set(data) - set(en)
-        assert not extra, f"{path.name} has keys missing from en.json: {sorted(extra)}"
+        assert not extra, f"{name}.json has keys missing from en.json: {sorted(extra)}"
+
+
+def test_locales_are_complete() -> None:
+    """Every locale covers every English key.
+
+    Missing keys fall back to English rather than crashing, so drift is
+    invisible at runtime -- it just silently ships English to non-English
+    users. This is the only thing that catches it.
+    """
+    en, others = _load_locales()
+
+    for name, data in others.items():
+        missing = sorted(set(en) - set(data))
+        assert not missing, (
+            f"{name}.json is missing {len(missing)} keys: {missing[:10]}"
+            f"{' ...' if len(missing) > 10 else ''}"
+        )
+
+
+def test_locale_placeholders_match() -> None:
+    """Translations use exactly the placeholders the English string declares.
+
+    A translation naming a placeholder the call site never passes renders the
+    literal "{event_type}" to the user; one that drops a placeholder silently
+    omits data, or reuses the wrong one and shows a wrong number.
+    """
+    import re
+
+    en, others = _load_locales()
+    placeholders = lambda s: set(re.findall(r"{(\w+)}", s))  # noqa: E731
+
+    problems = []
+    for name, data in others.items():
+        for key, text in data.items():
+            if key not in en:
+                continue
+            expected = placeholders(en[key])
+            actual = placeholders(text)
+            if expected != actual:
+                problems.append(
+                    f"{name}.json[{key}]: expected {sorted(expected)}, "
+                    f"got {sorted(actual)}"
+                )
+
+    assert not problems, "Placeholder mismatches:\n" + "\n".join(problems)
 
 
 @pytest.mark.integration

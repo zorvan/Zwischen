@@ -17,6 +17,7 @@ from db.connection import get_session
 from config.settings import settings
 from ai.core import AICoordinationEngine
 from bot.common.confirmation import invalidate_confirmations_and_notify
+from bot.common.safe_edit import safe_edit_message
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -57,15 +58,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     try:
         event_id = int(data.replace("suggest_time_retry_", ""))
     except ValueError:
-        await query.edit_message_text("❌ Invalid event ID in callback.")
+        await safe_edit_message(query, "❌ Invalid event ID in callback.")
         return
 
     message = query.message
     if not message or isinstance(message, InaccessibleMessage):
         return
 
-    await query.edit_message_text(
-        f"🤖 *Requesting new AI time suggestion for event {event_id}...*"
+    await safe_edit_message(
+        query, f"🤖 *Requesting new AI time suggestion for event {event_id}...*"
     )
     await _send_suggestion(message, event_id)
 

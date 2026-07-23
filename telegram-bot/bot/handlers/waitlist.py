@@ -13,6 +13,7 @@ from db.connection import get_session
 from db.models import Event, User, Group
 from bot.services import WaitlistService
 from bot.common.i18n import t, get_user_language
+from bot.common.safe_edit import safe_edit_message
 
 logger = logging.getLogger("coord_bot.handlers.waitlist")
 
@@ -33,8 +34,8 @@ async def handle_accept(
         # Accept the offer
         accepted = await waitlist_service.accept_offer(event_id, telegram_user_id)
         if not accepted:
-            await query.edit_message_text(
-                "❌ This offer has expired or is no longer available."
+            await safe_edit_message(
+                query, "❌ This offer has expired or is no longer available."
             )
             return
 
@@ -44,12 +45,13 @@ async def handle_accept(
         )
         event = event_result.scalar_one_or_none()
         if not event:
-            await query.edit_message_text("✅ You're in! (Event details unavailable)")
+            await safe_edit_message(query, "✅ You're in! (Event details unavailable)")
             return
 
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             f"✅ You're in for the {event.event_type}!\n"
-            f"{event.scheduled_time.strftime('%a %d %b, %H:%M') if event.scheduled_time else 'Time TBD'}."
+            f"{event.scheduled_time.strftime('%a %d %b, %H:%M') if event.scheduled_time else 'Time TBD'}.",
         )
 
 
@@ -68,9 +70,9 @@ async def handle_decline(
 
         declined = await waitlist_service.decline_offer(event_id, telegram_user_id)
         if declined:
-            await query.edit_message_text("👍 Thanks for letting us know.")
+            await safe_edit_message(query, "👍 Thanks for letting us know.")
         else:
-            await query.edit_message_text("✅ Already handled.")
+            await safe_edit_message(query, "✅ Already handled.")
 
 
 async def handle_extend_deadline(
@@ -89,7 +91,7 @@ async def handle_extend_deadline(
         )
         event = event_result.scalar_one_or_none()
         if not event:
-            await query.edit_message_text("❌ Event not found.")
+            await safe_edit_message(query, "❌ Event not found.")
             return
 
         # Verify organizer/admin
@@ -97,8 +99,8 @@ async def handle_extend_deadline(
             event.organizer_telegram_user_id,
             event.emergency_admin_telegram_user_id,
         }:
-            await query.edit_message_text(
-                "❌ Only the organizer can extend the deadline."
+            await safe_edit_message(
+                query, "❌ Only the organizer can extend the deadline."
             )
             return
 
@@ -116,13 +118,14 @@ async def handle_extend_deadline(
             if query.from_user
             else "en"
         )
-        await query.edit_message_text(
+        await safe_edit_message(
+            query,
             t(
                 "waitlist_deadline_extended",
                 lang=user_lang,
                 type=event.event_type,
                 time=event.collapse_at.strftime("%a %d %b, %H:%M"),
-            )
+            ),
         )
 
         # Notify group with neutral state update only
@@ -163,7 +166,9 @@ async def handle_view_waitlist(
         )
         event = event_result.scalar_one_or_none()
         if not event:
-            await query.edit_message_text(t("waitlist_event_not_found", lang=user_lang))
+            await safe_edit_message(
+                query, t("waitlist_event_not_found", lang=user_lang)
+            )
             return
 
         # Verify organizer/admin
@@ -171,15 +176,15 @@ async def handle_view_waitlist(
             event.organizer_telegram_user_id,
             event.emergency_admin_telegram_user_id,
         }:
-            await query.edit_message_text(t("waitlist_only_organizer", lang=user_lang))
+            await safe_edit_message(query, t("waitlist_only_organizer", lang=user_lang))
             return
 
         waitlist_service = WaitlistService(session, context.bot)
         waitlist = await waitlist_service.get_waitlist(event_id)
 
         if not waitlist:
-            await query.edit_message_text(
-                t("waitlist_view_empty", lang=user_lang, type=event.event_type)
+            await safe_edit_message(
+                query, t("waitlist_view_empty", lang=user_lang, type=event.event_type)
             )
             return
 
@@ -194,7 +199,7 @@ async def handle_view_waitlist(
                 name = user.display_name or user.username or name
             lines.append(f"{i}. {name}")
 
-        await query.edit_message_text("\n".join(lines))
+        await safe_edit_message(query, "\n".join(lines))
 
 
 async def handle_join_waitlist(
@@ -214,12 +219,13 @@ async def handle_join_waitlist(
             position = await waitlist_service.add_to_waitlist(
                 event_id, telegram_user_id
             )
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 f"✅ You're on the waitlist for the event (position #{position}). "
-                f"You'll be notified if a spot opens."
+                f"You'll be notified if a spot opens.",
             )
         except ValueError as e:
-            await query.edit_message_text(f"❌ {str(e)}")
+            await safe_edit_message(query, f"❌ {str(e)}")
 
 
 async def handle_menu_callback(

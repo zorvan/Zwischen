@@ -23,6 +23,7 @@ from bot.common.event_notifications import send_event_modification_request_dm
 from config.settings import settings
 from db.connection import get_session
 from db.models import Event
+from bot.common.safe_edit import safe_edit_message
 
 logger = logging.getLogger("coord_bot.modify_event")
 
@@ -341,7 +342,7 @@ async def handle_modify_request_callback(
     pending = pending_root.get(f"modreq_{request_id}")
 
     if not pending:
-        await query.edit_message_text("⚠️ This modify request has expired.")
+        await safe_edit_message(query, "⚠️ This modify request has expired.")
         return
 
     admin_id = pending.get("admin_id")
@@ -363,8 +364,8 @@ async def handle_modify_request_callback(
     pending_root.pop(f"modreq_{request_id}", None)
 
     if decision == "reject":
-        await query.edit_message_text(
-            t("modify_event_rejected", lang=user_lang, event_id=event_id)
+        await safe_edit_message(
+            query, t("modify_event_rejected", lang=user_lang, event_id=event_id)
         )
         # Notify requester of rejection
         if requester_id:
@@ -396,20 +397,26 @@ async def handle_modify_request_callback(
             )
         )
         if not is_visible:
-            await query.edit_message_text(
-                t("error_event_not_found", lang=user_lang)
-                if not error_msg
-                else t("error_event_not_visible", lang=user_lang, error_msg=error_msg)
+            await safe_edit_message(
+                query,
+                (
+                    t("error_event_not_found", lang=user_lang)
+                    if not error_msg
+                    else t(
+                        "error_event_not_visible", lang=user_lang, error_msg=error_msg
+                    )
+                ),
             )
             return
         if event.state in {"locked", "completed", "cancelled"}:
-            await query.edit_message_text(
+            await safe_edit_message(
+                query,
                 t(
                     "modify_event_terminal_state",
                     lang=user_lang,
                     event_id=event_id,
                     state=event.state,
-                )
+                ),
             )
             return
 
@@ -430,8 +437,8 @@ async def handle_modify_request_callback(
                 f"LLM patch: {patch}. "
                 f"Current draft: {_build_event_draft(event)}"
             )
-            await query.edit_message_text(
-                t("modify_event_no_inferred_changes", lang=user_lang)
+            await safe_edit_message(
+                query, t("modify_event_no_inferred_changes", lang=user_lang)
             )
             return
 
@@ -447,14 +454,15 @@ async def handle_modify_request_callback(
         )
         await session.commit()
 
-    await query.edit_message_text(
+    await safe_edit_message(
+        query,
         t(
             "modify_event_approved",
             lang=user_lang,
             event_id=event_id,
             fields=", ".join(changed_fields),
             count=reconfirm_needed,
-        )
+        ),
     )
 
     # Notify requester of approval

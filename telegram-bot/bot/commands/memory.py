@@ -18,6 +18,7 @@ from db.models import Event, EventMemory
 from bot.services.event_memory_service import EventMemoryService
 from bot.common.weekly_digest import WeeklyDigestService
 from config.logging import set_correlation_context, clear_correlation_context
+from bot.common.safe_edit import safe_edit_message
 
 logger = logging.getLogger("coord_bot.commands.memory")
 
@@ -414,7 +415,7 @@ async def handle_digest_callback(
         group = result.scalar_one_or_none()
 
         if not group:
-            await query.edit_message_text("This group is not registered yet.")
+            await safe_edit_message(query, "This group is not registered yet.")
             return
 
         if action == "events":
@@ -430,7 +431,7 @@ async def handle_digest_callback(
             events = result.scalars().all()
 
             if not events:
-                await query.edit_message_text("No events found for this group.")
+                await safe_edit_message(query, "No events found for this group.")
                 return
 
             response = "📅 <b>Recent Events</b>\n\n"
@@ -443,7 +444,7 @@ async def handle_digest_callback(
                 )
                 response += f"• {event.event_type} • {time_str} [{status}]\n"
 
-            await query.edit_message_text(response, parse_mode="HTML")
+            await safe_edit_message(query, response, parse_mode="HTML")
 
         elif action == "memories":
             # Show all memories
@@ -457,7 +458,7 @@ async def handle_digest_callback(
             memories = result.scalars().all()
 
             if not memories:
-                await query.edit_message_text("No memories found for this group.")
+                await safe_edit_message(query, "No memories found for this group.")
                 return
 
             response = "📿 <b>Recent Memories</b>\n\n"
@@ -473,7 +474,7 @@ async def handle_digest_callback(
                 fragment_count = len(memory.fragments) if memory.fragments else 0
                 response += f"• {event_title} ({fragment_count} fragments)\n"
 
-            await query.edit_message_text(response, parse_mode="HTML")
+            await safe_edit_message(query, response, parse_mode="HTML")
 
         else:
-            await query.edit_message_text("Unknown action.")
+            await safe_edit_message(query, "Unknown action.")
