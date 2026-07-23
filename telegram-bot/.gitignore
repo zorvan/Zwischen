@@ -7,7 +7,7 @@ dump*.sql
 # it is rewritten by the running bot, so tracking it keeps the tree dirty and
 # commits real user data.
 bot_data.pkl
-*.pkl
+**/*.pkl
 
 # Environment
 .env

@@ -138,8 +138,11 @@ alembic downgrade -1          # roll back one revision
 alembic history               # see what exists
 ```
 
-`db/models.py` is the single source of truth. `db/schema.sql` is reference
-documentation only and is no longer applied to any database.
+`db/models.py` is the single source of truth, and the Alembic revisions are the
+authoritative DDL. The old `db/schema.sql` was deleted: it had drifted from the
+models (it carried 23 indexes and 9 `jsonb` columns they never declared), and
+keeping a second, non-authoritative schema file is what allowed that to happen
+unnoticed.
 
 **Adopting an existing database.** A database created before Alembic has all
 the tables but no migration history. On first boot it is *stamped* with the

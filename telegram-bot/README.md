@@ -319,10 +319,7 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edit .env with your Telegram token and database URL
 
-# Run database migrations
-PGPASSWORD=coord_pass psql -h localhost -U coord_user -d coord_db -f db/schema.sql
-
-# Start the bot
+# Start the bot (migrations run automatically at startup)
 python main.py
 ```
 
@@ -773,9 +770,8 @@ Use `postgresql+asyncpg://` on Python `<3.14` or `postgresql+psycopg://` on Pyth
 **Option A: Using Docker (Recommended)**
 
 ```bash
-docker-compose up -d postgres
-sleep 5
-docker-compose exec postgres psql -U coord_user -d coord_db -f /app/db/schema.sql
+docker compose up -d db
+# Schema is created by Alembic when the bot starts; no manual step needed.
 ```
 
 **Option B: Manual PostgreSQL**
@@ -785,8 +781,8 @@ docker-compose exec postgres psql -U coord_user -d coord_db -f /app/db/schema.sq
 sudo -u postgres psql -c "CREATE USER coord_user WITH PASSWORD 'coord_pass';"
 sudo -u postgres psql -c "CREATE DATABASE coord_db OWNER coord_user;"
 
-# Apply schema
-PGPASSWORD=coord_pass psql -h localhost -U coord_user -d coord_db -f db/schema.sql
+# Schema is created by Alembic migrations when the bot starts.
+# To apply them without starting the bot:  alembic upgrade head
 ```
 
 ### 4) Run bot

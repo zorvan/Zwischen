@@ -199,8 +199,16 @@ def check_deprecated_commands() -> None:
 # ── 4. Schema compliance ─────────────────────────────────────────────
 def check_schema_compliance() -> None:
     """CHECK constraints on semantic strings must be removed."""
-    with open(ROOT / "db" / "schema.sql") as f:
-        content = f.read()
+    # db/schema.sql was deleted once Alembic became the schema source. The
+    # migrations are now the authoritative DDL, so scan those instead.
+    versions = ROOT / "db" / "migrations" / "versions"
+    if not versions.is_dir():
+        check("schema source present", False, "db/migrations/versions is missing")
+        return
+
+    content = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(versions.glob("*.py"))
+    )
 
     # These CHECK constraints should NOT exist
     forbidden_checks = [
