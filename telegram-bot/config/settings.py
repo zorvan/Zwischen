@@ -24,6 +24,20 @@ class Settings:
         # scheduler) gets an async-driver URL, not just the startup path.
         self.db_url: str | None = normalize_db_url(os.environ.get("DB_URL"))
 
+        # Connection pool. Sized *per process*: with N app processes the
+        # database sees N * (pool_size + max_overflow) connections at peak, so
+        # these must come down as the instance count goes up rather than being
+        # hardcoded. PostgreSQL's own max_connections is the ceiling.
+        self.db_pool_size: int = int(os.environ.get("DB_POOL_SIZE", "10"))
+        self.db_max_overflow: int = int(os.environ.get("DB_MAX_OVERFLOW", "20"))
+        # Recycle below the shortest idle timeout in the path (PgBouncer,
+        # load balancers, and cloud proxies all silently drop idle sockets).
+        # Without this the pool hands out connections the server already closed.
+        self.db_pool_recycle: int = int(os.environ.get("DB_POOL_RECYCLE", "1800"))
+        # Fail fast instead of stacking requests on an exhausted pool.
+        self.db_pool_timeout: int = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
+        self.db_echo: bool = os.environ.get("DB_ECHO", "false").lower() == "true"
+
         # AI/LLM
         self.ai_endpoint: str = os.environ.get(
             "AI_ENDPOINT", "http://127.0.0.1:8080/v1/"

@@ -50,6 +50,17 @@ DB_URL = os.environ.get(
     ),
 )
 
+
+@pytest.fixture(autouse=True)
+def _use_test_database(test_db_url, monkeypatch):
+    """Point every scenario at the migrated throwaway database.
+
+    Requesting `test_db_url` is also what arms the truncate-between-tests
+    fixture in conftest, so scenarios stop inheriting each other's rows.
+    """
+    monkeypatch.setattr(sys.modules[__name__], "DB_URL", test_db_url)
+
+
 # Synthetic identity space. These must never be real Telegram accounts: this
 # file is public, and the fixtures previously hardcoded a real user's name,
 # username and account IDs.
@@ -239,18 +250,6 @@ async def transition(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_full_lifecycle() -> list[str]:
     """Test the complete lifecycle: proposed -> interested -> confirmed -> locked -> completed."""
     await _require_database()
@@ -316,12 +315,16 @@ async def test_full_lifecycle() -> list[str]:
             )
 
             # Verify the transition was recorded in the audit trail
+            # limit(1)/first(), not scalar_one_or_none(): by this step the
+            # event has accumulated three transitions, and asking for "one or
+            # none" from the full audit trail raises MultipleResultsFound.
             result = await session.execute(
                 select(EventStateTransition)
                 .where(EventStateTransition.event_id == event_id)
                 .order_by(EventStateTransition.transition_id.desc())
+                .limit(1)
             )
-            last_transition = result.scalar_one_or_none()
+            last_transition = result.scalars().first()
             if last_transition:
                 trail_msg = (
                     f"{last_transition.from_state} -> {last_transition.to_state}"
@@ -355,18 +358,6 @@ async def test_full_lifecycle() -> list[str]:
     return results
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_lock_rollback_bug() -> list[str]:
     """
     Reproduce the exact bug: lifecycle transition succeeds but commit happens
@@ -401,10 +392,13 @@ async def test_lock_rollback_bug() -> list[str]:
             event, _ = await transition(
                 session, lifecycle, event_id, "confirmed", organizer_id
             )
+            # Both participants, not just the organizer: setup_test_data sets
+            # min_participants=2, so a single confirmed attendee is rejected by
+            # the threshold check before the lock path under test is reached.
             await add_participants(
                 session,
                 event_id,
-                [organizer_id],
+                [organizer_id, data["participant_telegram_id"]],
                 status=ParticipantStatus.confirmed,
             )
             await session.commit()
@@ -471,10 +465,12 @@ async def test_lock_rollback_bug() -> list[str]:
             event, _ = await transition(
                 session, lifecycle, event_id, "confirmed", organizer_id
             )
+            # min_participants=2, so both attendees must be confirmed for the
+            # lock below to be reachable at all.
             await add_participants(
                 session,
                 event_id,
-                [organizer_id],
+                [organizer_id, data["participant_telegram_id"]],
                 status=ParticipantStatus.confirmed,
             )
             await session.commit()
@@ -516,18 +512,6 @@ async def test_lock_rollback_bug() -> list[str]:
     return results
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_unlock_transition() -> list[str]:
     """Test locked -> confirmed (unlock) transition."""
     await _require_database()
@@ -554,10 +538,12 @@ async def test_unlock_transition() -> list[str]:
             event, _ = await transition(
                 session, lifecycle, event_id, "confirmed", organizer_id
             )
+            # min_participants=2, so both attendees must be confirmed for the
+            # lock below to be reachable at all.
             await add_participants(
                 session,
                 event_id,
-                [organizer_id],
+                [organizer_id, data["participant_telegram_id"]],
                 status=ParticipantStatus.confirmed,
             )
             await session.commit()
@@ -634,18 +620,6 @@ async def test_state_machine_validity() -> list[str]:
     return results
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_participant_finalization() -> list[str]:
     """Test that finalize_commitments correctly sets participant statuses for a locked event."""
     await _require_database()
@@ -709,18 +683,6 @@ async def test_participant_finalization() -> list[str]:
     return results
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_concurrent_version_conflict() -> list[str]:
     """Test that optimistic concurrency control catches concurrent modifications."""
     await _require_database()
@@ -781,18 +743,6 @@ async def test_concurrent_version_conflict() -> list[str]:
     return results
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_timezone_handling_in_materialization() -> list[str]:
     """
     Regression test for the timezone subtraction bug:
@@ -899,10 +849,12 @@ async def test_timezone_handling_in_materialization() -> list[str]:
             event, _ = await transition(
                 session, lifecycle, event_id, "confirmed", organizer_id
             )
+            # min_participants=2, so both attendees must be confirmed for the
+            # lock below to be reachable at all.
             await add_participants(
                 session,
                 event_id,
-                [organizer_id],
+                [organizer_id, data["participant_telegram_id"]],
                 status=ParticipantStatus.confirmed,
             )
             await session.commit()

@@ -7,6 +7,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager
 from typing import Callable, Any
+from weakref import WeakKeyDictionary
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
@@ -21,8 +22,24 @@ from db.url import normalize_db_url
 
 logger = logging.getLogger("coord_bot.db")
 
-# Cache engines by URL to avoid recreating them
-_engines: dict[str, AsyncEngine] = {}
+# Async engines are cached per (event loop, URL), never by URL alone.
+#
+# An asyncpg connection pool binds to the event loop that created it. Caching
+# by URL alone hands an engine built on loop A to a caller running on loop B,
+# which fails with "got Future attached to a different loop" -- and it fails
+# at *query* time, far from the cause. That is why the lifecycle tests could
+# never run: pytest-asyncio gives each test its own loop.
+#
+# The same trap is waiting in production for anything that owns its own loop:
+# a Gunicorn/Uvicorn worker restart, a scheduler thread, or Alembic (which
+# calls asyncio.run()). Keying on the loop makes the cache correct by
+# construction instead of relying on every caller to know the rule.
+#
+# WeakKeyDictionary so a finished loop's engines become collectable with it
+# rather than pinning pools for the process lifetime.
+_engines: "WeakKeyDictionary[asyncio.AbstractEventLoop, dict[str, AsyncEngine]]" = (
+    WeakKeyDictionary()
+)
 _sync_engines: dict[str, Any] = {}
 
 
@@ -37,16 +54,69 @@ __all__ = [
     "wait_for_db",
     "retry_operation",
     "init_db",
+    "dispose_engines",
 ]
 
 
+def _engine_kwargs() -> dict[str, Any]:
+    """Pool configuration, read at call time so tests can override env."""
+    from config.settings import settings
+
+    return {
+        "echo": settings.db_echo,
+        "pool_pre_ping": True,
+        "pool_size": settings.db_pool_size,
+        "max_overflow": settings.db_max_overflow,
+        "pool_recycle": settings.db_pool_recycle,
+        "pool_timeout": settings.db_pool_timeout,
+    }
+
+
 def create_engine(db_url: str) -> AsyncEngine:
-    """Create or retrieve cached async database engine."""
-    if db_url not in _engines:
-        _engines[db_url] = create_async_engine(
-            db_url, echo=False, pool_pre_ping=True, pool_size=10, max_overflow=20
-        )
-    return _engines[db_url]
+    """Create or retrieve the async engine for this URL on the running loop.
+
+    Must be called from within a running event loop. The engine is scoped to
+    that loop; see the note on ``_engines`` for why URL-only caching is unsafe.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop: the caller is outside async context (startup
+        # scripts, sync tooling). Build an uncached engine so we never seed
+        # the cache with an engine bound to a loop that is about to be
+        # replaced -- that is exactly how the stale-binding bug propagates.
+        logger.debug("create_engine() called with no running loop; not caching")
+        return create_async_engine(db_url, **_engine_kwargs())
+
+    per_loop = _engines.get(loop)
+    if per_loop is None:
+        per_loop = {}
+        _engines[loop] = per_loop
+
+    if db_url not in per_loop:
+        per_loop[db_url] = create_async_engine(db_url, **_engine_kwargs())
+    return per_loop[db_url]
+
+
+async def dispose_engines() -> None:
+    """Dispose every engine cached for the running loop.
+
+    Call on shutdown so connections are returned to PostgreSQL promptly
+    instead of lingering until the server's own idle timeout -- which matters
+    when many instances cycle at once during a rolling deploy.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+    per_loop = _engines.pop(loop, None)
+    if not per_loop:
+        return
+    for engine in per_loop.values():
+        try:
+            await engine.dispose()
+        except Exception:  # shutdown must not raise
+            logger.debug("Engine dispose failed", exc_info=True)
 
 
 def get_sync_engine(db_url: str) -> Any:
