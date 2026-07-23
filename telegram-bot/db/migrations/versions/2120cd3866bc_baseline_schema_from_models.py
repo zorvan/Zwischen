@@ -411,3 +411,11 @@ def downgrade() -> None:
     op.drop_table("users")
     op.drop_table("groups")
     # ### end Alembic commands ###
+
+    # Dropping the tables leaves the enum types behind, because Alembic only
+    # emits DROP TYPE for enums it created via a standalone sa.Enum. Without
+    # this, `downgrade base` followed by `upgrade head` fails on
+    # "type participant_status already exists" -- which makes the full
+    # migration chain untestable from scratch.
+    op.execute("DROP TYPE IF EXISTS participant_status")
+    op.execute("DROP TYPE IF EXISTS participant_role")
