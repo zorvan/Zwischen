@@ -9,7 +9,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-LOCALES_DIR = Path(__file__).parent.parent.parent / "locales"
+# Telegram keeps a transport renderer catalog so its existing output remains
+# byte-identical while the shared locale catalog contains plain text.
+LOCALES_DIR = Path(__file__).parent.parent / "telegram_locales"
 
 # Supported languages
 SUPPORTED_LANGS = {"en", "fa"}

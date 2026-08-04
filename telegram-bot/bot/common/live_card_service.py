@@ -88,7 +88,7 @@ class LiveCardService:
                 await self.bot.edit_message_text(
                     text=text,
                     chat_id=existing.chat_id,
-                    message_id=existing.message_id,
+                    message_id=int(existing.message_id),
                     reply_markup=reply_markup,
                     parse_mode=parse_mode,
                 )
@@ -110,8 +110,9 @@ class LiveCardService:
 
             card = EventLiveCard(
                 event_id=event_id,
-                message_id=message.message_id,
-                chat_id=chat_id,
+                transport="telegram",
+                message_id=str(message.message_id),
+                channel_id=str(chat_id),
                 participant_count=0,
                 confirmed_count=0,
                 reaction_counts={},
@@ -186,7 +187,7 @@ class LiveCardService:
             await self.bot.edit_message_text(
                 text=text or "📅 Event",
                 chat_id=card.chat_id,
-                message_id=card.message_id,
+                message_id=int(card.message_id),
                 reply_markup=reply_markup,
                 parse_mode=parse_mode,
             )
@@ -217,7 +218,7 @@ class LiveCardService:
         try:
             await self.bot.delete_message(
                 chat_id=card.chat_id,
-                message_id=card.message_id,
+                message_id=int(card.message_id),
             )
         except Exception:
             # Message may already be deleted

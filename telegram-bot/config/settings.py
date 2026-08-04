@@ -80,5 +80,14 @@ class Settings:
         self.webhook_secret: str | None = os.environ.get("WEBHOOK_SECRET")
         self.webhook_host: str = os.environ.get("WEBHOOK_HOST", "0.0.0.0")
 
+        # HTTP API authentication. Production deliberately has no usable
+        # default: deployments must provide an independently generated key.
+        self.auth_secret: str = os.environ.get("AUTH_SECRET", "development-only")
+        self.access_token_ttl: int = int(os.environ.get("ACCESS_TOKEN_TTL", "900"))
+        self.refresh_token_ttl: int = int(
+            os.environ.get("REFRESH_TOKEN_TTL", str(30 * 24 * 60 * 60))
+        )
+        self.auth_rate_limit: int = int(os.environ.get("AUTH_RATE_LIMIT", "10"))
+
 
 settings = Settings()

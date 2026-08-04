@@ -171,6 +171,22 @@ class SchedulerService:
 
             return deleted_count
 
+    async def decay_retained_data(self) -> dict[str, int]:
+        """Run the retention policy once cluster-wide under an advisory lock."""
+        async with get_session(self.db_url) as session:
+            # Transaction-scoped lock: another scheduler instance simply skips.
+            acquired = await session.scalar(
+                text("SELECT pg_try_advisory_xact_lock(9472361)")
+            )
+            if not acquired:
+                return {}
+            from bot.services.retention_service import RetentionService
+
+            counts = await RetentionService(session).decay()
+            await session.commit()
+            logger.info("Applied retention policy", extra={"retention": counts})
+            return counts
+
     async def check_collapse_deadlines(self) -> int:
         """
         Auto-cancel events that passed collapse_at without meeting threshold.
@@ -409,6 +425,7 @@ async def _run_scheduled_tasks_unlocked(bot: Bot, db_url: str) -> None:
             pruned = await scheduler.prune_old_logs()
             if pruned > 0:
                 logger.info("Pruned %d old logs", pruned)
+            await scheduler.decay_retained_data()
             digests = await scheduler.send_weekly_digests()
             if digests > 0:
                 logger.info("Sent %d weekly digests", digests)

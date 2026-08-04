@@ -23,7 +23,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, synonym
 import enum
 
 # The live schema uses jsonb, not json. jsonb is stored decomposed, supports
@@ -50,6 +50,7 @@ class AuthProvider(str, enum.Enum):
     email = "email"
     google = "google"
     apple = "apple"
+    wallet_ton = "wallet:ton"
 
 
 class User(Base):
@@ -762,14 +763,20 @@ class EventLiveCard(Base):
     __tablename__ = "event_live_cards"
 
     id = Column(BigInteger, primary_key=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id", "transport", "channel_id", name="uq_live_card_transport"
+        ),
+    )
+
     event_id = Column(
         BigInteger,
         ForeignKey("events.event_id", ondelete="CASCADE"),
-        unique=True,
         nullable=False,
     )
-    message_id = Column(BigInteger, nullable=False)
-    chat_id = Column(BigInteger, nullable=False)
+    transport = Column(String(32), nullable=False, default="telegram")
+    channel_id = Column(String(255), nullable=False)
+    message_id = Column(String(255), nullable=False)
     participant_count = Column(Integer, default=0)
     confirmed_count = Column(Integer, default=0)
     reaction_counts = Column(JSON, default=dict)
@@ -778,6 +785,9 @@ class EventLiveCard(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+    # Constructor/read compatibility for Telegram code during migration.
+    chat_id = synonym("channel_id")
 
 
 class GroupSettings(Base):
