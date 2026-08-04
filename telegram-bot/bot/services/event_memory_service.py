@@ -18,9 +18,8 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from telegram import Bot
-
 from bot.common.i18n import t
+from core.notifier import Message, Notifier, Recipient
 from db.models import Event, EventMemory, EventParticipant, ParticipantStatus
 
 logger = logging.getLogger("coord_bot.services.memory")
@@ -37,8 +36,12 @@ class EventMemoryService:
     - Bot as facilitator of meaning-formation, not author
     """
 
-    def __init__(self, bot: Bot, session: AsyncSession):
-        self.bot = bot
+    def __init__(self, notifier: object, session: AsyncSession):
+        if not isinstance(notifier, Notifier):
+            from bot.common.telegram_notifier import TelegramNotifier
+
+            notifier = TelegramNotifier(notifier, session)
+        self.notifier = notifier
         self.session = session
 
     async def start_memory_collection(self, event: Event) -> None:
@@ -104,13 +107,13 @@ class EventMemoryService:
               Explicitly holds space for difficulty: "something that didn't
               quite go as planned".
         """
-        # Use telegram_user_id directly from participant (no User table lookup needed)
-        chat_id = participant.telegram_user_id
+        # Use user_id directly from participant (no User table lookup needed)
+        user_id = participant.user_id
 
-        if not chat_id:
+        if not user_id:
             logger.warning(
-                "Cannot send memory request - no telegram_user_id for participant %s",
-                participant.telegram_user_id,
+                "Cannot send memory request - no user_id for participant %s",
+                participant.user_id,
             )
             return
 
@@ -133,19 +136,11 @@ class EventMemoryService:
             # No prior fragment — reflexive prompt without lineage door
             message = t("memory_request", lang="en", event_name=event_name)
 
-        try:
-            await self.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                # No parse_mode — plain text to avoid issues with user-contributed
-                # fragments containing HTML special characters
-            )
-            logger.info(
-                "Sent memory request",
-                extra={"event_id": event.event_id, "chat_id": chat_id},
-            )
-        except Exception as e:
-            logger.error("Failed to send memory request to chat %s: %s", chat_id, e)
+        await self.notifier.send(Recipient.user(user_id), Message(message))
+        logger.info(
+            "Sent memory request",
+            extra={"event_id": event.event_id, "user_id": user_id},
+        )
 
     async def collect_memory_fragment(
         self,

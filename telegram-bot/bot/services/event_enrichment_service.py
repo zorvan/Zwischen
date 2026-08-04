@@ -76,7 +76,7 @@ class EventEnrichmentService:
     async def add_idea(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
         content: str,
     ) -> EventEnrichment:
         """
@@ -87,7 +87,7 @@ class EventEnrichmentService:
 
         Args:
             event_id: Event being enriched
-            telegram_user_id: User contributing the idea
+            user_id: User contributing the idea
             content: Idea text (max 300 chars)
 
         Returns:
@@ -102,7 +102,7 @@ class EventEnrichmentService:
         # Create enrichment
         enrichment = EventEnrichment(
             event_id=event_id,
-            telegram_user_id=telegram_user_id,
+            user_id=user_id,
             enrichment_type="idea",
             content=content[:MAX_IDEA_LENGTH].strip(),
             is_public=False,  # Ideas stay private until event locks
@@ -116,7 +116,7 @@ class EventEnrichmentService:
     async def add_hashtag(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
         hashtag: str,
     ) -> EventEnrichment:
         """
@@ -127,7 +127,7 @@ class EventEnrichmentService:
 
         Args:
             event_id: Event being enriched
-            telegram_user_id: User contributing the hashtag
+            user_id: User contributing the hashtag
             hashtag: Hashtag text (will be normalized)
 
         Returns:
@@ -137,7 +137,7 @@ class EventEnrichmentService:
             HashtagLimitError: If user already has 3 hashtags for this event
         """
         # Check per-user limit
-        current_count = await self._count_user_hashtags(event_id, telegram_user_id)
+        current_count = await self._count_user_hashtags(event_id, user_id)
         if current_count >= MAX_HASHTAGS_PER_USER:
             raise HashtagLimitError(
                 f"Maximum {MAX_HASHTAGS_PER_USER} hashtags per event. "
@@ -155,7 +155,7 @@ class EventEnrichmentService:
         # Public visibility is determined by _update_hashtag_visibility
         enrichment = EventEnrichment(
             event_id=event_id,
-            telegram_user_id=telegram_user_id,
+            user_id=user_id,
             enrichment_type="hashtag",
             content=normalized,
             is_public=existing_count
@@ -174,7 +174,7 @@ class EventEnrichmentService:
     async def add_memory(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
         content: str,
     ) -> EventEnrichment:
         """
@@ -185,7 +185,7 @@ class EventEnrichmentService:
 
         Args:
             event_id: Completed event
-            telegram_user_id: User contributing the memory
+            user_id: User contributing the memory
             content: Memory text (max 200 words)
 
         Returns:
@@ -200,7 +200,7 @@ class EventEnrichmentService:
         # Create enrichment
         enrichment = EventEnrichment(
             event_id=event_id,
-            telegram_user_id=telegram_user_id,
+            user_id=user_id,
             enrichment_type="memory",
             content=content.strip(),
             is_public=False,  # Memories stay private until mosaic
@@ -266,7 +266,7 @@ class EventEnrichmentService:
     async def get_user_contributions(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> List[EventEnrichment]:
         """
         Get all contributions from a specific user for an event.
@@ -275,7 +275,7 @@ class EventEnrichmentService:
 
         Args:
             event_id: Event to query
-            telegram_user_id: User to look up
+            user_id: User to look up
 
         Returns:
             List of user's EventEnrichment records
@@ -284,7 +284,7 @@ class EventEnrichmentService:
             select(EventEnrichment)
             .where(
                 EventEnrichment.event_id == event_id,
-                EventEnrichment.telegram_user_id == telegram_user_id,
+                EventEnrichment.user_id == user_id,
             )
             .order_by(EventEnrichment.created_at)
         )
@@ -408,13 +408,13 @@ class EventEnrichmentService:
     async def _count_user_hashtags(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> int:
         """Count how many hashtags a user has contributed to an event."""
         result = await self.session.execute(
             select(func.count(EventEnrichment.enrichment_id)).where(
                 EventEnrichment.event_id == event_id,
-                EventEnrichment.telegram_user_id == telegram_user_id,
+                EventEnrichment.user_id == user_id,
                 EventEnrichment.enrichment_type == "hashtag",
             )
         )
@@ -427,7 +427,7 @@ class EventEnrichmentService:
     ) -> int:
         """Count unique users who have contributed this exact hashtag."""
         result = await self.session.execute(
-            select(func.count(func.distinct(EventEnrichment.telegram_user_id))).where(
+            select(func.count(func.distinct(EventEnrichment.user_id))).where(
                 EventEnrichment.event_id == event_id,
                 EventEnrichment.enrichment_type == "hashtag",
                 EventEnrichment.content == hashtag,

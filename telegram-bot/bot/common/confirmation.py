@@ -26,9 +26,7 @@ async def invalidate_confirmations_and_notify(
         for participant in _active_participants(event)
         if participant.status == ParticipantStatus.confirmed
     ]
-    confirmed_ids = [
-        int(participant.telegram_user_id) for participant in confirmed_participants
-    ]
+    confirmed_ids = [int(participant.user_id) for participant in confirmed_participants]
     if not confirmed_ids:
         return 0
 
@@ -60,7 +58,7 @@ async def notify_attendees_of_modification(
     reason: str,
 ) -> int:
     """Notify all active attendees of event modification."""
-    active_ids = [int(p.telegram_user_id) for p in _active_participants(event)]
+    active_ids = [int(p.user_id) for p in _active_participants(event)]
     if not active_ids:
         return 0
 

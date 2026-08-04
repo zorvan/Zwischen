@@ -9,8 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Optional, Tuple
 from sqlalchemy.ext.asyncio import AsyncSession
-from telegram import Bot
-
+from core.notifier import Notifier
 from db.models import Event, EventParticipant, ParticipantStatus
 from bot.services import (
     EventStateTransitionService,
@@ -33,17 +32,23 @@ class EventLifecycleService:
     - Memory collection triggers (via EventMemoryService)
     """
 
-    def __init__(self, bot: Bot, session: AsyncSession):
-        self.bot = bot
+    def __init__(self, notifier: object, session: AsyncSession):
+        if not isinstance(notifier, Notifier):
+            from bot.common.telegram_notifier import TelegramNotifier
+
+            notifier = TelegramNotifier(notifier, session)
+        self.notifier = notifier
         self.session = session
         self.transition_service = EventStateTransitionService(session)
         self.materialization_service = (
-            EventMaterializationService(bot, session)
+            EventMaterializationService(notifier, session)
             if settings.enable_materialization
             else None
         )
         self.memory_service = (
-            EventMemoryService(bot, session) if settings.enable_memory_layer else None
+            EventMemoryService(notifier, session)
+            if settings.enable_memory_layer
+            else None
         )
         self.stats_service = GroupEventTypeStatsService(session)
 
@@ -51,7 +56,7 @@ class EventLifecycleService:
         self,
         event_id: int,
         target_state: str,
-        actor_telegram_user_id: int,
+        actor_user_id: int,
         source: str,
         reason: Optional[str] = None,
         expected_version: Optional[int] = None,
@@ -65,7 +70,7 @@ class EventLifecycleService:
             "[LIFECYCLE] State transition starting | event_id=%s target_state=%s actor=%s source=%s",
             event_id,
             target_state,
-            actor_telegram_user_id,
+            actor_user_id,
             source,
         )
 
@@ -73,7 +78,7 @@ class EventLifecycleService:
         event, transitioned = await self.transition_service.transition(
             event_id=event_id,
             target_state=target_state,
-            actor_telegram_user_id=actor_telegram_user_id,
+            actor_user_id=actor_user_id,
             source=source,
             reason=reason,
             expected_version=expected_version,
@@ -95,9 +100,7 @@ class EventLifecycleService:
         )
 
         # Trigger lifecycle events based on target state
-        await self._trigger_lifecycle_events(
-            event, target_state, actor_telegram_user_id
-        )
+        await self._trigger_lifecycle_events(event, target_state, actor_user_id)
 
         logger.info(
             "[LIFECYCLE] Lifecycle events completed | event_id=%s state=%s",
@@ -111,7 +114,7 @@ class EventLifecycleService:
         self,
         event: Event,
         target_state: str,
-        actor_telegram_user_id: int,
+        actor_user_id: int,
     ) -> None:
         """Trigger appropriate lifecycle events for the new state."""
         logger.info(
@@ -206,7 +209,7 @@ class EventLifecycleService:
         from sqlalchemy.sql import func
 
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event_id,
                 EventParticipant.status.in_(
                     [

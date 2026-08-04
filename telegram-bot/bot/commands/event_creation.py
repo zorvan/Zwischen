@@ -772,24 +772,21 @@ async def start_event_flow(
                 group = Group(
                     telegram_group_id=chat_id,
                     group_name=chat_title,
-                    member_list=[telegram_user_id] if telegram_user_id else [],
                 )
                 session.add(group)
-                await session.commit()
-                await session.refresh(group)
+                await session.flush()
             else:
-                changed = False
                 if chat_title and group.group_name != chat_title:
                     group.group_name = chat_title
-                    changed = True
+            if telegram_user_id:
+                from bot.services.membership_service import MembershipService
+                from db.identity import resolve_telegram_user
 
-                current_members = group.member_list or []
-                if telegram_user_id and telegram_user_id not in current_members:
-                    group.member_list = [*current_members, telegram_user_id]
-                    changed = True
-
-                if changed:
-                    await session.commit()
+                resolved = await resolve_telegram_user(session, telegram_user_id)
+                await MembershipService(session).add_member(
+                    group.group_id, resolved.user_id
+                )
+            await session.commit()
 
     if context.user_data is None:
         await message.reply_text("ℹ️ User session data is unavailable.")
@@ -1932,9 +1929,13 @@ async def finalize_event(
         commit_by = compute_commit_by_time(candidate_time)
         duration_minutes = int(data.get("duration_minutes", 120))
         creator_id = int(data.get("creator", query.from_user.id))
+        from db.identity import resolve_telegram_user
+
+        creator = await resolve_telegram_user(session, creator_id)
+        creator_user_id = creator.user_id
         conflict = await find_user_event_conflict(
             session=session,
-            telegram_user_id=creator_id,
+            telegram_user_id=creator_user_id,
             start_time=candidate_time,
             duration_minutes=duration_minutes,
         )
@@ -1953,8 +1954,8 @@ async def finalize_event(
             event_type=data.get("event_type", "general"),
             title=data.get("title"),
             description=data.get("description"),
-            organizer_telegram_user_id=creator_id,
-            emergency_admin_telegram_user_id=creator_id,
+            organizer_user_id=creator_user_id,
+            emergency_admin_user_id=creator_user_id,
             scheduled_time=candidate_time,
             commit_by=commit_by,
             duration_minutes=duration_minutes,
@@ -1981,7 +1982,7 @@ async def finalize_event(
         participant_service = ParticipantService(session)
         await participant_service.join(
             event_id=event.event_id,
-            telegram_user_id=creator_id,
+            user_id=creator_user_id,
             source="creation",
             role="organizer",
         )
@@ -2035,9 +2036,7 @@ async def finalize_event(
     async with get_session(settings.db_url) as session:
         # Get organizer's username and display_name for display in invitation
         organizer_user = (
-            await session.execute(
-                select(User).where(User.telegram_user_id == int(creator_id))
-            )
+            await session.execute(select(User).where(User.user_id == int(creator_id)))
         ).scalar_one_or_none()
         organizer_username = organizer_user.username if organizer_user else None
         organizer_display_name = organizer_user.display_name if organizer_user else None
@@ -2047,7 +2046,7 @@ async def finalize_event(
         ).scalar_one_or_none()
 
         # Add organizer info to data for the invitation message
-        data["organizer_telegram_user_id"] = int(creator_id)
+        data["organizer_user_id"] = int(creator_id)
         data["organizer_username"] = organizer_username
         data["organizer_display_name"] = organizer_display_name
 
@@ -2069,43 +2068,15 @@ async def finalize_event(
             group.telegram_group_id if group else None,
         )
 
-        if invite_all and group and context.bot and group.telegram_group_id:
-            # Try cached members first
-            cached_members = group.member_list or []
-            if cached_members:
-                logger.info(
-                    "[INVITATION_FLOW] Using cached member_list | event_id=%s cached_count=%d",
-                    event.event_id,
-                    len(cached_members),
-                )
-                for member_id in cached_members:
-                    if member_id is not None:
-                        recipient_telegram_ids.add(int(member_id))
-            else:
-                # Fetch real Telegram group members
-                logger.info(
-                    "[INVITATION_FLOW] Cached member_list empty, fetching from Telegram API | event_id=%s",
-                    event.event_id,
-                )
-                try:
-                    members = await context.bot.get_chat_members(
-                        group.telegram_group_id
-                    )
-                    for member in members:
-                        if member.user.id:
-                            recipient_telegram_ids.add(member.user.id)
-                    logger.info(
-                        "[INVITATION_FLOW] Fetched %d real members from Telegram | event_id=%s",
-                        len(recipient_telegram_ids),
-                        event.event_id,
-                    )
-                except Exception as e:
-                    logger.error(
-                        "[INVITATION_FLOW] Failed to fetch Telegram members | event_id=%s error=%s",
-                        event.event_id,
-                        str(e),
-                        exc_info=True,
-                    )
+        cached_members: list[int] = []
+        if invite_all and group:
+            from bot.services.membership_service import MembershipService
+
+            cached_members = [
+                row.user_id
+                for row in await MembershipService(session).list_members(group.group_id)
+            ]
+            recipient_telegram_ids.update(cached_members)
 
         # Source 3: Explicit invitees (always added, regardless of invite_all)
         explicit_tg_ids = set()
@@ -2130,8 +2101,8 @@ async def finalize_event(
                         select(User).where(User.user_id == int(user_id))
                     )
                     invitee_user = result.scalar_one_or_none()
-                    if invitee_user and invitee_user.telegram_user_id:
-                        tg_id = int(invitee_user.telegram_user_id)
+                    if invitee_user and invitee_user.user_id:
+                        tg_id = int(invitee_user.user_id)
                         explicit_tg_ids.add(tg_id)
                         recipient_telegram_ids.add(tg_id)
                         logger.info(
@@ -2177,7 +2148,7 @@ async def finalize_event(
             "cached_members=%d explicit_invitees=%d invite_all=%s creator_excluded=%s",
             event.event_id,
             len(recipient_telegram_ids),
-            len(group.member_list or []) if group else 0,
+            len(cached_members),
             len(explicit_tg_ids),
             invite_all,
             creator_id
@@ -2424,11 +2395,15 @@ async def finalize_private_event(
         )
         commit_by = compute_commit_by_time(candidate_time)
         duration_minutes = int(data.get("duration_minutes", 120))
+        from db.identity import resolve_telegram_user
+
+        creator = await resolve_telegram_user(session, creator_id)
+        creator_user_id = creator.user_id
 
         try:
             conflict = await find_user_event_conflict(
                 session=session,
-                telegram_user_id=creator_id,
+                telegram_user_id=creator_user_id,
                 start_time=candidate_time,
                 duration_minutes=duration_minutes,
             )
@@ -2449,7 +2424,7 @@ async def finalize_private_event(
             event_type=data.get("event_type", "general"),
             title=data.get("title"),
             description=data.get("description"),
-            organizer_telegram_user_id=creator_id,
+            organizer_user_id=creator_user_id,
             scheduled_time=candidate_time,
             commit_by=commit_by,
             duration_minutes=duration_minutes,
@@ -2476,7 +2451,7 @@ async def finalize_private_event(
         participant_service = ParticipantService(session)
         await participant_service.join(
             event_id=event.event_id,
-            telegram_user_id=creator_id,
+            user_id=creator_user_id,
             source="creation",
             role="organizer",
         )
@@ -2490,14 +2465,12 @@ async def finalize_private_event(
     async with get_session(settings.db_url) as session:
         # Get organizer's username for display in invitation
         organizer_user = (
-            await session.execute(
-                select(User).where(User.telegram_user_id == int(creator_id))
-            )
+            await session.execute(select(User).where(User.user_id == int(creator_id)))
         ).scalar_one_or_none()
         organizer_username = organizer_user.username if organizer_user else None
 
         # Add organizer info to data for the invitation message
-        data["organizer_telegram_user_id"] = int(creator_id)
+        data["organizer_user_id"] = int(creator_id)
         data["organizer_username"] = organizer_username
 
         dm_count = 0
@@ -2521,17 +2494,17 @@ async def finalize_private_event(
                             select(User).where(User.user_id == int(user_id))
                         )
                         invitee_user = result.scalar_one_or_none()
-                        if invitee_user and invitee_user.telegram_user_id:
+                        if invitee_user and invitee_user.user_id:
                             sent = await send_event_invitation_dm(
                                 context,
-                                int(invitee_user.telegram_user_id),
+                                int(invitee_user.user_id),
                                 data,
                                 int(event.event_id),
                             )
                             if sent:
                                 logger.info(
                                     "DM sent to user %s (@%s) for private event %s (invitee)",
-                                    invitee_user.telegram_user_id,
+                                    invitee_user.user_id,
                                     username,
                                     event.event_id,
                                 )

@@ -28,7 +28,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     async with get_session(settings.db_url) as session:
         user_result = await session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
+            select(User).where(User.user_id == telegram_user_id)
         )
         user = user_result.scalar_one_or_none()
 
@@ -43,14 +43,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Factual counts only — no scores, no trends, no inference
         joined_result = await session.execute(
             select(func.count(EventParticipant.event_id)).where(
-                EventParticipant.telegram_user_id == telegram_user_id
+                EventParticipant.user_id == telegram_user_id
             )
         )
         joined_count = joined_result.scalar() or 0
 
         completed_result = await session.execute(
             select(func.count(EventParticipant.event_id)).where(
-                EventParticipant.telegram_user_id == telegram_user_id,
+                EventParticipant.user_id == telegram_user_id,
                 EventParticipant.status == "confirmed",
             )
         )

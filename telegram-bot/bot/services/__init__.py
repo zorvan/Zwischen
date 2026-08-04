@@ -23,7 +23,7 @@ from bot.services.event_enrichment_service import (
     ContentValidationError,
     HashtagLimitError,
 )
-from bot.services.live_card_service import LiveCardService
+from bot.common.live_card_service import LiveCardService
 from bot.services.mosaic_assembly_service import (
     MosaicAssembler,
     MosaicFragment,

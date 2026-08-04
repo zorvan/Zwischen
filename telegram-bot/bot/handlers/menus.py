@@ -118,7 +118,7 @@ async def _show_my_events(
         # Get events where user is a participant
         result = await session.execute(
             select(EventParticipant.event_id)
-            .where(EventParticipant.telegram_user_id == user_id)
+            .where(EventParticipant.user_id == user_id)
             .distinct()
         )
         participant_event_ids = [row[0] for row in result.all()]
@@ -137,7 +137,6 @@ async def _show_my_events(
         # Filter by group membership and sort: user's events first, then others
         user_events = []
         other_events = []
-        chat_id = getattr(getattr(query, "message", None), "chat_id", None)
         for event, group in all_events:
             # Skip events with no group
             if not group:
@@ -148,8 +147,6 @@ async def _show_my_events(
                 session,
                 group.group_id,
                 user_id,
-                telegram_chat_id=chat_id,
-                bot=context.bot,
             )
             if not is_member:
                 # Non-member: skip this event
@@ -340,7 +337,7 @@ async def _show_event_detail(
         result = await session.execute(
             select(EventParticipant).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.telegram_user_id == user_id,
+                EventParticipant.user_id == user_id,
             )
         )
         participant = result.scalar_one_or_none()

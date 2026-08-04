@@ -96,8 +96,8 @@ async def handle_extend_deadline(
 
         # Verify organizer/admin
         if telegram_user_id not in {
-            event.organizer_telegram_user_id,
-            event.emergency_admin_telegram_user_id,
+            event.organizer_user_id,
+            event.emergency_admin_user_id,
         }:
             await safe_edit_message(
                 query, "❌ Only the organizer can extend the deadline."
@@ -173,8 +173,8 @@ async def handle_view_waitlist(
 
         # Verify organizer/admin
         if telegram_user_id not in {
-            event.organizer_telegram_user_id,
-            event.emergency_admin_telegram_user_id,
+            event.organizer_user_id,
+            event.emergency_admin_user_id,
         }:
             await safe_edit_message(query, t("waitlist_only_organizer", lang=user_lang))
             return
@@ -191,10 +191,10 @@ async def handle_view_waitlist(
         lines = [t("waitlist_header", lang=user_lang, type=event.event_type)]
         for i, entry in enumerate(waitlist, 1):
             user_result = await session.execute(
-                select(User).where(User.telegram_user_id == entry.telegram_user_id)
+                select(User).where(User.user_id == entry.user_id)
             )
             user = user_result.scalar_one_or_none()
-            name = f"User #{entry.telegram_user_id}"
+            name = f"User #{entry.user_id}"
             if user:
                 name = user.display_name or user.username or name
             lines.append(f"{i}. {name}")

@@ -19,7 +19,7 @@ async def _user_in_event(
     result = await session.execute(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.telegram_user_id == telegram_user_id,
+            EventParticipant.user_id == telegram_user_id,
             EventParticipant.status.in_(
                 [
                     ParticipantStatus.joined,

@@ -50,11 +50,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id if update.effective_chat else None
 
     async with get_session(settings.db_url) as session:
+        user_id = await get_or_create_user_id(
+            session,
+            provider_user_id=telegram_user_id,
+            display_name=display_name,
+            username=username,
+        )
         is_visible, event, group, error_msg = (
             await check_event_visibility_and_get_event(
                 session,
                 event_id,
-                telegram_user_id,
+                user_id,
                 telegram_chat_id=chat_id,
                 bot=context.bot,
             )
@@ -75,7 +81,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             participant, is_new_cancel = await participant_service.cancel(
                 event_id=event_id,
-                telegram_user_id=telegram_user_id,
+                user_id=user_id,
                 source="slash",
             )
         except Exception:
@@ -83,13 +89,6 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"❌ You haven't joined event {event_id} yet. " "Nothing to cancel."
             )
             return
-
-        user_id = await get_or_create_user_id(
-            session,
-            telegram_user_id=telegram_user_id,
-            display_name=display_name,
-            username=username,
-        )
 
         log = Log(
             event_id=event_id,
@@ -108,7 +107,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             session=session,
             bot=context.bot,
             event_id=event_id,
-            actor_telegram_user_id=telegram_user_id,
+            actor_user_id=user_id,
             source="slash",
             reason="Participant cancelled attendance",
         )

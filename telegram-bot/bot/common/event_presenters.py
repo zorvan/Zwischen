@@ -37,9 +37,7 @@ async def get_user_mention(session, telegram_user_id: int, bot=None) -> str:
         Formatted mention string
     """
     user = (
-        await session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
-        )
+        await session.execute(select(User).where(User.user_id == telegram_user_id))
     ).scalar_one_or_none()
 
     username = None
@@ -148,7 +146,7 @@ async def attendance_stats_with_usernames(
         select(EventParticipant).where(EventParticipant.event_id == event_id)
     )
     participants = result.scalars().all()
-    status_by_user = {p.telegram_user_id: p.status.value for p in participants}
+    status_by_user = {p.user_id: p.status.value for p in participants}
 
     # Count statuses (new system uses 'joined' and 'confirmed')
     interested_count = sum(
@@ -166,11 +164,9 @@ async def attendance_stats_with_usernames(
 
     users = {}
     if user_ids:
-        result = await session.execute(
-            select(User).where(User.telegram_user_id.in_(user_ids))
-        )
+        result = await session.execute(select(User).where(User.user_id.in_(user_ids)))
         for user in result.scalars().all():
-            users[user.telegram_user_id] = user
+            users[user.user_id] = user
 
     for telegram_user_id in sorted(status_by_user.keys()):
         status = status_by_user[telegram_user_id]
@@ -215,7 +211,7 @@ def participant_stats(event: Any) -> tuple[int, int, str]:
         return interested_count, confirmed_count, "No attendees yet."
 
     lines = []
-    for participant in sorted(participants, key=lambda p: int(p.telegram_user_id)):
+    for participant in sorted(participants, key=lambda p: int(p.user_id)):
         status = getattr(participant.status, "value", participant.status)
         status_text = {
             "joined": "has joined",
@@ -223,7 +219,7 @@ def participant_stats(event: Any) -> tuple[int, int, str]:
             "cancelled": "has cancelled",
             "no_show": "was absent",
         }.get(status, str(status))
-        lines.append(f"User{participant.telegram_user_id} {status_text}")
+        lines.append(f"User{participant.user_id} {status_text}")
 
     return interested_count, confirmed_count, "\n".join(lines)
 
@@ -273,7 +269,7 @@ async def format_event_details_message(
         next_step = "Event is in a terminal/locked stage."
 
     # Get admin mention
-    admin_id = getattr(event, "emergency_admin_telegram_user_id", None)
+    admin_id = getattr(event, "emergency_admin_user_id", None)
     admin_text = "N/A"
     if admin_id and settings.db_url:
         async with get_session(settings.db_url) as session:
@@ -384,7 +380,7 @@ async def format_status_message(
             select(EventParticipant, User)
             .join(
                 User,
-                EventParticipant.telegram_user_id == User.telegram_user_id,
+                EventParticipant.user_id == User.user_id,
                 isouter=True,
             )
             .where(EventParticipant.event_id == event_id)
@@ -392,7 +388,7 @@ async def format_status_message(
 
         for participant, user in result.all():
             user_display = format_user_display(
-                telegram_user_id=participant.telegram_user_id,
+                telegram_user_id=participant.user_id,
                 username=getattr(user, "username", None),
                 display_name=getattr(user, "display_name", None),
             )
@@ -430,7 +426,7 @@ async def format_status_message(
                 )
 
     # Get admin mention
-    admin_id = getattr(event, "emergency_admin_telegram_user_id", None)
+    admin_id = getattr(event, "emergency_admin_user_id", None)
     admin_text = "N/A"
     if admin_id and settings.db_url:
         async with get_session(settings.db_url) as session:

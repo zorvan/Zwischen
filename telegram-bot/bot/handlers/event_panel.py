@@ -560,14 +560,13 @@ async def _handle_view(
         participant = await participant_service.get_participant(event_id, user_id)
 
         # Check if user is organizer
-        is_organizer = event.organizer_telegram_user_id == user_id or (
-            event.emergency_admin_telegram_user_id
-            and event.emergency_admin_telegram_user_id == user_id
+        is_organizer = event.organizer_user_id == user_id or (
+            event.emergency_admin_user_id and event.emergency_admin_user_id == user_id
         )
 
         # Get participant counts
         count_result = await session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event_id,
                 EventParticipant.status.in_(
                     [ParticipantStatus.joined, ParticipantStatus.confirmed]
@@ -577,7 +576,7 @@ async def _handle_view(
         participant_count = count_result.scalar() or 0
 
         confirmed_result = await session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event_id,
                 EventParticipant.status == ParticipantStatus.confirmed,
             )
@@ -755,6 +754,10 @@ async def _handle_join(
     )
 
     async with get_session(db_url) as session:
+        from db.identity import resolve_telegram_user
+
+        resolved_user = await resolve_telegram_user(session, telegram_user_id)
+        internal_user_id = int(resolved_user.user_id)
         # Fetch event to get its group (needed for RBAC when callback has no group_id)
         from sqlalchemy.orm import selectinload
 
@@ -783,7 +786,7 @@ async def _handle_join(
             "[JOIN_FLOW] Event loaded | event_id=%s state=%s organizer_id=%s",
             event_id,
             event.state,
-            event.organizer_telegram_user_id,
+            event.organizer_user_id,
         )
 
         if event.state in ["locked", "completed", "cancelled"]:
@@ -791,7 +794,7 @@ async def _handle_join(
                 "[JOIN_FLOW] Cannot join - event in terminal state | event_id=%s state=%s user_id=%s",
                 event_id,
                 event.state,
-                telegram_user_id,
+                internal_user_id,
             )
             try:
                 await asyncio.wait_for(
@@ -870,7 +873,7 @@ async def _handle_join(
 
         participant_service = ParticipantService(session)
         participant = await participant_service.get_participant(
-            event_id, telegram_user_id
+            event_id, internal_user_id
         )
 
         if participant:
@@ -916,7 +919,7 @@ async def _handle_join(
             )
             participant, is_new = await participant_service.join(
                 event_id=event_id,
-                telegram_user_id=telegram_user_id,
+                user_id=internal_user_id,
                 source="callback",
             )
 
@@ -928,7 +931,7 @@ async def _handle_join(
                 )
 
                 # Transition to interested if non-organizer joins and event is proposed
-                organizer_id = event.organizer_telegram_user_id
+                organizer_id = event.organizer_user_id
                 if telegram_user_id != organizer_id and event.state == "proposed":
                     from bot.services import EventLifecycleService
 
@@ -937,7 +940,7 @@ async def _handle_join(
                         event, _ = await lifecycle_service.transition_with_lifecycle(
                             event_id=event_id,
                             target_state="interested",
-                            actor_telegram_user_id=telegram_user_id,
+                            actor_user_id=telegram_user_id,
                             source="callback",
                             reason="Non-organizer participant joined",
                             expected_version=event.version,
@@ -970,9 +973,7 @@ async def _handle_join(
                 from db.models import User
 
                 await session.execute(
-                    sa_select(User).where(
-                        User.telegram_user_id == event.organizer_telegram_user_id
-                    )
+                    sa_select(User).where(User.user_id == event.organizer_user_id)
                 )
 
                 from bot.common.event_notifications import send_join_notification_dm
@@ -982,13 +983,13 @@ async def _handle_join(
                         "[JOIN_FLOW] Notifying organizer | event_id=%s user_id=%s organizer_id=%s",
                         event_id,
                         telegram_user_id,
-                        event.organizer_telegram_user_id,
+                        event.organizer_user_id,
                     )
 
                     # Notify organizer about new join
                     await send_join_notification_dm(
                         context=context,
-                        telegram_user_id=event.organizer_telegram_user_id,
+                        telegram_user_id=event.organizer_user_id,
                         event=event,
                         joiner_name=(
                             query.from_user.full_name if query.from_user else "Someone"
@@ -999,7 +1000,7 @@ async def _handle_join(
                     logger.info(
                         "[JOIN_FLOW] Organizer notification sent | event_id=%s organizer_id=%s",
                         event_id,
-                        event.organizer_telegram_user_id,
+                        event.organizer_user_id,
                     )
                 except Exception as notify_err:
                     logger.warning(
@@ -1061,9 +1062,13 @@ async def _handle_relinquish(
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
+        from db.identity import resolve_telegram_user
+
+        resolved_user = await resolve_telegram_user(session, telegram_user_id)
+        internal_user_id = int(resolved_user.user_id)
         participant_service = ParticipantService(session)
         participant = await participant_service.get_participant(
-            event_id, telegram_user_id
+            event_id, internal_user_id
         )
 
         if not participant:
@@ -1082,7 +1087,7 @@ async def _handle_relinquish(
         try:
             await participant_service.cancel(
                 event_id=event_id,
-                telegram_user_id=telegram_user_id,
+                user_id=internal_user_id,
             )
             await session.commit()
 
@@ -1115,6 +1120,10 @@ async def _handle_commit(
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
+        from db.identity import resolve_telegram_user
+
+        resolved_user = await resolve_telegram_user(session, telegram_user_id)
+        internal_user_id = int(resolved_user.user_id)
         event_result = await session.execute(
             select(Event).where(Event.event_id == event_id)
         )
@@ -1128,7 +1137,7 @@ async def _handle_commit(
 
         participant_service = ParticipantService(session)
         participant = await participant_service.get_participant(
-            event_id, telegram_user_id
+            event_id, internal_user_id
         )
 
         if not participant:
@@ -1146,7 +1155,7 @@ async def _handle_commit(
         try:
             participant = await participant_service.confirm(
                 event_id=event_id,
-                telegram_user_id=telegram_user_id,
+                user_id=internal_user_id,
             )
             await session.flush()
 
@@ -1162,7 +1171,7 @@ async def _handle_commit(
                     event, _ = await lifecycle_service.transition_with_lifecycle(
                         event_id=event_id,
                         target_state="confirmed",
-                        actor_telegram_user_id=telegram_user_id,
+                        actor_user_id=telegram_user_id,
                         source="callback",
                         reason="Non-organizer participant confirmed attendance",
                         expected_version=event.version,
@@ -1270,9 +1279,9 @@ async def _handle_lock(
             return
 
         # Check organizer permission
-        is_organizer = event.organizer_telegram_user_id == telegram_user_id or (
-            event.emergency_admin_telegram_user_id
-            and event.emergency_admin_telegram_user_id == telegram_user_id
+        is_organizer = event.organizer_user_id == telegram_user_id or (
+            event.emergency_admin_user_id
+            and event.emergency_admin_user_id == telegram_user_id
         )
         if not is_organizer:
             await query.answer(
@@ -1285,7 +1294,7 @@ async def _handle_lock(
             event, _ = await lifecycle_service.transition_with_lifecycle(
                 event_id=event_id,
                 target_state="locked",
-                actor_telegram_user_id=telegram_user_id,
+                actor_user_id=telegram_user_id,
                 source="callback",
                 reason="Lock via event panel",
                 expected_version=event.version,
@@ -1378,9 +1387,9 @@ async def _handle_unlock(
             return
 
         # Check organizer permission
-        is_organizer = event.organizer_telegram_user_id == telegram_user_id or (
-            event.emergency_admin_telegram_user_id
-            and event.emergency_admin_telegram_user_id == telegram_user_id
+        is_organizer = event.organizer_user_id == telegram_user_id or (
+            event.emergency_admin_user_id
+            and event.emergency_admin_user_id == telegram_user_id
         )
         if not is_organizer:
             await query.answer(
@@ -1393,7 +1402,7 @@ async def _handle_unlock(
             event, _ = await lifecycle_service.transition_with_lifecycle(
                 event_id=event_id,
                 target_state="confirmed",
-                actor_telegram_user_id=telegram_user_id,
+                actor_user_id=telegram_user_id,
                 source="callback",
                 reason="Unlock via event panel",
                 expected_version=event.version,
@@ -1477,9 +1486,9 @@ async def _handle_complete(
             )
             return
 
-        is_organizer = event.organizer_telegram_user_id == telegram_user_id or (
-            event.emergency_admin_telegram_user_id
-            and event.emergency_admin_telegram_user_id == telegram_user_id
+        is_organizer = event.organizer_user_id == telegram_user_id or (
+            event.emergency_admin_user_id
+            and event.emergency_admin_user_id == telegram_user_id
         )
         if not is_organizer:
             await query.answer(
@@ -1492,7 +1501,7 @@ async def _handle_complete(
             event, _ = await lifecycle_service.transition_with_lifecycle(
                 event_id=event_id,
                 target_state="completed",
-                actor_telegram_user_id=telegram_user_id,
+                actor_user_id=telegram_user_id,
                 source="callback",
                 reason="Complete via event panel",
                 expected_version=event.version,
@@ -1655,12 +1664,15 @@ async def handle_view_contributions(
     db_url = settings.db_url or ""
 
     async with get_session(db_url) as session:
+        from db.identity import resolve_telegram_user
+
+        resolved_user = await resolve_telegram_user(session, query.from_user.id)
         enrichment_service = EventEnrichmentService(session)
 
         # Get user's contributions
         contributions = await enrichment_service.get_user_contributions(
             event_id=event_id,
-            telegram_user_id=query.from_user.id,
+            user_id=int(resolved_user.user_id),
         )
 
     if not contributions:
@@ -1815,7 +1827,7 @@ async def _handle_logs(
             user_info = ""
             if user:
                 user_info = " by " + format_user_display(
-                    telegram_user_id=user.telegram_user_id,
+                    telegram_user_id=user.user_id,
                     username=getattr(user, "username", None),
                     display_name=getattr(user, "display_name", None),
                     include_link=False,

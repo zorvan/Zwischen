@@ -51,9 +51,9 @@ async def send_confirmation_request_message(
         participants = set()
         confirmed = set()
         for p in all_participants:
-            participants.add(p.telegram_user_id)
+            participants.add(p.user_id)
             if p.status == "confirmed":
-                confirmed.add(p.telegram_user_id)
+                confirmed.add(p.user_id)
 
         pending = sorted(participants - confirmed)
 
@@ -62,15 +62,13 @@ async def send_confirmation_request_message(
             users = (
                 (
                     await session.execute(
-                        select(User).where(
-                            User.telegram_user_id.in_(list(participants))
-                        )
+                        select(User).where(User.user_id.in_(list(participants)))
                     )
                 )
                 .scalars()
                 .all()
             )
-            users_by_tid = {int(u.telegram_user_id): u for u in users}
+            users_by_tid = {int(u.user_id): u for u in users}
 
     pending_labels = (
         ", ".join(_format_user_label(users_by_tid.get(uid), uid) for uid in pending)

@@ -28,7 +28,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     async with get_session(db_url) as session:
         result = await session.execute(
-            select(User).where(User.telegram_user_id == update.effective_user.id)
+            select(User).where(User.user_id == update.effective_user.id)
         )
         db_user = result.scalar_one_or_none()
 
@@ -92,7 +92,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
         result = await session.execute(
-            select(User).where(User.telegram_user_id == query.from_user.id)
+            select(User).where(User.user_id == query.from_user.id)
         )
         db_user = result.scalar_one_or_none()
 

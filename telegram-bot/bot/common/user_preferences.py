@@ -313,16 +313,16 @@ async def get_group_aggregate_preferences(
     if not event:
         return {}
 
-    from db.users import get_user_ids_for_telegram_ids
+    from db.users import get_user_ids_for_provider_ids
 
     telegram_ids = [
-        int(participant.telegram_user_id) for participant in (event.participants or [])
+        int(participant.user_id) for participant in (event.participants or [])
     ]
 
     if not telegram_ids:
         return {}
 
-    user_ids_map = await get_user_ids_for_telegram_ids(session, telegram_ids)
+    user_ids_map = await get_user_ids_for_provider_ids(session, telegram_ids)
 
     preferences_list = []
     for uid in user_ids_map.values():

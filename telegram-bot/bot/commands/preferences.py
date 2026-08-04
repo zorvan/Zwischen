@@ -51,7 +51,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     async with get_session(db_url) as session:
         # Get or create user
         result = await session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
+            select(User).where(User.user_id == telegram_user_id)
         )
         db_user = result.scalar_one_or_none()
 
@@ -172,9 +172,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
 
         # Get user ID
-        result = await session.execute(
-            select(User).where(User.telegram_user_id == user.id)
-        )
+        result = await session.execute(select(User).where(User.user_id == user.id))
         db_user = result.scalar_one_or_none()
 
         if not db_user:
@@ -247,9 +245,7 @@ async def set_preference(
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
         user = update.effective_user
-        result = await session.execute(
-            select(User).where(User.telegram_user_id == user.id)
-        )
+        result = await session.execute(select(User).where(User.user_id == user.id))
         db_user = result.scalar_one_or_none()
 
         if not db_user:

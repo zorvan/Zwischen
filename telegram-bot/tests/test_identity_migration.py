@@ -26,6 +26,7 @@ from db.url import normalize_db_url
 
 PREVIOUS_REVISION = "f4a4512c63a8"
 IDENTITY_REVISION = "3fead70d5078"
+CONTRACT_REVISION = "c8f0e2a913b4"
 
 pytestmark = pytest.mark.integration
 
@@ -245,6 +246,25 @@ def test_group_membership_is_materialized(legacy_db: str) -> None:
         )
     )
     assert [r[0] for r in rows] == [1001, 2002, 3003]
+
+
+def test_contract_migration_preserves_seeded_relationships(legacy_db: str) -> None:
+    _seed(legacy_db)
+    migrate.run_migrations(legacy_db, revision=CONTRACT_REVISION)
+
+    columns = asyncio.run(
+        _fetch(
+            legacy_db,
+            """SELECT table_name, column_name FROM information_schema.columns
+               WHERE table_schema = 'public' AND column_name LIKE '%telegram_user_id'
+               ORDER BY table_name, column_name""",
+        )
+    )
+    assert columns == []
+    participants = asyncio.run(
+        _fetch(legacy_db, "SELECT count(*) FROM event_participants")
+    )
+    assert participants[0][0] == 2
 
 
 def test_public_ids_are_unique_and_populated(legacy_db: str) -> None:

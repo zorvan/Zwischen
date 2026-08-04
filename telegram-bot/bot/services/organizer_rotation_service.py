@@ -49,7 +49,7 @@ class OrganizerRotationService:
 
     async def get_organizer_history(
         self,
-        telegram_user_id: int,
+        user_id: int,
         group_id: Optional[int] = None,
         event_type: Optional[str] = None,
         limit: int = 50,
@@ -58,7 +58,7 @@ class OrganizerRotationService:
         Get user's organizer history.
 
         Args:
-            telegram_user_id: User's Telegram ID
+            user_id: User's Telegram ID
             group_id: Optional group filter
             event_type: Optional event type filter
 
@@ -70,7 +70,7 @@ class OrganizerRotationService:
         query = (
             select(Event)
             .where(
-                Event.organizer_telegram_user_id == telegram_user_id,
+                Event.organizer_user_id == user_id,
                 Event.created_at >= cutoff,
             )
             .order_by(desc(Event.created_at))
@@ -98,7 +98,7 @@ class OrganizerRotationService:
 
     async def count_consecutive_organized(
         self,
-        telegram_user_id: int,
+        user_id: int,
         event_type: str,
         group_id: Optional[int] = None,
     ) -> int:
@@ -112,7 +112,7 @@ class OrganizerRotationService:
         query = (
             select(Event)
             .where(
-                Event.organizer_telegram_user_id == telegram_user_id,
+                Event.organizer_user_id == user_id,
                 Event.event_type == event_type,
             )
             .order_by(desc(Event.created_at))
@@ -140,7 +140,7 @@ class OrganizerRotationService:
 
     async def should_suggest_rotation(
         self,
-        telegram_user_id: int,
+        user_id: int,
         event_type: str,
         group_id: Optional[int] = None,
     ) -> Tuple[bool, int]:
@@ -151,7 +151,7 @@ class OrganizerRotationService:
             (should_suggest, consecutive_count)
         """
         consecutive = await self.count_consecutive_organized(
-            telegram_user_id, event_type, group_id
+            user_id, event_type, group_id
         )
 
         should_suggest = consecutive >= self.CONSECUTIVE_THRESHOLD
@@ -159,7 +159,7 @@ class OrganizerRotationService:
         if should_suggest:
             logger.info(
                 "Rotation suggested for user %s (%d consecutive %s events)",
-                telegram_user_id,
+                user_id,
                 consecutive,
                 event_type,
             )
@@ -189,7 +189,7 @@ class OrganizerRotationService:
         # Get confirmed participants
         result = await self.session.execute(
             select(EventParticipant, User)
-            .join(User, EventParticipant.telegram_user_id == User.telegram_user_id)
+            .join(User, EventParticipant.user_id == User.user_id)
             .where(
                 EventParticipant.event_id == event_id,
                 EventParticipant.status.in_(
@@ -208,7 +208,7 @@ class OrganizerRotationService:
         # Filter out current organizer
         eligible = []
         for participant, user in participants:
-            if exclude_user_id and participant.telegram_user_id == exclude_user_id:
+            if exclude_user_id and participant.user_id == exclude_user_id:
                 continue
             eligible.append((participant, user))
 
@@ -220,14 +220,13 @@ class OrganizerRotationService:
         for participant, user in eligible:
             # Count recent organizing activity
             history = await self.get_organizer_history(
-                user.telegram_user_id, limit=10
+                user.user_id, limit=10
             )  # Last 10 events
             organized_count = len(history)
 
             candidates.append(
                 {
                     "user_id": user.user_id,
-                    "telegram_user_id": user.telegram_user_id,
                     "display_name": user.display_name or user.username,
                     "organized_count": organized_count,
                 }
@@ -319,7 +318,7 @@ class OrganizerRotationService:
 
 async def check_and_suggest_rotation(
     session: AsyncSession,
-    organizer_telegram_user_id: int,
+    organizer_user_id: int,
     event_type: str,
     group_id: Optional[int] = None,
 ) -> Optional[str]:
@@ -332,7 +331,7 @@ async def check_and_suggest_rotation(
     service = OrganizerRotationService(session)
 
     should_suggest, count = await service.should_suggest_rotation(
-        organizer_telegram_user_id, event_type, group_id
+        organizer_user_id, event_type, group_id
     )
 
     if not should_suggest:
@@ -340,7 +339,7 @@ async def check_and_suggest_rotation(
 
     # Get organizer name
     user_result = await session.execute(
-        select(User).where(User.telegram_user_id == organizer_telegram_user_id)
+        select(User).where(User.user_id == organizer_user_id)
     )
     organizer = user_result.scalar_one_or_none()
     organizer_name = organizer.display_name or organizer.username or "Organizer"

@@ -23,7 +23,7 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     telegram_user_id = update.effective_user.id
     async with get_session(settings.db_url) as session:
         user_result = await session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
+            select(User).where(User.user_id == telegram_user_id)
         )
         user = user_result.scalar_one_or_none()
         if not user:

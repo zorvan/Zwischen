@@ -191,7 +191,7 @@ async def send_event_invitation_dm(
 
     # Format organizer as clickable mention - fetch from DB if not in event_data
     organizer_text = "N/A"
-    organizer_user_id = event_data.get("organizer_telegram_user_id")
+    organizer_user_id = event_data.get("organizer_user_id")
     organizer_username = event_data.get("organizer_username")
     organizer_display_name = event_data.get("organizer_display_name")
 
@@ -205,9 +205,7 @@ async def send_event_invitation_dm(
             async with get_session(settings.db_url) as session:
                 org_user = (
                     await session.execute(
-                        select(User).where(
-                            User.telegram_user_id == int(organizer_user_id)
-                        )
+                        select(User).where(User.user_id == int(organizer_user_id))
                     )
                 ).scalar_one_or_none()
                 if org_user:

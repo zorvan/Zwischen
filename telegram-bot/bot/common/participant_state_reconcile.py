@@ -22,7 +22,7 @@ async def reconcile_event_state_after_participant_change(
     session,
     bot,
     event_id: int,
-    actor_telegram_user_id: int,
+    actor_user_id: int,
     source: str,
     reason: str,
 ) -> Event:
@@ -48,7 +48,7 @@ async def reconcile_event_state_after_participant_change(
     organizer_id = get_event_organizer_telegram_id(event)
 
     active_count_result = await session.execute(
-        select(func.count(EventParticipant.telegram_user_id)).where(
+        select(func.count(EventParticipant.user_id)).where(
             EventParticipant.event_id == event_id,
             EventParticipant.status.in_(
                 [
@@ -64,12 +64,12 @@ async def reconcile_event_state_after_participant_change(
     organizer_remains_only = False
     if active_count > 0:
         organizer_participant_result = await session.execute(
-            select(EventParticipant.telegram_user_id).where(
+            select(EventParticipant.user_id).where(
                 EventParticipant.event_id == event_id,
                 EventParticipant.status.in_(
                     [ParticipantStatus.joined, ParticipantStatus.confirmed]
                 ),
-                EventParticipant.telegram_user_id == organizer_id,
+                EventParticipant.user_id == organizer_id,
             )
         )
         organizer_is_active = organizer_participant_result.scalar_one() is not None
@@ -77,7 +77,7 @@ async def reconcile_event_state_after_participant_change(
             organizer_remains_only = True
 
     confirmed_count_result = await session.execute(
-        select(func.count(EventParticipant.telegram_user_id)).where(
+        select(func.count(EventParticipant.user_id)).where(
             EventParticipant.event_id == event_id,
             EventParticipant.status == ParticipantStatus.confirmed,
         )
@@ -103,14 +103,14 @@ async def reconcile_event_state_after_participant_change(
     # organizer action. This prevents accidental state loss.
     if is_downgrade and source not in {"cancel", "unconfirm", "system"}:
         # Non-participant-departure downgrade: require organizer permission
-        if actor_telegram_user_id != organizer_id:
+        if actor_user_id != organizer_id:
             return event
 
     lifecycle_service = EventLifecycleService(bot, session)
     event, _ = await lifecycle_service.transition_with_lifecycle(
         event_id=event_id,
         target_state=target_state,
-        actor_telegram_user_id=actor_telegram_user_id,
+        actor_user_id=actor_user_id,
         source=source,
         reason=reason,
         expected_version=event.version,

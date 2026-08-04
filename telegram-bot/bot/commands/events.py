@@ -69,7 +69,7 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
             for event, group in rows:
                 if group:
                     is_member, _ = await check_group_membership(
-                        session, group.group_id, user_id, telegram_chat_id=chat.id
+                        session, group.group_id, user_id
                     )
                     if is_member:
                         filtered_rows.append((event, group))

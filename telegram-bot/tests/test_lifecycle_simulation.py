@@ -27,7 +27,6 @@ from sqlalchemy import select
 
 from db.connection import get_session
 from db.models import (
-    User,
     Group,
     Event,
     EventParticipant,
@@ -147,26 +146,27 @@ async def setup_test_data(session) -> dict[str, Any]:
         telegram_group_id=group_tg_id,
         group_name=f"Test Group {TEST_SUFFIX}",
         group_type="casual",
-        member_list=[organizer_tg_id, participant_tg_id],
     )
     session.add(group)
     await session.flush()
 
     # Create organizer user
-    organizer = User(
-        telegram_user_id=organizer_tg_id,
+    from db.identity import resolve_telegram_user
+
+    organizer = await resolve_telegram_user(
+        session,
+        organizer_tg_id,
         display_name="Test Organizer",
         username=f"test_organizer_{organizer_tg_id}",
     )
-    session.add(organizer)
 
     # Create participant user
-    participant = User(
-        telegram_user_id=participant_tg_id,
+    participant = await resolve_telegram_user(
+        session,
+        participant_tg_id,
         display_name="Test Participant",
         username=f"test_participant_{participant_tg_id}",
     )
-    session.add(participant)
     await session.flush()
 
     # Create event in 'proposed' state
@@ -177,8 +177,8 @@ async def setup_test_data(session) -> dict[str, Any]:
         group_id=group.group_id,
         event_type="social",
         description=f"Test event {TEST_SUFFIX}",
-        organizer_telegram_user_id=organizer_tg_id,
-        emergency_admin_telegram_user_id=organizer_tg_id,
+        organizer_user_id=organizer.user_id,
+        emergency_admin_user_id=organizer.user_id,
         scheduled_time=scheduled,
         commit_by=commit_by,
         duration_minutes=60,
@@ -195,21 +195,21 @@ async def setup_test_data(session) -> dict[str, Any]:
         "organizer": organizer,
         "participant": participant,
         "event": event,
-        "organizer_telegram_id": organizer_tg_id,
-        "participant_telegram_id": participant_tg_id,
+        "organizer_telegram_id": organizer.user_id,
+        "participant_telegram_id": participant.user_id,
         "organizer_user_id": organizer.user_id,
         "participant_user_id": participant.user_id,
     }
 
 
 async def add_participants(
-    session, event_id: int, telegram_ids: list[int], status=ParticipantStatus.joined
+    session, event_id: int, user_ids: list[int], status=ParticipantStatus.joined
 ) -> None:
     """Add participant records to an event."""
-    for tid in telegram_ids:
+    for user_id in user_ids:
         participant = EventParticipant(
             event_id=event_id,
-            telegram_user_id=tid,
+            user_id=user_id,
             status=status,
         )
         session.add(participant)
@@ -238,7 +238,7 @@ async def transition(
     return await lifecycle.transition_with_lifecycle(
         event_id=event_id,
         target_state=target,
-        actor_telegram_user_id=actor,
+        actor_user_id=actor,
         source="test",
         reason=f"Test transition to {target}",
         expected_version=event.version if event else None,
@@ -669,9 +669,7 @@ async def test_participant_finalization() -> list[str]:
             participants = result.scalars().all()
 
             for p in participants:
-                results.append(
-                    f"  [INFO] User {p.telegram_user_id}: status={p.status.value}"
-                )
+                results.append(f"  [INFO] User {p.user_id}: status={p.status.value}")
 
     except Exception as e:
         results.append(f"  [FAIL] Exception: {type(e).__name__}: {e}")
@@ -721,7 +719,7 @@ async def test_concurrent_version_conflict() -> list[str]:
                 await lifecycle.transition_with_lifecycle(
                     event_id=event_id,
                     target_state="confirmed",
-                    actor_telegram_user_id=organizer_id,
+                    actor_user_id=organizer_id,
                     source="test",
                     expected_version=old_version,  # Stale version!
                 )

@@ -247,7 +247,7 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             participant_result = await session.execute(
                 select(EventParticipant).where(
                     EventParticipant.event_id == event_id,
-                    EventParticipant.telegram_user_id == update.effective_user.id,
+                    EventParticipant.user_id == update.effective_user.id,
                 )
             )
             participant = participant_result.scalar_one_or_none()

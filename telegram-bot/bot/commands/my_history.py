@@ -67,9 +67,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         async with get_session(settings.db_url) as session:
             # Get user
-            result = await session.execute(
-                select(User).where(User.telegram_user_id == user_id)
-            )
+            result = await session.execute(select(User).where(User.user_id == user_id))
             user = result.scalar_one_or_none()
 
             if not user:
@@ -131,7 +129,7 @@ async def _get_participation_history(
     query = (
         select(Event, EventParticipant)
         .join(EventParticipant, Event.event_id == EventParticipant.event_id)
-        .where(EventParticipant.telegram_user_id == user_id)
+        .where(EventParticipant.user_id == user_id)
         .order_by(desc(Event.scheduled_time))
         .limit(limit)
     )
@@ -259,7 +257,7 @@ async def _get_participation_summary(
     # Total events
     total_result = await session.execute(
         select(func.count(func.distinct(EventParticipant.event_id))).where(
-            EventParticipant.telegram_user_id == user_id
+            EventParticipant.user_id == user_id
         )
     )
     total_events = total_result.scalar() or 0
@@ -269,7 +267,7 @@ async def _get_participation_summary(
     for status in ParticipantStatus:
         result = await session.execute(
             select(func.count(EventParticipant.event_id)).where(
-                EventParticipant.telegram_user_id == user_id,
+                EventParticipant.user_id == user_id,
                 EventParticipant.status == status,
             )
         )
@@ -279,7 +277,7 @@ async def _get_participation_summary(
     type_result = await session.execute(
         select(Event.event_type, func.count(func.distinct(Event.event_id)))
         .join(EventParticipant, Event.event_id == EventParticipant.event_id)
-        .where(EventParticipant.telegram_user_id == user_id)
+        .where(EventParticipant.user_id == user_id)
         .group_by(Event.event_type)
     )
     by_type = {row[0]: row[1] for row in type_result.all()}
@@ -289,7 +287,7 @@ async def _get_participation_summary(
         select(func.count(EventMemory.event_id))
         .join(Event)
         .where(
-            EventParticipant.telegram_user_id == user_id,
+            EventParticipant.user_id == user_id,
             EventParticipant.event_id == Event.event_id,
         )
     )

@@ -930,7 +930,7 @@ async def _resolve_mentioned_participants(text: str, bot_username: str) -> list[
                 result = await session.execute(select(User).where(User.user_id == uid))
                 user = result.scalar_one_or_none()
                 if user is not None:
-                    resolved.append(int(user.telegram_user_id))
+                    resolved.append(int(user.user_id))
     return resolved
 
 
@@ -1136,7 +1136,7 @@ async def _save_constraint_from_inferred(
 
         source_user_id = await get_or_create_user_id(
             session,
-            telegram_user_id=requester_telegram_user_id,
+            provider_user_id=requester_telegram_user_id,
             display_name=requester_display_name,
             username=requester_username,
         )
@@ -1146,7 +1146,7 @@ async def _save_constraint_from_inferred(
                 target_chat = await context.bot.get_chat(target_input)
                 target_user_id = await get_or_create_user_id(
                     session,
-                    telegram_user_id=target_chat.id,
+                    provider_user_id=target_chat.id,
                     display_name=getattr(target_chat, "full_name", None),
                     username=getattr(target_chat, "username", None),
                 )
@@ -1287,7 +1287,7 @@ async def _apply_participation_action(
 
         user_id = await get_or_create_user_id(
             session,
-            telegram_user_id=requester_telegram_user_id,
+            provider_user_id=requester_telegram_user_id,
             display_name=requester_display_name,
             username=requester_username,
         )
@@ -1306,7 +1306,7 @@ async def _apply_participation_action(
                 return
             conflict = await find_user_event_conflict(
                 session=session,
-                telegram_user_id=requester_telegram_user_id,
+                telegram_user_id=user_id,
                 start_time=event.scheduled_time,
                 duration_minutes=event.duration_minutes,
                 ignore_event_id=event.event_id,
@@ -1327,7 +1327,7 @@ async def _apply_participation_action(
             participant_service = ParticipantService(session)
             participant, is_new_join = await participant_service.join(
                 event_id=event_id,
-                telegram_user_id=requester_telegram_user_id,
+                user_id=user_id,
                 source="mention",
             )
 
@@ -1339,7 +1339,7 @@ async def _apply_participation_action(
                     event, _ = await lifecycle_service.transition_with_lifecycle(
                         event_id=event_id,
                         target_state="interested",
-                        actor_telegram_user_id=requester_telegram_user_id,
+                        actor_user_id=user_id,
                         source="mention",
                         reason="Participant joined via mention",
                     )
@@ -1365,7 +1365,7 @@ async def _apply_participation_action(
             participant_service = ParticipantService(session)
             participant, is_new_confirm = await participant_service.confirm(
                 event_id=event_id,
-                telegram_user_id=requester_telegram_user_id,
+                user_id=user_id,
                 source="mention",
             )
 
@@ -1377,7 +1377,7 @@ async def _apply_participation_action(
                     event, _ = await lifecycle_service.transition_with_lifecycle(
                         event_id=event_id,
                         target_state="confirmed",
-                        actor_telegram_user_id=requester_telegram_user_id,
+                        actor_user_id=user_id,
                         source="mention",
                         reason="Participant confirmed via mention",
                     )
@@ -1403,7 +1403,7 @@ async def _apply_participation_action(
             try:
                 participant, is_new_cancel = await participant_service.cancel(
                     event_id=event_id,
-                    telegram_user_id=requester_telegram_user_id,
+                    user_id=user_id,
                     source="mention",
                 )
             except Exception as e:
@@ -1422,7 +1422,7 @@ async def _apply_participation_action(
                     event, _ = await lifecycle_service.transition_with_lifecycle(
                         event_id=event_id,
                         target_state=new_state,
-                        actor_telegram_user_id=requester_telegram_user_id,
+                        actor_user_id=requester_telegram_user_id,
                         source="mention",
                         reason="Last participant cancelled",
                     )
@@ -1773,16 +1773,18 @@ async def _handle_organize_event_direct(
             group = Group(
                 telegram_group_id=chat.id,
                 group_name=chat.title or str(chat.id),
-                member_list=[creator_id] if creator_id else [],
             )
             session.add(group)
-            await session.commit()
-            await session.refresh(group)
-        else:
-            current_members = group.member_list or []
-            if creator_id and creator_id not in current_members:
-                group.member_list = [*current_members, creator_id]
-                await session.commit()
+            await session.flush()
+        if creator_id:
+            from bot.services.membership_service import MembershipService
+            from db.identity import resolve_telegram_user
+
+            resolved_creator = await resolve_telegram_user(session, creator_id)
+            await MembershipService(session).add_member(
+                group.group_id, resolved_creator.user_id
+            )
+        await session.commit()
 
         commit_by = None
         if scheduled_time:
@@ -1795,10 +1797,21 @@ async def _handle_organize_event_direct(
             else None
         )
         collapse_at_dt = _derive_collapse_at(scheduled_time, collapse_iso)
+        from db.identity import resolve_telegram_user
+
+        creator = await resolve_telegram_user(
+            session,
+            creator_id,
+            display_name=(
+                update.effective_user.full_name if update.effective_user else None
+            ),
+            username=update.effective_user.username if update.effective_user else None,
+        )
+        creator_user_id = creator.user_id
 
         conflict = await find_user_event_conflict(
             session=session,
-            telegram_user_id=creator_id,
+            telegram_user_id=creator_user_id,
             start_time=scheduled_time,
             duration_minutes=duration,
         )
@@ -1819,8 +1832,8 @@ async def _handle_organize_event_direct(
             event_type=event_type,
             title=draft.get("title"),
             description=description,
-            organizer_telegram_user_id=creator_id,
-            emergency_admin_telegram_user_id=creator_id,
+            organizer_user_id=creator_user_id,
+            emergency_admin_user_id=creator_user_id,
             scheduled_time=scheduled_time,
             commit_by=commit_by,
             collapse_at=collapse_at_dt,
@@ -1845,7 +1858,7 @@ async def _handle_organize_event_direct(
         participant_service = ParticipantService(session)
         await participant_service.join(
             event_id=event.event_id,
-            telegram_user_id=creator_id,
+            user_id=creator_user_id,
             source="mention",
             role="organizer",
         )
@@ -1856,9 +1869,7 @@ async def _handle_organize_event_direct(
         if isinstance(inferred_constraints, list):
             # Get the creator's internal user_id
             creator_user = (
-                await session.execute(
-                    select(User).where(User.telegram_user_id == creator_id)
-                )
+                await session.execute(select(User).where(User.user_id == creator_id))
             ).scalar_one_or_none()
             creator_internal_user_id = None
             if creator_user:
@@ -1866,7 +1877,7 @@ async def _handle_organize_event_direct(
             else:
                 creator_internal_user_id = await get_or_create_user_id(
                     session,
-                    telegram_user_id=creator_id,
+                    provider_user_id=creator_id,
                     display_name=user.full_name if user else None,
                     username=user.username if user else None,
                 )
@@ -1889,7 +1900,7 @@ async def _handle_organize_event_direct(
                         target_chat = await context.bot.get_chat(target_input)
                         target_user_id = await get_or_create_user_id(
                             session,
-                            telegram_user_id=target_chat.id,
+                            provider_user_id=target_chat.id,
                             display_name=getattr(target_chat, "full_name", None),
                             username=getattr(target_chat, "username", None),
                         )
@@ -1916,16 +1927,19 @@ async def _handle_organize_event_direct(
 
             # Bug 2 fix: Fetch organizer info in outer session (no nested session)
             organizer_user = (
-                await session.execute(
-                    select(User).where(User.telegram_user_id == creator_id)
-                )
+                await session.execute(select(User).where(User.user_id == creator_id))
             ).scalar_one_or_none()
             organizer_username = organizer_user.username if organizer_user else None
             organizer_display_name = (
                 organizer_user.display_name if organizer_user else None
             )
 
-        group_members = group.member_list or []
+        from bot.services.membership_service import MembershipService
+
+        group_members = [
+            row.user_id
+            for row in await MembershipService(session).list_members(group.group_id)
+        ]
 
         # Bug 7: Filter out "@all" sentinel from explicit invitees
         invitees_filtered = [h for h in invitees if h != "@all"]
@@ -1947,7 +1961,7 @@ async def _handle_organize_event_direct(
             "time_window": time_window,
             "planning_notes": planning_notes,
             "inferred_constraints": inferred_constraints,
-            "organizer_telegram_user_id": creator_id,
+            "organizer_user_id": creator_id,
             "organizer_username": organizer_username,
             "organizer_display_name": organizer_display_name,
         }
@@ -1978,8 +1992,8 @@ async def _handle_organize_event_direct(
                         select(User).where(User.user_id == int(user_id))
                     )
                     invitee_user = result.scalar_one_or_none()
-                    if invitee_user and invitee_user.telegram_user_id:
-                        telegram_id = int(invitee_user.telegram_user_id)
+                    if invitee_user and invitee_user.user_id:
+                        telegram_id = int(invitee_user.user_id)
                         if (
                             telegram_id != creator_id
                         ):  # Bug 3: consistently exclude creator

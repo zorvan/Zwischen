@@ -106,11 +106,6 @@ async def resolve_identity(
         return None
 
     user = User(display_name=display_name, username=_normalize_username(username))
-    # telegram_user_id is still NOT NULL during the expand phase, so a
-    # Telegram resolve has to populate it. A user arriving from any other
-    # provider cannot, which is precisely what the contract migration frees.
-    if provider == AuthProvider.telegram.value:
-        user.telegram_user_id = int(normalized)
     session.add(user)
     await session.flush()
 

@@ -78,14 +78,6 @@ class User(Base):
         # language -- still get a public id instead of failing NOT NULL.
         server_default=text("gen_random_uuid()"),
     )
-    # DEPRECATED: superseded by user_identities. Retained through the expand
-    # phase so the bot keeps working while call sites migrate; dropped in the
-    # contract migration once nothing reads it.
-    #
-    # Nullable, because a user who signs up through the web or a mobile app
-    # has no Telegram account. Uniqueness still holds for the rows that do
-    # have one -- PostgreSQL does not treat NULLs as equal.
-    telegram_user_id = Column(BigInteger, unique=True, nullable=True)
     username = Column(String(255), unique=True)
     display_name = Column(String(255))
     # NOTE: expertise_per_activity removed in v3.5 (behavioral scoring deprecated per spec)
@@ -164,9 +156,6 @@ class Group(Base):
     telegram_group_id = Column(BigInteger, unique=True, nullable=True)
     group_name = Column(String(255))
     group_type = Column(String(50), default="casual")
-    # DEPRECATED: superseded by the group_members table. A JSON array cannot
-    # carry a role, cannot be joined against, and cannot be indexed usefully.
-    member_list = Column(JSON, default=list)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -237,8 +226,6 @@ class Event(Base):
     __table_args__ = (
         Index("idx_events_group", "group_id"),
         Index("idx_events_state", "state"),
-        Index("idx_events_organizer_tg", "organizer_telegram_user_id"),
-        Index("idx_events_emergency_admin_tg", "emergency_admin_telegram_user_id"),
         Index("idx_events_organizer_user", "organizer_user_id"),
         Index("idx_events_emergency_admin_user", "emergency_admin_user_id"),
         # The dashboard query is "events for this group in these states,
@@ -264,10 +251,6 @@ class Event(Base):
     event_type = Column(String(100), nullable=False)
     title = Column(String(300), nullable=True)
     description = Column(Text)
-    # DEPRECATED: superseded by organizer_user_id / emergency_admin_user_id.
-    organizer_telegram_user_id = Column(BigInteger)
-    # NOTE: Renamed from admin_telegram_user_id in v3.5 for clarity
-    emergency_admin_telegram_user_id = Column(BigInteger)
     organizer_user_id = Column(
         Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
     )
@@ -448,7 +431,6 @@ class EventParticipant(Base):
     # paths.
     __table_args__ = (
         Index("idx_event_participants_event_id", "event_id"),
-        Index("idx_event_participants_user_id", "telegram_user_id"),
         Index("idx_event_participants_status", "status"),
         Index("idx_event_participants_user", "user_id"),
         # "How many are confirmed on this event" runs on every join, lock and
@@ -463,11 +445,11 @@ class EventParticipant(Base):
         primary_key=True,
         nullable=False,
     )
-    # DEPRECATED: part of the composite PK today. The contract migration makes
-    # (event_id, user_id) the primary key and drops this column.
-    telegram_user_id = Column(BigInteger, primary_key=True, nullable=False)
     user_id = Column(
-        Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=True
+        Integer,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
     )
     status = Column(
         SQLEnum(ParticipantStatus, name="participant_status"),
@@ -544,8 +526,6 @@ class EventStateTransition(Base):
     )
     from_state = Column(String(20), nullable=False)
     to_state = Column(String(20), nullable=False)
-    # DEPRECATED: superseded by actor_user_id.
-    actor_telegram_user_id = Column(BigInteger)
     # SET NULL, not CASCADE: deleting a user must not erase the audit trail of
     # what happened to an event.
     actor_user_id = Column(
@@ -652,10 +632,8 @@ class EventWaitlist(Base):
     event_id = Column(
         Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
-    # DEPRECATED: superseded by user_id.
-    telegram_user_id = Column(BigInteger, nullable=False)
     user_id = Column(
-        Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=True
+        Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
     # Legacy compatibility field. Active v3.2 ordering is by added_at only.
     position = Column(Integer, nullable=True)
@@ -670,9 +648,8 @@ class EventWaitlist(Base):
     )  # waiting, offered, promoted, expired, cancelled
 
     __table_args__ = (
-        UniqueConstraint("event_id", "telegram_user_id", name="uq_waitlist_event_user"),
+        UniqueConstraint("event_id", "user_id", name="uq_waitlist_event_user"),
         Index("idx_event_waitlist_event_id", "event_id"),
-        Index("idx_event_waitlist_user_id", "telegram_user_id"),
         Index("idx_event_waitlist_status", "status"),
         Index("idx_event_waitlist_user", "user_id"),
         # Promotion picks the oldest still-waiting entry for an event.
@@ -727,10 +704,8 @@ class EventEnrichment(Base):
     event_id = Column(
         BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
-    # DEPRECATED: superseded by user_id.
-    telegram_user_id = Column(BigInteger, nullable=False)
     user_id = Column(
-        Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=True
+        Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
     )
     enrichment_type = Column(
         String(30), nullable=False

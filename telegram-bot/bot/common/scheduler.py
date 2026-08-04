@@ -104,7 +104,7 @@ class SchedulerService:
                     EventParticipant, Event.event_id == EventParticipant.event_id
                 )
                 .group_by(Event.event_id)
-                .having(func.count(EventParticipant.telegram_user_id) > 0)
+                .having(func.count(EventParticipant.user_id) > 0)
             )
             events = result.scalars().all()
 
@@ -197,7 +197,7 @@ class SchedulerService:
             for event in events:
                 # Check if threshold is met
                 participant_result = await session.execute(
-                    select(func.count(EventParticipant.telegram_user_id)).where(
+                    select(func.count(EventParticipant.user_id)).where(
                         EventParticipant.event_id == event.event_id,
                         EventParticipant.status.in_(
                             [
@@ -222,7 +222,7 @@ class SchedulerService:
                         await lifecycle.transition_with_lifecycle(
                             event_id=event.event_id,
                             target_state="cancelled",
-                            actor_telegram_user_id=None,  # System action
+                            actor_user_id=None,  # System action
                             source="system",
                             reason=f"Auto-cancel: threshold not met by collapse_at deadline ({event.collapse_at})",
                             expected_version=event.version,
@@ -281,9 +281,7 @@ class SchedulerService:
                 # Get confirmed participants
                 participant_result = await session.execute(
                     select(EventParticipant, User)
-                    .join(
-                        User, EventParticipant.telegram_user_id == User.telegram_user_id
-                    )
+                    .join(User, EventParticipant.user_id == User.user_id)
                     .where(
                         EventParticipant.event_id == event.event_id,
                         EventParticipant.status.in_(
@@ -304,7 +302,7 @@ class SchedulerService:
                         name = user.display_name or (
                             f"@{user.username}"
                             if user.username
-                            else f"User #{user.telegram_user_id}"
+                            else f"User #{user.user_id}"
                         )
                         names.append(name)
 
