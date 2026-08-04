@@ -15,14 +15,56 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from telegram import Bot
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, text
 
-from db.models import Event, Log, EventParticipant, ParticipantStatus, Group, User
+from db.models import (
+    Event,
+    IdempotencyKey,
+    Log,
+    EventParticipant,
+    ParticipantStatus,
+    Group,
+    User,
+)
+from sqlalchemy.exc import IntegrityError
 
 from bot.common.i18n import t
 from db.connection import get_session
 
 logger = logging.getLogger("coord_bot.scheduler")
+
+
+async def claim_scheduled_delivery(
+    db_url: str,
+    key: str,
+    command_type: str,
+    *,
+    event_id: int | None = None,
+    expires_in_days: int = 35,
+) -> bool:
+    """Atomically claim a notification before sending it.
+
+    Claims are committed in their own transaction. If a process dies after
+    Telegram accepts the send, a retry sees the existing primary key and does
+    not send it again. This intentionally chooses at-most-once delivery over
+    duplicate user-visible notifications.
+    """
+    async with get_session(db_url) as session:
+        session.add(
+            IdempotencyKey(
+                idempotency_key=key,
+                command_type=command_type,
+                event_id=event_id,
+                status="pending",
+                expires_at=datetime.utcnow() + timedelta(days=expires_in_days),
+            )
+        )
+        try:
+            await session.commit()
+            return True
+        except IntegrityError:
+            await session.rollback()
+            return False
 
 
 class SchedulerService:
@@ -76,6 +118,14 @@ class SchedulerService:
                 )
                 if memory_result.scalar_one_or_none():
                     # Already collected
+                    continue
+
+                if not await claim_scheduled_delivery(
+                    self.db_url,
+                    f"scheduler:memory:{event.event_id}",
+                    "scheduler_memory_collection",
+                    event_id=event.event_id,
+                ):
                     continue
 
                 # Start collection
@@ -275,6 +325,14 @@ class SchedulerService:
                 )
 
                 try:
+                    reminder_date = event.scheduled_time.date().isoformat()
+                    if not await claim_scheduled_delivery(
+                        self.db_url,
+                        f"scheduler:reminder24h:{event.event_id}:{reminder_date}",
+                        "scheduler_24h_reminder",
+                        event_id=event.event_id,
+                    ):
+                        continue
                     await self.bot.send_message(
                         chat_id=group.telegram_group_id,
                         text=message,
@@ -305,7 +363,19 @@ class SchedulerService:
         from bot.common.weekly_digest import send_digest_to_all_groups
 
         try:
-            stats = await send_digest_to_all_groups(self.bot, get_session(self.db_url))
+
+            async def claim_group(group_id: int) -> bool:
+                year, week, _ = datetime.utcnow().isocalendar()
+                return await claim_scheduled_delivery(
+                    self.db_url,
+                    f"scheduler:weekly_digest:{group_id}:{year}-W{week:02d}",
+                    "scheduler_weekly_digest",
+                )
+
+            async with get_session(self.db_url) as session:
+                stats = await send_digest_to_all_groups(
+                    self.bot, session, claim=claim_group
+                )
             logger.info(
                 "Weekly digest sent: %d sent, %d failed, %d skipped",
                 stats.get("sent", 0),
@@ -318,7 +388,11 @@ class SchedulerService:
             return 0
 
 
-async def run_scheduled_tasks(bot: Bot, db_url: str) -> None:
+SCHEDULER_LOCK_NAMESPACE = 0x5A574953  # stable signed-int-safe "ZWIS"
+SCHEDULER_JOB_ID = 1
+
+
+async def _run_scheduled_tasks_unlocked(bot: Bot, db_url: str) -> None:
     """
     Run all scheduled tasks.
 
@@ -337,6 +411,9 @@ async def run_scheduled_tasks(bot: Bot, db_url: str) -> None:
             pruned = await scheduler.prune_old_logs()
             if pruned > 0:
                 logger.info("Pruned %d old logs", pruned)
+            digests = await scheduler.send_weekly_digests()
+            if digests > 0:
+                logger.info("Sent %d weekly digests", digests)
 
         # Collapse check (hourly)
         collapsed = await scheduler.check_collapse_deadlines()
@@ -357,6 +434,38 @@ async def run_scheduled_tasks(bot: Bot, db_url: str) -> None:
 
     except Exception as e:
         logger.exception("Scheduled task execution failed: %s", e)
+
+
+async def run_scheduled_tasks(bot: Bot, db_url: str) -> bool:
+    """Elect one replica for this tick using a session advisory lock."""
+    from db.connection import create_engine
+
+    engine = create_engine(db_url)
+    async with engine.connect() as connection:
+        acquired = bool(
+            await connection.scalar(
+                text("SELECT pg_try_advisory_lock(:namespace, :job_id)"),
+                {"namespace": SCHEDULER_LOCK_NAMESPACE, "job_id": SCHEDULER_JOB_ID},
+            )
+        )
+        if not acquired:
+            logger.info("Skipping scheduler tick; another instance is leader")
+            return False
+        try:
+            await _run_scheduled_tasks_unlocked(bot, db_url)
+            return True
+        finally:
+            try:
+                await connection.execute(
+                    text("SELECT pg_advisory_unlock(:namespace, :job_id)"),
+                    {"namespace": SCHEDULER_LOCK_NAMESPACE, "job_id": SCHEDULER_JOB_ID},
+                )
+            except Exception:
+                # Connection close also releases session locks. If the
+                # connection died, PostgreSQL has already released it.
+                logger.warning(
+                    "Could not explicitly release scheduler lock", exc_info=True
+                )
 
 
 async def cleanup_expired_idempotency_keys(db_url: str) -> int:

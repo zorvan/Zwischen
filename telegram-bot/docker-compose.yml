@@ -23,8 +23,10 @@ services:
       - AI_MODEL=${AI_MODEL:-gemini-flash-latest}
       - AI_API_KEY=${AI_API_KEY:?AI_API_KEY is required}
       - ENVIRONMENT=${ENVIRONMENT:-development}
+      - WEBHOOK_MODE=${WEBHOOK_MODE:-false}
+      - WEBHOOK_URL=${WEBHOOK_URL:-}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - BOT_PERSISTENCE_PATH=/data/bot_data.pkl
       # Shared conversation state and rate limits. Without this each instance
       # keeps its own, so a second replica would split both.
       - REDIS_URL=redis://redis:6379/0
@@ -37,11 +39,6 @@ services:
         condition: service_healthy
     networks:
       - coordination-network
-    volumes:
-      # Named volume, not a bind mount of the source tree. Bind-mounting "."
-      # shadowed the image's code with the host checkout, which made the build
-      # meaningless and dragged the host .venv and .env into the container.
-      - bot_state:/data
     restart: unless-stopped
     stop_grace_period: 30s
     logging:
@@ -92,5 +89,4 @@ networks:
 
 volumes:
   postgres_data:
-  bot_state:
   redis_data:

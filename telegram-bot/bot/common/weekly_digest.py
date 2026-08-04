@@ -330,6 +330,7 @@ async def send_weekly_digest(
 async def send_digest_to_all_groups(
     bot: Bot,
     session: AsyncSession,
+    claim=None,
 ) -> Dict[str, int]:
     """
     Send weekly digest to all active groups.
@@ -352,6 +353,10 @@ async def send_digest_to_all_groups(
         recent_events = event_result.scalar() or 0
 
         if recent_events == 0:
+            stats["skipped"] += 1
+            continue
+
+        if claim is not None and not await claim(group.group_id):
             stats["skipped"] += 1
             continue
 

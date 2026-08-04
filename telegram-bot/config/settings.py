@@ -51,13 +51,6 @@ class Settings:
         self.ai_model: str = os.environ.get("AI_MODEL", "qwen/qwen3-coder-next")
         self.ai_api_key: str = os.environ.get("AI_API_KEY", "dummy-key")
 
-        # Where PicklePersistence stores conversation state. Must point at a
-        # mounted volume in containers, otherwise in-flight event-creation
-        # flows are lost on every restart.
-        self.persistence_path: str = os.environ.get(
-            "BOT_PERSISTENCE_PATH", "bot_data.pkl"
-        )
-
         # Logging
         self.log_level: str = os.environ.get("LOG_LEVEL", "INFO")
         self.log_level_telegram: str = os.environ.get("LOG_LEVEL_TELEGRAM", "INFO")
@@ -80,6 +73,9 @@ class Settings:
             os.environ.get("ENABLE_IDEMPOTENCY", "false").lower() == "true"
         )
         self.webhook_url: str | None = os.environ.get("WEBHOOK_URL")
+        self.webhook_mode: bool = (
+            os.environ.get("WEBHOOK_MODE", "false").lower() == "true"
+        ) or self.environment == "production"
         self.webhook_port: int = int(os.environ.get("WEBHOOK_PORT", "8443"))
         self.webhook_secret: str | None = os.environ.get("WEBHOOK_SECRET")
         self.webhook_host: str = os.environ.get("WEBHOOK_HOST", "0.0.0.0")

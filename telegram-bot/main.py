@@ -5,14 +5,13 @@ PRD v3: Pure mediation through timing, framing, visibility, language, sequence, 
 """
 import asyncio
 import logging
-from pathlib import Path
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
-    PicklePersistence,
+    TypeHandler,
     filters,
 )
 
@@ -49,6 +48,8 @@ from ai.llm import LLMClient
 from bot.common.i18n import init as init_i18n
 from db.connection import wait_for_db
 from db.migrate import run_migrations
+from core.persistence import StateBackendPersistence
+from core.state import build_state_backend
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -159,8 +160,10 @@ def main():
             "TELEGRAM_TOKEN does not look like a valid Telegram bot token. "
             "Expected '<bot_id>:<secret>'."
         )
-    if settings.environment == "production" and not settings.webhook_url:
-        raise ValueError("WEBHOOK_URL must be set when ENVIRONMENT=production.")
+    if settings.webhook_mode and not settings.webhook_url:
+        raise ValueError("WEBHOOK_URL must be set when webhook mode is enabled.")
+    if settings.webhook_mode and not settings.webhook_secret:
+        raise ValueError("WEBHOOK_SECRET must be set when webhook mode is enabled.")
 
     # Create the loop explicitly. asyncio.get_event_loop() with no running loop
     # is deprecated (DeprecationWarning today, RuntimeError in future Python),
@@ -181,27 +184,34 @@ def main():
     else:
         logger.warning("DB_URL is not set. Database-backed features are unavailable.")
 
-    # Build application with job queue for scheduled tasks
-    # v3.5: Add persistence so user_data persists between updates (creation flow)
-    persistence_path = Path(settings.persistence_path)
-    persistence_path.parent.mkdir(parents=True, exist_ok=True)
-    logger.info("Persistence file: %s", persistence_path)
-    persistence = PicklePersistence(filepath=persistence_path)
+    state_backend = build_state_backend(settings.redis_url, settings.state_namespace)
+    persistence = StateBackendPersistence(state_backend)
+
+    async def shutdown_resources(_application) -> None:
+        from db.connection import dispose_engines
+
+        await dispose_engines()
+        await state_backend.close()
 
     application = (
         ApplicationBuilder()
         .token(settings.telegram_token)
         .persistence(persistence)
+        .post_shutdown(shutdown_resources)
         .build()
     )
 
     # Store settings in bot_data for access by handlers and jobs
     application.bot_data["settings"] = settings
 
-    # Register middleware (rate limiting)
-    # Note: Uncomment when ready to enable rate limiting
-    # from bot.common.rate_limiter import rate_limit_middleware
-    # application.middleware().add(rate_limit_middleware)
+    # Run before every other update handler. ApplicationHandlerStop raised by
+    # this callback prevents the remaining groups from seeing an over-limit
+    # update.
+    from telegram import Update
+    from bot.common.rate_limiter import configure_rate_limiter, rate_limit_update
+
+    configure_rate_limiter(state_backend)
+    application.add_handler(TypeHandler(Update, rate_limit_update), group=-100)
 
     # Capture rolling group history first for mention context.
     application.add_handler(
@@ -397,11 +407,7 @@ def main():
     logger.info("Bot started. Press Ctrl+C to stop.")
 
     # Check if webhook mode is enabled
-    if (
-        settings.environment == "production"
-        and hasattr(settings, "webhook_url")
-        and settings.webhook_url
-    ):
+    if settings.webhook_mode and settings.webhook_url:
         # Production: Use webhook.
         logger.info("Starting in webhook mode: %s", settings.webhook_url)
         from bot.common.webhook import setup_webhook

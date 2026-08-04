@@ -36,10 +36,8 @@ from .state_models import (
 )
 
 
-class _StateEntry:
+class _StateEntry(dict[str, Any]):
     """Internal wrapper that tracks creation/access time for TTL."""
-
-    __slots__ = ("value", "created_at", "last_accessed", "ttl")
 
     def __init__(
         self,
@@ -47,16 +45,41 @@ class _StateEntry:
         ttl: timedelta,
         created_at: datetime | None = None,
     ) -> None:
-        self.value = value
-        self.created_at = created_at or datetime.now(timezone.utc)
-        self.last_accessed = self.created_at
-        self.ttl = ttl
+        created = created_at or datetime.now(timezone.utc)
+        super().__init__(
+            __state_entry__=True,
+            value=value,
+            created_at=created.isoformat(),
+            last_accessed=created.isoformat(),
+            ttl_seconds=ttl.total_seconds(),
+        )
+
+    @property
+    def value(self) -> Any:
+        return self["value"]
+
+    @classmethod
+    def restore(cls, value: Any) -> "_StateEntry | None":
+        if isinstance(value, cls):
+            return value
+        if not isinstance(value, dict) or not value.get("__state_entry__"):
+            return None
+        entry = cls(
+            value.get("value"),
+            timedelta(seconds=float(value["ttl_seconds"])),
+            datetime.fromisoformat(value["created_at"]),
+        )
+        entry["last_accessed"] = value["last_accessed"]
+        return entry
 
     def is_expired(self) -> bool:
-        return datetime.now(timezone.utc) - self.last_accessed > self.ttl
+        last_accessed = datetime.fromisoformat(self["last_accessed"])
+        return datetime.now(timezone.utc) - last_accessed > timedelta(
+            seconds=float(self["ttl_seconds"])
+        )
 
     def touch(self) -> None:
-        self.last_accessed = datetime.now(timezone.utc)
+        self["last_accessed"] = datetime.now(timezone.utc).isoformat()
 
 
 class StateStore:
@@ -82,7 +105,9 @@ class StateStore:
         """Get the current event creation flow, or None if expired/missing."""
         key = "private_event_flow" if private else "event_flow"
         entry = self._user_data.get(key)
-        if isinstance(entry, _StateEntry):
+        state_entry = _StateEntry.restore(entry)
+        if state_entry is not None:
+            entry = state_entry
             if entry.is_expired():
                 self._user_data.pop(key, None)
                 return None
@@ -148,7 +173,9 @@ class StateStore:
         ``created_at`` — or ``None`` if no active session.
         """
         entry = self._user_data.get("enrich_session")
-        if isinstance(entry, _StateEntry):
+        state_entry = _StateEntry.restore(entry)
+        if state_entry is not None:
+            entry = state_entry
             if entry.is_expired():
                 self._clear_enrichment_session()
                 return None
@@ -196,7 +223,9 @@ class StateStore:
 
     def get_modify_request(self, request_id: str) -> ModifyRequest | None:
         entry = self._user_data.get(f"pending_modify_request_{request_id}")
-        if isinstance(entry, _StateEntry):
+        state_entry = _StateEntry.restore(entry)
+        if state_entry is not None:
+            entry = state_entry
             if entry.is_expired():
                 self._user_data.pop(f"pending_modify_request_{request_id}", None)
                 return None
@@ -210,7 +239,9 @@ class StateStore:
         """Get and remove a modification request."""
         key = f"pending_modify_request_{request_id}"
         entry = self._user_data.pop(key, None)
-        if isinstance(entry, _StateEntry):
+        state_entry = _StateEntry.restore(entry)
+        if state_entry is not None:
+            entry = state_entry
             if entry.is_expired():
                 return None
             return entry.value
@@ -225,7 +256,9 @@ class StateStore:
     def pop_modify_request_text(self, request_id: str) -> ModifyRequestText | None:
         key = f"pending_mod_text_{request_id}"
         entry = self._user_data.pop(key, None)
-        if isinstance(entry, _StateEntry):
+        state_entry = _StateEntry.restore(entry)
+        if state_entry is not None:
+            entry = state_entry
             if entry.is_expired():
                 return None
             return entry.value
@@ -250,7 +283,9 @@ class StateStore:
     def get(self, key: str, default: Any = None) -> Any:
         """Get a raw value from user_data, with TTL check for _StateEntry."""
         entry = self._user_data.get(key)
-        if isinstance(entry, _StateEntry):
+        state_entry = _StateEntry.restore(entry)
+        if state_entry is not None:
+            entry = state_entry
             if entry.is_expired():
                 self._user_data.pop(key, None)
                 return default
@@ -281,7 +316,8 @@ class StateStore:
         removed = 0
         expired_keys = []
         for key, entry in self._user_data.items():
-            if isinstance(entry, _StateEntry) and entry.is_expired():
+            state_entry = _StateEntry.restore(entry)
+            if state_entry is not None and state_entry.is_expired():
                 expired_keys.append(key)
         for key in expired_keys:
             self._user_data.pop(key, None)
