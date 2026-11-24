@@ -812,6 +812,38 @@ async def handle_modify_message(
     )
 
 
+async def _store_modify_request(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    request_id: str,
+    event_id: int,
+    admin_user_id: int,
+    change_text: str,
+    requester_id: int | None,
+    requester_username: str | None,
+) -> None:
+    """Record a pending modify request for the admin's approve/reject buttons.
+
+    ``admin_user_id`` is internal; the approval handler compares against the
+    clicking Telegram user, so the entry stores the admin's Telegram ID.
+    ``requester_id`` is already a Telegram ID (it is DM'd directly).
+    """
+    from db.identity import telegram_chat_id
+
+    async with get_session(settings.db_url) as session:
+        admin_telegram_id = await telegram_chat_id(session, admin_user_id)
+    context.bot_data.setdefault("pending_modify_requests", {})[
+        f"modreq_{request_id}"
+    ] = {
+        "event_id": event_id,
+        "requester_id": requester_id,
+        "requester_username": requester_username,
+        "change_text": change_text,
+        "admin_id": admin_telegram_id,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+
 async def _submit_modify_request_via_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -826,15 +858,15 @@ async def _submit_modify_request_via_message(
     user_lang = await get_user_language(
         update.effective_user, user_data=context.user_data
     )
-    pending_key = f"modreq_{request_id}"
-    context.bot_data.setdefault("pending_modify_requests", {})[pending_key] = {
-        "event_id": event_id,
-        "requester_id": requester_id,
-        "requester_username": requester_username,
-        "change_text": change_text,
-        "admin_id": admin_id,
-        "created_at": datetime.utcnow().isoformat(),
-    }
+    await _store_modify_request(
+        context,
+        request_id=request_id,
+        event_id=event_id,
+        admin_user_id=admin_id,
+        change_text=change_text,
+        requester_id=requester_id,
+        requester_username=requester_username,
+    )
 
     await update.message.reply_text(
         t(
@@ -850,7 +882,7 @@ async def _submit_modify_request_via_message(
 
     adminDM_sent = await send_event_modification_request_dm(
         context=context,
-        telegram_user_id=admin_id,
+        user_id=admin_id,
         event_data={
             "event_id": event_id,
             "change_text": change_text,
@@ -879,6 +911,17 @@ async def _submit_modify_request_via_callback(
 ) -> None:
     """Helper to submit modification request via callback."""
     user_lang = await get_user_language(update.callback_query.from_user)
+    # Without a pending entry the admin's approve/reject buttons can only
+    # ever answer "expired"; the message path stored one, this path did not.
+    await _store_modify_request(
+        context,
+        request_id=request_id,
+        event_id=event_id,
+        admin_user_id=admin_id,
+        change_text=change_text,
+        requester_id=requester_id,
+        requester_username=requester_username,
+    )
     await update.callback_query.edit_message_text(
         t(
             "mention_modification_submitted",
@@ -893,7 +936,7 @@ async def _submit_modify_request_via_callback(
 
     adminDM_sent = await send_event_modification_request_dm(
         context=context,
-        telegram_user_id=admin_id,
+        user_id=admin_id,
         event_data={
             "event_id": event_id,
             "change_text": change_text,
@@ -1306,7 +1349,7 @@ async def _apply_participation_action(
                 return
             conflict = await find_user_event_conflict(
                 session=session,
-                telegram_user_id=user_id,
+                user_id=user_id,
                 start_time=event.scheduled_time,
                 duration_minutes=event.duration_minutes,
                 ignore_event_id=event.event_id,
@@ -1811,7 +1854,7 @@ async def _handle_organize_event_direct(
 
         conflict = await find_user_event_conflict(
             session=session,
-            telegram_user_id=creator_user_id,
+            user_id=creator_user_id,
             start_time=scheduled_time,
             duration_minutes=duration,
         )
@@ -1867,20 +1910,8 @@ async def _handle_organize_event_direct(
         inferred_constraints = draft.get("inferred_constraints", [])
         constraints_saved = 0
         if isinstance(inferred_constraints, list):
-            # Get the creator's internal user_id
-            creator_user = (
-                await session.execute(select(User).where(User.user_id == creator_id))
-            ).scalar_one_or_none()
-            creator_internal_user_id = None
-            if creator_user:
-                creator_internal_user_id = creator_user.user_id
-            else:
-                creator_internal_user_id = await get_or_create_user_id(
-                    session,
-                    provider_user_id=creator_id,
-                    display_name=user.full_name if user else None,
-                    username=user.username if user else None,
-                )
+            # creator_id is the Telegram ID; creator_user_id is internal.
+            creator_internal_user_id = creator_user_id
 
             for ic in inferred_constraints:
                 if not isinstance(ic, dict):
@@ -1927,7 +1958,9 @@ async def _handle_organize_event_direct(
 
             # Bug 2 fix: Fetch organizer info in outer session (no nested session)
             organizer_user = (
-                await session.execute(select(User).where(User.user_id == creator_id))
+                await session.execute(
+                    select(User).where(User.user_id == creator_user_id)
+                )
             ).scalar_one_or_none()
             organizer_username = organizer_user.username if organizer_user else None
             organizer_display_name = (
@@ -1961,7 +1994,7 @@ async def _handle_organize_event_direct(
             "time_window": time_window,
             "planning_notes": planning_notes,
             "inferred_constraints": inferred_constraints,
-            "organizer_user_id": creator_id,
+            "organizer_user_id": creator_user_id,
             "organizer_username": organizer_username,
             "organizer_display_name": organizer_display_name,
         }
@@ -1973,7 +2006,7 @@ async def _handle_organize_event_direct(
         # Source 1: Group members (if invite_all is true)
         if invite_all:
             for member_id in group_members:
-                if member_id is not None and member_id != creator_id:
+                if member_id is not None and member_id != creator_user_id:
                     recipient_telegram_ids.add(int(member_id))
             logger.info(
                 f"Public event {event.event_id}: Adding {len(group_members)} cached members to recipients"
@@ -1995,7 +2028,7 @@ async def _handle_organize_event_direct(
                     if invitee_user and invitee_user.user_id:
                         telegram_id = int(invitee_user.user_id)
                         if (
-                            telegram_id != creator_id
+                            telegram_id != creator_user_id
                         ):  # Bug 3: consistently exclude creator
                             explicit_tg_ids.add(telegram_id)
                             recipient_telegram_ids.add(telegram_id)

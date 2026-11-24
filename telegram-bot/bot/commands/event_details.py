@@ -186,7 +186,7 @@ async def _show_logs(query, event_id: int, lang: str = "en") -> None:
             user_info = ""
             if user:
                 user_info = " by " + format_user_display(
-                    telegram_user_id=user.user_id,
+                    user_id=user.user_id,
                     username=getattr(user, "username", None),
                     display_name=getattr(user, "display_name", None),
                     include_link=False,
@@ -255,7 +255,7 @@ async def _show_constraints(query, event_id: int, lang: str = "en") -> None:
             user = users.get(c.user_id)
             user_display = (
                 format_user_display(
-                    telegram_user_id=user.user_id if user else c.user_id,
+                    user_id=user.user_id if user else c.user_id,
                     username=(
                         user.username
                         if user and getattr(user, "username", None)
@@ -276,7 +276,7 @@ async def _show_constraints(query, event_id: int, lang: str = "en") -> None:
                 target_user = users.get(c.target_user_id)
                 target_display = (
                     format_user_display(
-                        telegram_user_id=(
+                        user_id=(
                             target_user.user_id if target_user else c.target_user_id
                         ),
                         username=(

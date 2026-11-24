@@ -1961,7 +1961,7 @@ async def finalize_event(
         creator_user_id = creator.user_id
         conflict = await find_user_event_conflict(
             session=session,
-            telegram_user_id=creator_user_id,
+            user_id=creator_user_id,
             start_time=candidate_time,
             duration_minutes=duration_minutes,
         )
@@ -2065,7 +2065,9 @@ async def finalize_event(
     async with get_session(settings.db_url) as session:
         # Get organizer's username and display_name for display in invitation
         organizer_user = (
-            await session.execute(select(User).where(User.user_id == int(creator_id)))
+            await session.execute(
+                select(User).where(User.user_id == int(creator_user_id))
+            )
         ).scalar_one_or_none()
         organizer_username = organizer_user.username if organizer_user else None
         organizer_display_name = organizer_user.display_name if organizer_user else None
@@ -2075,7 +2077,7 @@ async def finalize_event(
         ).scalar_one_or_none()
 
         # Add organizer info to data for the invitation message
-        data["organizer_user_id"] = int(creator_id)
+        data["organizer_user_id"] = int(creator_user_id)
         data["organizer_username"] = organizer_username
         data["organizer_display_name"] = organizer_display_name
 
@@ -2170,7 +2172,8 @@ async def finalize_event(
             )
 
         # Exclude creator from recipient list (they get a separate admin DM)
-        recipient_telegram_ids.discard(creator_id)
+        # Recipients are internal user IDs, so exclude the creator by theirs.
+        recipient_telegram_ids.discard(creator_user_id)
 
         logger.info(
             "[INVITATION_FLOW] Recipients finalized | event_id=%s total_recipients=%d "
@@ -2180,8 +2183,7 @@ async def finalize_event(
             len(cached_members),
             len(explicit_tg_ids),
             invite_all,
-            creator_id
-            in (recipient_telegram_ids | {creator_id}),  # Check if creator was in set
+            creator_user_id not in recipient_telegram_ids,
         )
 
         if not recipient_telegram_ids:
@@ -2442,7 +2444,7 @@ async def finalize_private_event(
         try:
             conflict = await find_user_event_conflict(
                 session=session,
-                telegram_user_id=creator_user_id,
+                user_id=creator_user_id,
                 start_time=candidate_time,
                 duration_minutes=duration_minutes,
             )
@@ -2507,12 +2509,14 @@ async def finalize_private_event(
     async with get_session(settings.db_url) as session:
         # Get organizer's username for display in invitation
         organizer_user = (
-            await session.execute(select(User).where(User.user_id == int(creator_id)))
+            await session.execute(
+                select(User).where(User.user_id == int(creator_user_id))
+            )
         ).scalar_one_or_none()
         organizer_username = organizer_user.username if organizer_user else None
 
         # Add organizer info to data for the invitation message
-        data["organizer_user_id"] = int(creator_id)
+        data["organizer_user_id"] = int(creator_user_id)
         data["organizer_username"] = organizer_username
 
         dm_count = 0
@@ -2585,7 +2589,7 @@ async def finalize_private_event(
         # Also send to admin/creator
         try:
             sent = await send_event_invitation_dm(
-                context, int(creator_id), data, int(event.event_id)
+                context, int(creator_user_id), data, int(event.event_id)
             )
             if sent:
                 logger.info(

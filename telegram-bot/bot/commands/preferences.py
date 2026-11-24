@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from sqlalchemy import select
 
 from config.settings import settings
 from db.connection import get_session
-from db.models import User
+from db.identity import get_telegram_user, resolve_telegram_user
 from bot.common.user_preferences import (
     get_user_preferences,
     create_or_update_user_preferences,
@@ -49,19 +48,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
-        # Get or create user
-        result = await session.execute(
-            select(User).where(User.user_id == telegram_user_id)
+        db_user = await resolve_telegram_user(
+            session,
+            telegram_user_id,
+            display_name=display_name,
+            username=user.username,
         )
-        db_user = result.scalar_one_or_none()
-
-        if not db_user:
-            db_user = User(
-                telegram_user_id=telegram_user_id,
-                display_name=display_name,
-            )
-            session.add(db_user)
-            await session.flush()
 
         # Get user preferences
         preferences = await get_user_preferences(session, db_user.user_id)
@@ -171,9 +163,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         if not user:
             return
 
-        # Get user ID
-        result = await session.execute(select(User).where(User.user_id == user.id))
-        db_user = result.scalar_one_or_none()
+        db_user = await get_telegram_user(session, user.id)
 
         if not db_user:
             await safe_edit_message(
@@ -184,7 +174,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         # Update preference
         await create_or_update_user_preferences(
             session=session,
-            telegram_user_id=db_user.user_id,
+            user_id=db_user.user_id,
             **{f"{pref_type}_preference": pref_value},
         )
 
@@ -245,8 +235,7 @@ async def set_preference(
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
         user = update.effective_user
-        result = await session.execute(select(User).where(User.user_id == user.id))
-        db_user = result.scalar_one_or_none()
+        db_user = await get_telegram_user(session, user.id)
 
         if not db_user:
             await update.message.reply_text(t("preferences_user_not_found", lang=lang))
@@ -255,7 +244,7 @@ async def set_preference(
         # Update preference
         await create_or_update_user_preferences(
             session=session,
-            telegram_user_id=db_user.user_id,
+            user_id=db_user.user_id,
             **{
                 f"{pref_type.replace('location', 'location_type')}_preference": pref_value
             },

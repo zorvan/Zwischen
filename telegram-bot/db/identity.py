@@ -22,7 +22,7 @@ for free from a UNIQUE column and now have to be explicit:
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Iterable, Optional
 from uuid import UUID
 
 from sqlalchemy import select
@@ -242,3 +242,53 @@ async def resolve_telegram_user(
     )
     assert user is not None  # create=True never returns None
     return user
+
+
+async def get_telegram_user(
+    session: AsyncSession, telegram_user_id: int
+) -> Optional[User]:
+    """Look up the User behind a Telegram id without creating one.
+
+    Telegram IDs are provider IDs, never ``users.user_id``. Comparing one
+    against an internal column silently matches the wrong row or nothing.
+    """
+    return await get_user_by_identity(
+        session, AuthProvider.telegram.value, telegram_user_id
+    )
+
+
+async def telegram_chat_ids(
+    session: AsyncSession, user_ids: Iterable[int]
+) -> dict[int, int]:
+    """Map internal user IDs to their Telegram chat IDs.
+
+    Users with no Telegram identity (web- or wallet-only) are simply absent
+    from the result: they are not reachable over Telegram, which is not an
+    error. A Telegram DM must always go to the value returned here, never to
+    ``users.user_id``.
+    """
+    ids = {int(user_id) for user_id in user_ids if user_id is not None}
+    if not ids:
+        return {}
+    result = await session.execute(
+        select(UserIdentity.user_id, UserIdentity.provider_user_id).where(
+            UserIdentity.user_id.in_(ids),
+            UserIdentity.provider == AuthProvider.telegram.value,
+        )
+    )
+    chats: dict[int, int] = {}
+    for user_id, provider_user_id in result.all():
+        try:
+            chats[int(user_id)] = int(provider_user_id)
+        except (TypeError, ValueError):
+            continue
+    return chats
+
+
+async def telegram_chat_id(
+    session: AsyncSession, user_id: Optional[int]
+) -> Optional[int]:
+    """Telegram chat ID for one internal user, or None if unreachable."""
+    if user_id is None:
+        return None
+    return (await telegram_chat_ids(session, [user_id])).get(int(user_id))

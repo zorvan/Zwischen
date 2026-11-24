@@ -290,13 +290,11 @@ class MaterializationOrchestrator:
             event, user, organizer_chat_id, remaining_count
         )
 
-    async def _get_user(self, telegram_user_id: int) -> Optional[User]:
-        """Get user by Telegram ID."""
+    async def _get_user(self, user_id: int) -> Optional[User]:
+        """Get user by internal ID (callers pass the internal actor ID)."""
         from sqlalchemy import select
 
-        result = await self.session.execute(
-            select(User).where(User.user_id == telegram_user_id)
-        )
+        result = await self.session.execute(select(User).where(User.user_id == user_id))
         return result.scalar_one_or_none()
 
     async def _get_group_chat_id(self, event: "Event") -> Optional[int]:

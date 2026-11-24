@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from config.settings import settings
 from db.connection import get_session
+from db.identity import telegram_chat_ids
 from db.models import Event, User
 from bot.services import ParticipantService
 from bot.common.callback_data import encode_callback
@@ -58,6 +59,7 @@ async def send_confirmation_request_message(
         pending = sorted(participants - confirmed)
 
         users_by_tid: dict[int, User] = {}
+        chat_ids: dict[int, int] = {}
         if participants:
             users = (
                 (
@@ -69,6 +71,8 @@ async def send_confirmation_request_message(
                 .all()
             )
             users_by_tid = {int(u.user_id): u for u in users}
+        # Participant rows hold internal IDs; DMs need Telegram chat IDs.
+        chat_ids = await telegram_chat_ids(session, participants)
 
     pending_labels = (
         ", ".join(_format_user_label(users_by_tid.get(uid), uid) for uid in pending)
@@ -144,7 +148,10 @@ async def send_confirmation_request_message(
         ]
     )
     dm_sent = 0
-    for tid in sorted(participants):
+    for participant_user_id in sorted(participants):
+        tid = chat_ids.get(int(participant_user_id))
+        if tid is None:
+            continue
         try:
             await context.bot.send_message(
                 chat_id=tid,

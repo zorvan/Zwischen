@@ -997,7 +997,7 @@ async def _handle_join(
                     # Notify organizer about new join
                     await send_join_notification_dm(
                         context=context,
-                        telegram_user_id=event.organizer_user_id,
+                        user_id=event.organizer_user_id,
                         event=event,
                         joiner_name=(
                             query.from_user.full_name if query.from_user else "Someone"
@@ -1847,7 +1847,7 @@ async def _handle_logs(
             user_info = ""
             if user:
                 user_info = " by " + format_user_display(
-                    telegram_user_id=user.user_id,
+                    user_id=user.user_id,
                     username=getattr(user, "username", None),
                     display_name=getattr(user, "display_name", None),
                     include_link=False,

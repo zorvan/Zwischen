@@ -66,18 +66,18 @@ def get_privacy_defaults(preference_type: str) -> Dict[str, Any]:
 
 
 async def get_user_preferences(
-    session: AsyncSession, telegram_user_id: int
+    session: AsyncSession, user_id: int
 ) -> Optional[UserPreference]:
     """Get user preferences or None if not set."""
     result = await session.execute(
-        select(UserPreference).where(UserPreference.user_id == telegram_user_id)
+        select(UserPreference).where(UserPreference.user_id == user_id)
     )
     return result.scalar_one_or_none()
 
 
 async def create_or_update_user_preferences(
     session: AsyncSession,
-    telegram_user_id: int,
+    user_id: int,
     time_preference: Optional[str] = None,
     activity_preference: Optional[str] = None,
     budget_preference: Optional[str] = None,
@@ -87,11 +87,11 @@ async def create_or_update_user_preferences(
     privacy_settings: Optional[Dict[str, Any]] = None,
 ) -> UserPreference:
     """Create or update user preferences."""
-    preferences = await get_user_preferences(session, telegram_user_id)
+    preferences = await get_user_preferences(session, user_id)
 
     if not preferences:
         preferences = UserPreference(
-            user_id=telegram_user_id,
+            user_id=user_id,
             time_preference=time_preference or "any",
             activity_preference=activity_preference or "any",
             budget_preference=budget_preference or "any",
@@ -124,9 +124,9 @@ async def create_or_update_user_preferences(
     return preferences
 
 
-async def delete_user_preferences(session: AsyncSession, telegram_user_id: int) -> bool:
+async def delete_user_preferences(session: AsyncSession, user_id: int) -> bool:
     """Delete user preferences. Returns True if deleted."""
-    preferences = await get_user_preferences(session, telegram_user_id)
+    preferences = await get_user_preferences(session, user_id)
     if preferences:
         await session.delete(preferences)
         await session.flush()
@@ -257,13 +257,13 @@ def format_aggregate_preference(
 
 
 async def refresh_expired_preferences(
-    session: AsyncSession, telegram_user_id: int
+    session: AsyncSession, user_id: int
 ) -> Dict[str, str]:
     """Refresh preferences that have expired due to decay.
 
     Returns dict of preference_type -> old_value for changed preferences.
     """
-    preferences = await get_user_preferences(session, telegram_user_id)
+    preferences = await get_user_preferences(session, user_id)
     if not preferences:
         return {}
 
@@ -379,11 +379,9 @@ def set_preference_private_mode(
     return privacy_settings
 
 
-async def get_language_preference(
-    session: AsyncSession, telegram_user_id: int
-) -> Optional[str]:
+async def get_language_preference(session: AsyncSession, user_id: int) -> Optional[str]:
     """Get user's language preference from DB."""
-    preferences = await get_user_preferences(session, telegram_user_id)
+    preferences = await get_user_preferences(session, user_id)
     if preferences and preferences.language_preference:
         # str() unwraps the SQLAlchemy Column descriptor type for the checker;
         # the loaded instance attribute is already a plain string.
@@ -392,11 +390,11 @@ async def get_language_preference(
 
 
 async def set_language_preference(
-    session: AsyncSession, telegram_user_id: int, lang: str
+    session: AsyncSession, user_id: int, lang: str
 ) -> None:
     """Set user's language preference."""
     await create_or_update_user_preferences(
         session=session,
-        telegram_user_id=telegram_user_id,
+        user_id=user_id,
         language_preference=lang,
     )

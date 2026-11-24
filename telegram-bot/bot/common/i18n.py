@@ -68,10 +68,14 @@ async def get_user_language(
     # Check DB preference first
     if session is not None and telegram_user_id is not None:
         from bot.common.user_preferences import get_language_preference
+        from db.identity import get_telegram_user
 
-        db_lang = await get_language_preference(session, telegram_user_id)
-        if db_lang and db_lang in SUPPORTED_LANGS:
-            return db_lang
+        # Preferences are keyed by the internal user ID, not the Telegram ID.
+        member = await get_telegram_user(session, telegram_user_id)
+        if member is not None:
+            db_lang = await get_language_preference(session, int(member.user_id))
+            if db_lang and db_lang in SUPPORTED_LANGS:
+                return db_lang
 
     # Fall back to Telegram profile language
     if hasattr(user, "language_code") and user.language_code:

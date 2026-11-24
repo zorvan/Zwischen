@@ -5,6 +5,37 @@ from __future__ import annotations
 from db.models import ParticipantStatus
 
 
+async def _send_dms(context, event, user_ids: list[int], message: str) -> None:
+    """DM internal users over Telegram, skipping anyone unreachable there.
+
+    Participant rows carry internal ``users.user_id`` values; using them as
+    Telegram chat IDs sends to the wrong chat or fails.
+    """
+    from sqlalchemy.ext.asyncio import async_object_session
+
+    from db.identity import telegram_chat_ids
+
+    session = async_object_session(event)
+    if session is not None:
+        chats = await telegram_chat_ids(session, user_ids)
+    else:
+        from config.settings import settings
+        from db.connection import get_session
+
+        async with get_session(settings.db_url or "") as fresh:
+            chats = await telegram_chat_ids(fresh, user_ids)
+
+    for user_id in user_ids:
+        chat_id = chats.get(int(user_id))
+        if chat_id is None:
+            continue
+        try:
+            await context.bot.send_message(chat_id=chat_id, text=message)
+        except Exception:
+            # User may not have started bot or blocked DM.
+            continue
+
+
 def _active_participants(event) -> list:
     """Return participants still considered active for event coordination."""
     return [
@@ -42,12 +73,7 @@ async def invalidate_confirmations_and_notify(
         "The event details have been updated. "
         f"Please check the event details again."
     )
-    for telegram_user_id in confirmed_ids:
-        try:
-            await context.bot.send_message(chat_id=telegram_user_id, text=message)
-        except Exception:
-            # User may not have started bot or blocked DM.
-            continue
+    await _send_dms(context, event, confirmed_ids, message)
     return len(confirmed_ids)
 
 
@@ -67,10 +93,5 @@ async def notify_attendees_of_modification(
         f"Reason: {reason}\n\n"
         "Please review the updated event details."
     )
-    for telegram_user_id in active_ids:
-        try:
-            await context.bot.send_message(chat_id=telegram_user_id, text=message)
-        except Exception:
-            # User may not have started bot or blocked DM.
-            continue
+    await _send_dms(context, event, active_ids, message)
     return len(active_ids)
