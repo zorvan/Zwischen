@@ -437,7 +437,9 @@ class EventParticipant(Base):
         # "How many are confirmed on this event" runs on every join, lock and
         # threshold check. Counting from this index avoids touching the heap.
         Index("idx_event_participants_event_status", "event_id", "status"),
-        UniqueConstraint("event_id", "user_id", name="uq_participant_event_user"),
+        # No separate unique constraint on (event_id, user_id): the primary
+        # key is exactly that pair, and migration c8f0e2a913b4 dropped the
+        # redundant uq_participant_event_user for that reason.
     )
 
     event_id = Column(

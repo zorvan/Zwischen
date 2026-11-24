@@ -62,7 +62,7 @@ class EventMaterializationService:
 
         message = f"{name} joined the {event.event_type}. 1 person in."
 
-        await self._send_to_group(group_chat_id, message)
+        await self._send_to_group(event, message)
         logger.info(
             "Announced first join",
             extra={"event_id": event.event_id, "user": user.user_id},
@@ -84,7 +84,7 @@ class EventMaterializationService:
 
         message = f"{name} joined the {event.event_type}. {confirmed_count} people in."
 
-        await self._send_to_group(group_chat_id, message)
+        await self._send_to_group(event, message)
         logger.info(
             "Announced join", extra={"event_id": event.event_id, "user": user.user_id}
         )
@@ -121,7 +121,7 @@ class EventMaterializationService:
         if memory_hook:
             message += f'\n\nThe last time your group did something like this, someone said: "{memory_hook}".'
 
-        await self._send_to_group(group_chat_id, message)
+        await self._send_to_group(event, message)
         logger.info(
             "Announced threshold reached",
             extra={"event_id": event.event_id, "count": confirmed_count, "tier": tier},
@@ -165,7 +165,7 @@ class EventMaterializationService:
         if memory_hook:
             message += f'\n\nThe last time your group did something like this, someone said: "{memory_hook}".'
 
-        await self._send_to_group(group_chat_id, message)
+        await self._send_to_group(event, message)
         logger.info(
             "Announced event locked", extra={"event_id": event.event_id, "tier": tier}
         )
@@ -286,7 +286,7 @@ class EventMaterializationService:
             count=participant_count,
         )
 
-        await self._send_to_group(group_chat_id, message)
+        await self._send_to_group(event, message)
         logger.info("Announced event completed", extra={"event_id": event.event_id})
 
     def _get_display_name(self, user: User) -> str:
@@ -307,9 +307,16 @@ class EventMaterializationService:
         time_str = event.scheduled_time.strftime("%a %d %b, %H:%M")
         return time_str
 
-    async def _send_to_group(self, chat_id: int, message: str) -> None:
-        """Send message to group chat."""
-        await self.notifier.send(Recipient.group(chat_id), Message(message))
+    async def _send_to_group(self, event: Event, message: str) -> None:
+        """Send a message to the event's group.
+
+        Recipients carry internal IDs; the notifier maps the group to its
+        transport destination. Callers still pass ``group_chat_id`` to the
+        public announce methods, but only as a "this group is reachable"
+        gate -- it is a Telegram chat ID and must never be used as a
+        ``groups.group_id``.
+        """
+        await self.notifier.send(Recipient.group(event.group_id), Message(message))
 
     async def _send_dm(self, chat_id: int, message: str) -> None:
         """Send DM to user."""

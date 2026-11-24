@@ -124,11 +124,21 @@ def make_bot() -> "Bot":
 
 
 class MockBot:
-    """Stands in for telegram.Bot — no API calls are made."""
+    """Stands in for telegram.Bot — no API calls are made.
+
+    Returns a message-like object, as the real Bot does: the notifier reads
+    ``message_id`` from it to build a MessageRef.
+    """
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[int, str]] = []
 
     async def send_message(self, chat_id: int, text: str, **kwargs):
+        from types import SimpleNamespace
+
         print(f"  [BOT MSG] chat={chat_id} text={text[:80]}...")
-        return True
+        self.sent.append((chat_id, text))
+        return SimpleNamespace(message_id=len(self.sent), chat_id=chat_id)
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +322,20 @@ async def test_full_lifecycle() -> list[str]:
             results.append(
                 f"  [{'OK' if verified else 'FAIL'}] "
                 f"State persisted as '{event.state}' (expected 'locked'), transitioned={ok}"
+            )
+
+            # The lock announcement must reach the group's Telegram chat.
+            # Regression: the Telegram chat ID was once passed as an
+            # internal groups.group_id, which overflowed int4 and aborted
+            # the lock.
+            group_chat = data["group"].telegram_group_id
+            announced = any(
+                chat == group_chat and "is locked" in text
+                for chat, text in cast(MockBot, bot).sent
+            )
+            results.append(
+                f"  [{'OK' if announced else 'FAIL'}] "
+                f"Lock announcement delivered to group chat {group_chat}"
             )
 
             # Verify the transition was recorded in the audit trail
