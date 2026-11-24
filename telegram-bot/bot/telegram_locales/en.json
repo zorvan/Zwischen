@@ -631,5 +631,14 @@
   "event_panel_lineage": "↩ Last time: \"{fragment}\"",
   "language_select_title": "🌐 <b>Select Language</b>\n\nChoose your preferred language for the bot interface.",
   "language_changed": "{flag} <b>Language changed to {native}!</b>\n\nThe bot will now use this language for all messages.",
-  "language_invalid": "❌ Invalid language selection."
+  "language_invalid": "❌ Invalid language selection.",
+  "privacy_policy": "🔒 <b>What Zwischen remembers, and for how long</b>\n\nZwischen remembers enough to bring a gathering together, then lets it go.\n\n• <b>While you have an account:</b> your name, linked accounts, preferences and group memberships.\n• <b>Up to 180 days after an event ends:</b> who joined, the waitlist, availability conditions and ideas people added. After that only the event's type, title, time and outcome remain, with no names attached.\n• <b>Memories:</b> the words people shared fade to the group's summary and tags at 180 days, and disappear entirely at 365 days.\n• <b>Diagnostic logs:</b> 90 days.\n• <b>Recent group chat used for suggestions:</b> the last 40 messages, at most 24 hours old, kept only in working memory.\n\nNothing about you is published to any public ledger.\n\nTo erase your account and everything tied to it, use /delete_account.",
+  "delete_account_dm_only": "🔒 For your privacy, please send /delete_account to me in a private chat.",
+  "delete_account_confirm": "⚠️ <b>Delete your Zwischen account?</b>\n\nThis permanently removes your profile, linked accounts, preferences, group memberships, event participation, conditions, ideas and memory fragments.\n\nEvents you organized stay for the rest of the group, without your name.\n\nThis cannot be undone.",
+  "delete_account_button_confirm": "🗑 Yes, delete everything",
+  "delete_account_button_cancel": "Keep my account",
+  "delete_account_done": "✅ Your account and the data tied to it have been erased.\n\nIf you use Zwischen again, it will start from nothing.",
+  "delete_account_not_found": "There is no account to delete. Zwischen holds nothing about you.",
+  "delete_account_cancelled": "Your account was not changed.",
+  "delete_account_failed": "❌ Something went wrong and nothing was deleted. Please try again later."
 }

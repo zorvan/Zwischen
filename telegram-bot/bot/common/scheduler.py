@@ -420,12 +420,17 @@ async def _run_scheduled_tasks_unlocked(bot: Bot, db_url: str) -> None:
         if memory_count > 0:
             logger.info("Started %d memory collections", memory_count)
 
+        # Retention decay (daily, 03:xx UTC). Daily rather than weekly so no
+        # row outlives its window by more than a day; idempotent, so the two
+        # ticks inside the hour are harmless.
+        if datetime.utcnow().hour == 3:
+            await scheduler.decay_retained_data()
+
         # Log pruning (weekly - check if Sunday)
         if datetime.utcnow().weekday() == 6:  # Sunday
             pruned = await scheduler.prune_old_logs()
             if pruned > 0:
                 logger.info("Pruned %d old logs", pruned)
-            await scheduler.decay_retained_data()
             digests = await scheduler.send_weekly_digests()
             if digests > 0:
                 logger.info("Sent %d weekly digests", digests)

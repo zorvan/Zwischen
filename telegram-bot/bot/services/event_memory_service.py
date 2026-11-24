@@ -25,6 +25,16 @@ from db.models import Event, EventMemory, EventParticipant, ParticipantStatus
 logger = logging.getLogger("coord_bot.services.memory")
 
 
+def fragment_contributor_hash(event_id: int, user_id: int, day: str) -> str:
+    """Pseudonym stamped on a memory fragment.
+
+    It is a pseudonym, not anonymization: anyone holding the user ID can
+    recompute it. Account erasure relies on exactly that to find and remove
+    a user's fragments (see RetentionService.erase_user).
+    """
+    return hashlib.sha256(f"{event_id}:{user_id}:{day}".encode()).hexdigest()[:8]
+
+
 class EventMemoryService:
     """
     Manages the Memory Layer — transforming coordination into shared meaning.
@@ -155,9 +165,10 @@ class EventMemoryService:
         v3: No deadline — fragments accepted weeks after event.
         v3.2: word_count computed at write time for hook/lineage qualification.
         """
-        contributor_hash = hashlib.sha256(
-            f"{event_id}:{user_id}:{datetime.utcnow().date()}".encode()
-        ).hexdigest()[:8]
+        now = datetime.utcnow()
+        contributor_hash = fragment_contributor_hash(
+            event_id, user_id, now.date().isoformat()
+        )
 
         # v3.2: count words at write time
         word_count = len(fragment_text.split())
@@ -166,7 +177,7 @@ class EventMemoryService:
             "text": fragment_text,
             "contributor_hash": contributor_hash,
             "tone_tag": tone_tag or "neutral",
-            "submitted_at": datetime.utcnow().isoformat(),
+            "submitted_at": now.isoformat(),
             "word_count": word_count,
         }
 

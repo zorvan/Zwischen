@@ -37,6 +37,7 @@ from bot.commands import (
     about,
     preferences,
     language,
+    account,
 )
 from bot.handlers import (
     event_panel,
@@ -269,6 +270,9 @@ def main():
         "about": about.handle,
         "preferences": preferences.handle,
         "language": language.handle,
+        # Retention policy and right to erasure (docs/RETENTION_POLICY.md)
+        "privacy": account.privacy,
+        "delete_account": account.delete_account,
     }
 
     for command, handler in command_map.items():
@@ -343,6 +347,8 @@ def main():
         (r"^private_event_back_to_transport$", event_creation.private_handle_callback),
         # Language preference
         (r"^lang_", language.handle_callback),
+        # Account erasure confirmation
+        (r"^acct_delete_(yes|no)$", account.handle_callback),
         # v3.5: Event panel callbacks (ev:{id}:action format)
         (r"^ev:", event_panel.route_event_callback),
         (r"^mnpick_", mentions.handle_disambiguation_callbacks),

@@ -145,6 +145,23 @@ def create_app(
     ) -> None:
         await sessions.revoke(authorization[7:])
 
+    @app.delete("/me", status_code=204)
+    async def delete_account(
+        authorization: str = Header(),
+        user: User = Depends(current_user),
+        session: AsyncSession = Depends(session_dependency),
+    ) -> None:
+        """Right to erasure (docs/RETENTION_POLICY.md).
+
+        Remaining access tokens stop working immediately: current_user
+        rejects any token whose account no longer exists.
+        """
+        from bot.services.retention_service import RetentionService
+
+        await RetentionService(session).erase_user(int(user.user_id))
+        await session.commit()
+        await sessions.revoke(authorization[7:])
+
     @app.post("/auth/wallet/challenge", dependencies=[Depends(rate_limit)])
     async def wallet_challenge(body: WalletRequest) -> dict[str, str]:
         return {"challenge": await challenges.create(body.address)}

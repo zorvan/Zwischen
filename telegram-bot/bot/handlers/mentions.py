@@ -60,6 +60,25 @@ _PICK_CODE_TO_ACTION: dict[str, str] = {
 _ACTION_TO_PICK_CODE = {v: k for k, v in _PICK_CODE_TO_ACTION.items()}
 
 HISTORY_LIMIT = 40
+# Rolling chat context is a working buffer, not a record: nothing older than
+# this is kept or shown to the model (docs/RETENTION_POLICY.md).
+HISTORY_MAX_AGE = timedelta(hours=24)
+
+
+def _fresh_history(entries: list) -> list:
+    """Entries younger than HISTORY_MAX_AGE, newest HISTORY_LIMIT only."""
+    cutoff = datetime.utcnow() - HISTORY_MAX_AGE
+    fresh = []
+    for entry in entries:
+        try:
+            stamp = datetime.fromisoformat(str(entry.get("timestamp")))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if stamp >= cutoff:
+            fresh.append(entry)
+    return fresh[-HISTORY_LIMIT:]
+
+
 MENTION_PATTERN = re.compile(r"@([A-Za-z0-9_]{5,32})")
 
 
@@ -229,8 +248,7 @@ async def record_group_history(
             "timestamp": datetime.utcnow().isoformat(),
         }
     )
-    if len(chat_history) > HISTORY_LIMIT:
-        del chat_history[:-HISTORY_LIMIT]
+    chat_history[:] = _fresh_history(chat_history)
 
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -264,7 +282,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     parent_text = ""
-    history = context.bot_data.get("chat_history", {}).get(chat.id, [])
+    history = _fresh_history(context.bot_data.get("chat_history", {}).get(chat.id, []))
     if is_reply_to_bot:
         parent_text = (
             message.reply_to_message.text or message.reply_to_message.caption or ""

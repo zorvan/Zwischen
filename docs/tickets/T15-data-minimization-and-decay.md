@@ -87,8 +87,8 @@ forget.
 
 ## Acceptance criteria
 
-- [ ] Written retention policy covering every table, with justifications
-- [ ] Decay job implemented, idempotent, running under a leader lock
-- [ ] Account deletion removes or anonymizes per policy, with a test
-- [ ] CI test asserting no data outstays its window
-- [ ] Policy documented for users in product terms, not just in code
+- [x] Written retention policy covering every table, with justifications
+- [x] Decay job implemented, idempotent, running under a leader lock
+- [x] Account deletion removes or anonymizes per policy, with a test
+- [x] CI test asserting no data outstays its window
+- [x] Policy documented for users in product terms, not just in code
