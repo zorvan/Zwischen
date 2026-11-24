@@ -15,7 +15,7 @@ Design principles:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
@@ -33,6 +33,16 @@ logger = logging.getLogger("coord_bot.services.waitlist")
 # ---------------------------------------------------------------------------
 
 
+def _utcnow() -> datetime:
+    """Timezone-aware now: every waitlist/event timestamp column is timestamptz."""
+    return datetime.now(timezone.utc)
+
+
+def _aware(value: datetime) -> datetime:
+    """Treat a naive timestamp as UTC so comparisons never raise."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
 def _compute_offer_duration(event_scheduled_time: Optional[datetime]) -> int:
     """Return the offer-validity duration in minutes based on proximity to the event.
 
@@ -44,8 +54,7 @@ def _compute_offer_duration(event_scheduled_time: Optional[datetime]) -> int:
     if event_scheduled_time is None:
         return 120  # default 2 hours when no time set
 
-    now = datetime.utcnow()
-    delta = event_scheduled_time - now
+    delta = _aware(event_scheduled_time) - _utcnow()
     total_seconds = delta.total_seconds()
 
     if total_seconds < 2 * 3600:  # <2h
@@ -142,7 +151,7 @@ class WaitlistService:
         entry = EventWaitlist(
             event_id=event_id,
             user_id=user_id,
-            added_at=datetime.utcnow(),
+            added_at=_utcnow(),
             status="waiting",
         )
         self.session.add(entry)
@@ -234,7 +243,7 @@ class WaitlistService:
             duration = _compute_offer_duration(scheduled_time)
 
         entry.status = "offered"
-        entry.expires_at = datetime.utcnow() + timedelta(minutes=duration)
+        entry.expires_at = _utcnow() + timedelta(minutes=duration)
 
         await self._send_offer_dm(event_id, user_id, duration)
 
@@ -266,7 +275,7 @@ class WaitlistService:
             return False
 
         # Check expiration
-        if entry.expires_at and datetime.utcnow() > entry.expires_at:
+        if entry.expires_at and _utcnow() > _aware(entry.expires_at):
             await self.expire_offer(event_id, user_id)
             return False
 
@@ -419,7 +428,7 @@ class WaitlistService:
 
         Returns the number of entries that were swept.
         """
-        now = datetime.utcnow()
+        now = _utcnow()
         query = select(EventWaitlist).where(
             EventWaitlist.status == "offered",
             EventWaitlist.expires_at.isnot(None),

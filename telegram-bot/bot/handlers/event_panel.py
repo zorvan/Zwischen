@@ -940,7 +940,7 @@ async def _handle_join(
 
                 # Transition to interested if non-organizer joins and event is proposed
                 organizer_id = event.organizer_user_id
-                if telegram_user_id != organizer_id and event.state == "proposed":
+                if internal_user_id != organizer_id and event.state == "proposed":
                     from bot.services import EventLifecycleService
 
                     lifecycle_service = EventLifecycleService(bot, session)

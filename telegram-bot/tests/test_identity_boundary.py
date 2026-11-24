@@ -219,3 +219,46 @@ async def test_modify_request_stores_admin_telegram_id(db_settings: str) -> None
     pending = context.bot_data["pending_modify_requests"]["modreq_abc12345"]
     # The approval handler compares this with query.from_user.id.
     assert pending["admin_id"] == ORGANIZER_TG
+
+
+class FakeQuery:
+    def __init__(self, telegram_id: int) -> None:
+        self.from_user = SimpleNamespace(
+            id=telegram_id, full_name="Member", username="member"
+        )
+        self.edits: list[str] = []
+
+    async def edit_message_text(self, text: str, **_: Any) -> None:
+        self.edits.append(text)
+
+    async def answer(self, *_: Any, **__: Any) -> None:
+        return None
+
+
+async def test_waitlist_buttons_resolve_the_clicking_user(db_settings: str) -> None:
+    from bot.handlers import waitlist
+    from bot.services.waitlist_service import WaitlistService
+    from core.notifier import NullNotifier
+
+    ids = await _seed(db_settings)
+    async with get_session(db_settings) as session:
+        late = await resolve_telegram_user(session, 7_000_000_003, display_name="Late")
+        service = WaitlistService(session, NullNotifier())
+        await service.add_to_waitlist(ids["event_id"], late.user_id)
+        await service.offer_spot(ids["event_id"], late.user_id, 30)
+        await session.commit()
+
+    query = FakeQuery(7_000_000_003)
+    update: Any = SimpleNamespace(callback_query=query)
+    context: Any = SimpleNamespace(bot=RecordingBot(), user_data={})
+    await waitlist.handle_accept(update, context, ids["event_id"])
+    assert query.edits and query.edits[0].startswith("✅ You're in")
+
+    # Organizer-only view: the organizer's Telegram ID is admitted, the
+    # internal ID (which a Telegram user could never present) is not needed.
+    organizer_query = FakeQuery(ORGANIZER_TG)
+    await waitlist.handle_view_waitlist(
+        SimpleNamespace(callback_query=organizer_query), context, ids["event_id"]
+    )
+    assert organizer_query.edits
+    assert "only" not in organizer_query.edits[0].lower()
