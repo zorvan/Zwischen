@@ -35,6 +35,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     telegram_user_id = update.effective_user.id
     chat_id = update.effective_chat.id if update.effective_chat else None
     async with get_session(settings.db_url) as session:
+        user_id = await get_or_create_user_id(
+            session,
+            provider_user_id=telegram_user_id,
+            display_name=update.effective_user.full_name,
+            username=update.effective_user.username,
+        )
         is_visible, event, group, error_msg = (
             await check_event_visibility_and_get_event(
                 session,
@@ -56,19 +62,13 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         try:
             participant, is_new_unconfirm = await participant_service.unconfirm(
                 event_id=event_id,
-                telegram_user_id=telegram_user_id,
+                user_id=user_id,
                 source="slash",
             )
         except Exception:
             await message.reply_text("ℹ️ You are not confirmed in this event.")
             return
 
-        user_id = await get_or_create_user_id(
-            session,
-            telegram_user_id=telegram_user_id,
-            display_name=update.effective_user.full_name,
-            username=update.effective_user.username,
-        )
         session.add(
             Log(
                 event_id=event_id,
@@ -84,7 +84,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             session=session,
             bot=context.bot,
             event_id=event_id,
-            actor_telegram_user_id=telegram_user_id,
+            actor_user_id=user_id,
             source="slash",
             reason="Participant unconfirmed attendance",
         )

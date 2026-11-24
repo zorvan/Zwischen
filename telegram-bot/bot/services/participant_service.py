@@ -152,7 +152,7 @@ class ParticipantService:
     async def join(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
         source: str = "slash",
         role: ParticipantRole = ParticipantRole.participant,
     ) -> Tuple[EventParticipant, bool]:
@@ -166,7 +166,7 @@ class ParticipantService:
         result = await self.session.execute(
             select(EventParticipant).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.telegram_user_id == telegram_user_id,
+                EventParticipant.user_id == user_id,
             )
         )
         participant = result.scalar_one_or_none()
@@ -179,7 +179,7 @@ class ParticipantService:
                 participant.cancelled_at = None
                 logger.info(
                     "Participant rejoined event",
-                    extra={"event_id": event_id, "user": telegram_user_id},
+                    extra={"event_id": event_id, "user": user_id},
                 )
                 return participant, True
 
@@ -197,7 +197,7 @@ class ParticipantService:
         # Create new participant
         participant = EventParticipant(
             event_id=event_id,
-            telegram_user_id=telegram_user_id,
+            user_id=user_id,
             status=ParticipantStatus.joined,
             role=role,
             source=source,
@@ -209,7 +209,7 @@ class ParticipantService:
             "New participant joined",
             extra={
                 "event_id": event_id,
-                "user": telegram_user_id,
+                "user": user_id,
                 "source": source,
             },
         )
@@ -219,7 +219,7 @@ class ParticipantService:
     async def confirm(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
         source: str = "callback",
     ) -> Tuple[EventParticipant, bool]:
         """
@@ -231,22 +231,20 @@ class ParticipantService:
         result = await self.session.execute(
             select(EventParticipant).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.telegram_user_id == telegram_user_id,
+                EventParticipant.user_id == user_id,
             )
         )
         participant = result.scalar_one_or_none()
 
         if not participant:
             # Auto-join on confirm
-            return await self.join(event_id, telegram_user_id, source)
+            return await self.join(event_id, user_id, source)
 
         if participant.status == ParticipantStatus.confirmed:
             return participant, False
 
         if participant.status == ParticipantStatus.cancelled:
-            raise ParticipantError(
-                f"User {telegram_user_id} cannot confirm after cancelling"
-            )
+            raise ParticipantError(f"User {user_id} cannot confirm after cancelling")
 
         participant.status = ParticipantStatus.confirmed
         participant.confirmed_at = datetime.utcnow()
@@ -255,7 +253,7 @@ class ParticipantService:
             "Participant confirmed",
             extra={
                 "event_id": event_id,
-                "user": telegram_user_id,
+                "user": user_id,
                 "source": source,
             },
         )
@@ -265,7 +263,7 @@ class ParticipantService:
     async def cancel(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
         source: str = "callback",
     ) -> Tuple[EventParticipant, bool]:
         """
@@ -277,14 +275,14 @@ class ParticipantService:
         result = await self.session.execute(
             select(EventParticipant).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.telegram_user_id == telegram_user_id,
+                EventParticipant.user_id == user_id,
             )
         )
         participant = result.scalar_one_or_none()
 
         if not participant:
             raise ParticipantNotFoundError(
-                f"User {telegram_user_id} is not a participant of event {event_id}"
+                f"User {user_id} is not a participant of event {event_id}"
             )
 
         if participant.status == ParticipantStatus.cancelled:
@@ -297,7 +295,7 @@ class ParticipantService:
             "Participant cancelled",
             extra={
                 "event_id": event_id,
-                "user": telegram_user_id,
+                "user": user_id,
                 "source": source,
             },
         )
@@ -307,13 +305,13 @@ class ParticipantService:
     async def mark_no_show(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> None:
         """Mark participant as no-show after event completion."""
         result = await self.session.execute(
             select(EventParticipant).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.telegram_user_id == telegram_user_id,
+                EventParticipant.user_id == user_id,
             )
         )
         participant = result.scalar_one_or_none()
@@ -322,19 +320,19 @@ class ParticipantService:
             participant.status = ParticipantStatus.no_show
             logger.warning(
                 "Participant marked as no-show",
-                extra={"event_id": event_id, "user": telegram_user_id},
+                extra={"event_id": event_id, "user": user_id},
             )
 
     async def get_participant(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> Optional[EventParticipant]:
         """Get participant record."""
         result = await self.session.execute(
             select(EventParticipant).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.telegram_user_id == telegram_user_id,
+                EventParticipant.user_id == user_id,
             )
         )
         return result.scalar_one_or_none()
@@ -360,9 +358,7 @@ class ParticipantService:
         Returns dict with: joined, confirmed, cancelled, total
         """
         result = await self.session.execute(
-            select(
-                EventParticipant.status, func.count(EventParticipant.telegram_user_id)
-            )
+            select(EventParticipant.status, func.count(EventParticipant.user_id))
             .where(EventParticipant.event_id == event_id)
             .group_by(EventParticipant.status)
         )
@@ -384,7 +380,7 @@ class ParticipantService:
     async def get_interested_count(self, event_id: int) -> int:
         """Get count of interested participants (joined but not confirmed)."""
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event_id,
                 EventParticipant.status == ParticipantStatus.joined,
             )
@@ -394,7 +390,7 @@ class ParticipantService:
     async def get_confirmed_count(self, event_id: int) -> int:
         """Get count of confirmed participants (for threshold checks)."""
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event_id,
                 EventParticipant.status == ParticipantStatus.confirmed,
             )
@@ -434,7 +430,7 @@ class ParticipantService:
     async def unconfirm(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
         source: str = "callback",
     ) -> Tuple[EventParticipant, bool]:
         """
@@ -446,14 +442,14 @@ class ParticipantService:
         result = await self.session.execute(
             select(EventParticipant).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.telegram_user_id == telegram_user_id,
+                EventParticipant.user_id == user_id,
             )
         )
         participant = result.scalar_one_or_none()
 
         if not participant:
             raise ParticipantNotFoundError(
-                f"User {telegram_user_id} is not a participant of event {event_id}"
+                f"User {user_id} is not a participant of event {event_id}"
             )
 
         if participant.status != ParticipantStatus.confirmed:
@@ -466,7 +462,7 @@ class ParticipantService:
             "Participant unconfirmed",
             extra={
                 "event_id": event_id,
-                "user": telegram_user_id,
+                "user": user_id,
                 "source": source,
             },
         )
@@ -476,7 +472,7 @@ class ParticipantService:
     async def remove_participant(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> bool:
         """
         Completely remove participant record.
@@ -486,7 +482,7 @@ class ParticipantService:
         result = await self.session.execute(
             delete(EventParticipant).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.telegram_user_id == telegram_user_id,
+                EventParticipant.user_id == user_id,
             )
         )
         return result.rowcount > 0

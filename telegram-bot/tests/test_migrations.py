@@ -47,27 +47,28 @@ def test_baseline_revision_is_present() -> None:
     assert script.get_revision(migrate.BASELINE_REVISION) is not None
 
 
-def test_baseline_covers_every_model_table() -> None:
-    """The baseline must create every table the models declare.
+def test_migrations_cover_every_model_table() -> None:
+    """Every table the models declare must be created by some migration.
 
-    A model added without a migration would otherwise only surface as a
-    missing-table error at runtime.
+    This used to check the baseline alone, which held only while the baseline
+    was also the head. Tables added by later revisions are legitimately absent
+    from it, so the assertion is over the whole chain: a model added without
+    any migration would otherwise surface only as a missing-table error at
+    runtime.
     """
     from db.models import Base
 
-    baseline = next(
-        (PROJECT_ROOT / "db" / "migrations" / "versions").glob(
-            f"{migrate.BASELINE_REVISION}_*.py"
-        )
+    versions = PROJECT_ROOT / "db" / "migrations" / "versions"
+    source = "\n".join(
+        path.read_text(encoding="utf-8") for path in versions.glob("*.py")
     )
-    source = baseline.read_text(encoding="utf-8")
 
     missing = [
         name
         for name in Base.metadata.tables
         if f"'{name}'" not in source and f'"{name}"' not in source
     ]
-    assert not missing, f"baseline migration does not create: {missing}"
+    assert not missing, f"no migration creates: {missing}"
 
 
 def test_inspection_uses_an_async_driver() -> None:
@@ -95,7 +96,7 @@ def test_migration_adopts_existing_database() -> None:
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    from db.connection import check_db_connection, create_engine, init_db
+    from db.connection import check_db_connection, create_engine
     from db.url import normalize_db_url
 
     base_url = normalize_db_url(
@@ -126,10 +127,18 @@ def test_migration_adopts_existing_database() -> None:
     asyncio.run(admin_exec(f'CREATE DATABASE "{db_name}"'))
 
     try:
-        # Build it the old way: tables, data, and no alembic_version.
+        # Build a genuinely pre-Alembic database: baseline-era tables, data,
+        # and no alembic_version.
+        #
+        # This deliberately does not use init_db()/create_all, which builds
+        # whatever the models declare *today*. Stamping that at the baseline
+        # would claim a head-shaped schema is baseline-shaped, and the next
+        # migration would fail adding a column that already exists -- an
+        # artefact of the test, not of adoption.
+        migrate.run_migrations(target, revision=migrate.BASELINE_REVISION)
+
         async def build() -> None:
             engine = create_engine(target)
-            await init_db(engine)
             async with engine.begin() as conn:
                 await conn.execute(
                     text(
@@ -137,6 +146,7 @@ def test_migration_adopts_existing_database() -> None:
                         "group_type) VALUES (-1, 'kept', 'casual')"
                     )
                 )
+                await conn.execute(text("DROP TABLE alembic_version"))
             await engine.dispose()
 
         asyncio.run(build())

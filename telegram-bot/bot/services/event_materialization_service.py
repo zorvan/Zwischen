@@ -23,9 +23,8 @@ import logging
 import sqlalchemy
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-
 from bot.common.i18n import t
+from core.notifier import Action, Message, Notifier, Recipient
 from db.models import Event, EventParticipant, ParticipantStatus, User
 from bot.common.materialization import get_time_framing_tier
 
@@ -40,8 +39,12 @@ class EventMaterializationService:
     change behavior through framing.
     """
 
-    def __init__(self, bot: Bot, session: AsyncSession):
-        self.bot = bot
+    def __init__(self, notifier: object, session: AsyncSession):
+        if not isinstance(notifier, Notifier):
+            from bot.common.telegram_notifier import TelegramNotifier
+
+            notifier = TelegramNotifier(notifier, session)
+        self.notifier = notifier
         self.session = session
 
     async def announce_first_join(
@@ -59,7 +62,7 @@ class EventMaterializationService:
 
         message = f"{name} joined the {event.event_type}. 1 person in."
 
-        await self._send_to_group(group_chat_id, message)
+        await self._send_to_group(event, message)
         logger.info(
             "Announced first join",
             extra={"event_id": event.event_id, "user": user.user_id},
@@ -81,7 +84,7 @@ class EventMaterializationService:
 
         message = f"{name} joined the {event.event_type}. {confirmed_count} people in."
 
-        await self._send_to_group(group_chat_id, message)
+        await self._send_to_group(event, message)
         logger.info(
             "Announced join", extra={"event_id": event.event_id, "user": user.user_id}
         )
@@ -118,7 +121,7 @@ class EventMaterializationService:
         if memory_hook:
             message += f'\n\nThe last time your group did something like this, someone said: "{memory_hook}".'
 
-        await self._send_to_group(group_chat_id, message)
+        await self._send_to_group(event, message)
         logger.info(
             "Announced threshold reached",
             extra={"event_id": event.event_id, "count": confirmed_count, "tier": tier},
@@ -140,17 +143,30 @@ class EventMaterializationService:
         time_str = self._format_event_time(event)
         tier = get_time_framing_tier(event)
 
-        names = []
-        for p in participants:
-            if p.status in {ParticipantStatus.confirmed, ParticipantStatus.joined}:
-                user_result = await self.session.execute(
-                    sqlalchemy.select(User).where(
-                        User.telegram_user_id == p.telegram_user_id
+        active = [
+            p
+            for p in participants
+            if p.status in {ParticipantStatus.confirmed, ParticipantStatus.joined}
+        ]
+        users_by_id = (
+            {
+                user.user_id: user
+                for user in (
+                    await self.session.execute(
+                        sqlalchemy.select(User).where(
+                            User.user_id.in_([p.user_id for p in active])
+                        )
                     )
-                )
-                user = user_result.scalar_one_or_none()
-                if user:
-                    names.append(self._get_display_name(user))
+                ).scalars()
+            }
+            if active
+            else {}
+        )
+        names = [
+            self._get_display_name(users_by_id[p.user_id])
+            for p in active
+            if p.user_id in users_by_id
+        ]
 
         names_str = ", ".join(names) if names else "TBD"
 
@@ -164,7 +180,7 @@ class EventMaterializationService:
         if memory_hook:
             message += f'\n\nThe last time your group did something like this, someone said: "{memory_hook}".'
 
-        await self._send_to_group(group_chat_id, message)
+        await self._send_to_group(event, message)
         logger.info(
             "Announced event locked", extra={"event_id": event.event_id, "tier": tier}
         )
@@ -246,9 +262,9 @@ class EventMaterializationService:
         # Inline action buttons
         keyboard = [
             [
-                InlineKeyboardButton(
+                Action(
                     t("waitlist_extend_deadline", lang=lang),
-                    callback_data=f"extend_deadline_{event.event_id}",
+                    f"extend_deadline_{event.event_id}",
                 ),
             ],
         ]
@@ -256,16 +272,14 @@ class EventMaterializationService:
         if waitlist_count > 0:
             keyboard.append(
                 [
-                    InlineKeyboardButton(
+                    Action(
                         t("waitlist_view_waitlist", lang=lang),
-                        callback_data=f"view_waitlist_{event.event_id}",
+                        f"view_waitlist_{event.event_id}",
                     ),
                 ]
             )
 
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await self._send_dm_with_markup(organizer_chat_id, message, reply_markup)
+        await self._send_dm_with_markup(organizer_chat_id, message, keyboard)
         logger.info(
             "Sent cancellation-with-action DM", extra={"event_id": event.event_id}
         )
@@ -287,7 +301,7 @@ class EventMaterializationService:
             count=participant_count,
         )
 
-        await self._send_to_group(group_chat_id, message)
+        await self._send_to_group(event, message)
         logger.info("Announced event completed", extra={"event_id": event.event_id})
 
     def _get_display_name(self, user: User) -> str:
@@ -298,7 +312,7 @@ class EventMaterializationService:
             return html.escape(user.display_name)
         if user.username:
             return f"@{html.escape(user.username)}"
-        return f"User #{user.telegram_user_id}"
+        return f"User #{user.user_id}"
 
     def _format_event_time(self, event: Event, lang: str = "en") -> str:
         """Format event scheduled time for display."""
@@ -308,53 +322,26 @@ class EventMaterializationService:
         time_str = event.scheduled_time.strftime("%a %d %b, %H:%M")
         return time_str
 
-    async def _send_to_group(self, chat_id: int, message: str) -> None:
-        """Send message to group chat."""
-        try:
-            await self.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            logger.error(
-                "Failed to send materialization message to group %s: %s",
-                chat_id,
-                e,
-            )
+    async def _send_to_group(self, event: Event, message: str) -> None:
+        """Send a message to the event's group.
+
+        Recipients carry internal IDs; the notifier maps the group to its
+        transport destination. Callers still pass ``group_chat_id`` to the
+        public announce methods, but only as a "this group is reachable"
+        gate -- it is a Telegram chat ID and must never be used as a
+        ``groups.group_id``.
+        """
+        await self.notifier.send(Recipient.group(event.group_id), Message(message))
 
     async def _send_dm(self, chat_id: int, message: str) -> None:
         """Send DM to user."""
-        try:
-            await self.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                parse_mode="HTML",
-            )
-        except Exception as e:
-            logger.error(
-                "Failed to send materialization DM to %s: %s",
-                chat_id,
-                e,
-            )
+        await self.notifier.send(Recipient.user(chat_id), Message(message))
 
     async def _send_dm_with_markup(
         self,
         chat_id: int,
         message: str,
-        reply_markup: InlineKeyboardMarkup,
+        actions: list[list[Action]],
     ) -> None:
         """Send DM to user with inline keyboard markup."""
-        try:
-            await self.bot.send_message(
-                chat_id=chat_id,
-                text=message,
-                parse_mode="HTML",
-                reply_markup=reply_markup,
-            )
-        except Exception as e:
-            logger.error(
-                "Failed to send materialization DM with markup to %s: %s",
-                chat_id,
-                e,
-            )
+        await self.notifier.send(Recipient.user(chat_id), Message(message, actions))

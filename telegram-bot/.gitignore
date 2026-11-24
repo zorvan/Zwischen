@@ -8,6 +8,8 @@ dump*.sql
 # commits real user data.
 bot_data.pkl
 **/*.pkl
+.coord_bot.pid
+.coord_bot.lock
 
 # Environment
 .env

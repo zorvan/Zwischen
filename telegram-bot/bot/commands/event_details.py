@@ -136,14 +136,19 @@ async def _show_status(
         log_count = await _get_event_log_count(session, event_id)
         constraint_count = await _get_event_constraint_count(session, event_id)
         user_participant = None
+        internal_user_id = None
         if user_id:
+            from db.identity import resolve_telegram_user
+
+            resolved_user = await resolve_telegram_user(session, user_id)
+            internal_user_id = int(resolved_user.user_id)
             participant_service = ParticipantService(session)
             user_participant = await participant_service.get_participant(
-                event.event_id, user_id
+                event.event_id, internal_user_id
             )
         bot_username = context.bot.username if context.bot else None
         keyboard = await _build_status_markup(
-            event, user_id, bot_username, session, lang=user_lang
+            event, internal_user_id, bot_username, session, lang=user_lang
         )
         reply_markup = InlineKeyboardMarkup(keyboard) if keyboard else None
         await safe_edit_message(
@@ -181,7 +186,7 @@ async def _show_logs(query, event_id: int, lang: str = "en") -> None:
             user_info = ""
             if user:
                 user_info = " by " + format_user_display(
-                    telegram_user_id=user.telegram_user_id,
+                    user_id=user.user_id,
                     username=getattr(user, "username", None),
                     display_name=getattr(user, "display_name", None),
                     include_link=False,
@@ -250,7 +255,7 @@ async def _show_constraints(query, event_id: int, lang: str = "en") -> None:
             user = users.get(c.user_id)
             user_display = (
                 format_user_display(
-                    telegram_user_id=user.telegram_user_id if user else c.user_id,
+                    user_id=user.user_id if user else c.user_id,
                     username=(
                         user.username
                         if user and getattr(user, "username", None)
@@ -271,10 +276,8 @@ async def _show_constraints(query, event_id: int, lang: str = "en") -> None:
                 target_user = users.get(c.target_user_id)
                 target_display = (
                     format_user_display(
-                        telegram_user_id=(
-                            target_user.telegram_user_id
-                            if target_user
-                            else c.target_user_id
+                        user_id=(
+                            target_user.user_id if target_user else c.target_user_id
                         ),
                         username=(
                             target_user.username

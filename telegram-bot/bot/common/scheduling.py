@@ -12,14 +12,12 @@ DEFAULT_DURATION_MINUTES = 120
 ACTIVE_STATES = {"proposed", "interested", "confirmed", "locked"}
 
 
-async def _user_in_event(
-    session: AsyncSession, event_id: int, telegram_user_id: int
-) -> bool:
+async def _user_in_event(session: AsyncSession, event_id: int, user_id: int) -> bool:
     """Check whether a user is participant in event (new system)."""
     result = await session.execute(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.telegram_user_id == telegram_user_id,
+            EventParticipant.user_id == user_id,
             EventParticipant.status.in_(
                 [
                     ParticipantStatus.joined,
@@ -49,7 +47,7 @@ def events_overlap(
 
 async def find_user_event_conflict(
     session: AsyncSession,
-    telegram_user_id: int,
+    user_id: int,
     start_time,
     duration_minutes: int | None,
     ignore_event_id: int | None = None,
@@ -64,7 +62,7 @@ async def find_user_event_conflict(
         if ignore_event_id is not None and event.event_id == ignore_event_id:
             continue
         # Check if user is participant using new system
-        if not await _user_in_event(session, event.event_id, telegram_user_id):
+        if not await _user_in_event(session, event.event_id, user_id):
             continue
         if events_overlap(
             start_time,

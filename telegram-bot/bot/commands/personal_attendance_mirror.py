@@ -12,7 +12,8 @@ from sqlalchemy import select, func
 
 from config.settings import settings
 from db.connection import get_session
-from db.models import User, EventParticipant
+from db.identity import get_telegram_user
+from db.models import EventParticipant
 
 
 async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -27,10 +28,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     telegram_user_id = update.effective_user.id
 
     async with get_session(settings.db_url) as session:
-        user_result = await session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
-        )
-        user = user_result.scalar_one_or_none()
+        user = await get_telegram_user(session, telegram_user_id)
 
         if not user:
             await update.message.reply_text(
@@ -43,14 +41,14 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         # Factual counts only — no scores, no trends, no inference
         joined_result = await session.execute(
             select(func.count(EventParticipant.event_id)).where(
-                EventParticipant.telegram_user_id == telegram_user_id
+                EventParticipant.user_id == user.user_id
             )
         )
         joined_count = joined_result.scalar() or 0
 
         completed_result = await session.execute(
             select(func.count(EventParticipant.event_id)).where(
-                EventParticipant.telegram_user_id == telegram_user_id,
+                EventParticipant.user_id == user.user_id,
                 EventParticipant.status == "confirmed",
             )
         )

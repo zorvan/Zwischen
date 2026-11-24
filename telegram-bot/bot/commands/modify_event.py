@@ -15,7 +15,7 @@ from bot.common.confirmation import (
     notify_attendees_of_modification,
 )
 from bot.common.event_access import (
-    get_event_admin_telegram_id,
+    get_event_admin_user_id,
 )
 from bot.common.rbac import check_event_visibility_and_get_event
 from bot.common.i18n import t, get_user_language
@@ -196,9 +196,12 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 f"❌ Event {event_id} is {event.state}; modification is not allowed."
             )
             return
-        admin_id = get_event_admin_telegram_id(event)
+        from db.identity import telegram_chat_id
+
+        admin_user_id = get_event_admin_user_id(event)
+        admin_telegram_id = await telegram_chat_id(session, admin_user_id)
         requester_id = int(update.effective_user.id)
-        if admin_id is not None and requester_id != admin_id:
+        if admin_user_id is not None and requester_id != admin_telegram_id:
             await _submit_modify_request(
                 update=update,
                 context=context,
@@ -250,8 +253,12 @@ async def _submit_modify_request(
     change_text: str,
 ) -> None:
     """Submit a modify request when non-admin user requests changes."""
-    admin_id = get_event_admin_telegram_id(event)
-    if admin_id is None:
+    from db.identity import telegram_chat_id
+
+    admin_user_id = get_event_admin_user_id(event)
+    async with get_session(settings.db_url) as session:
+        admin_id = await telegram_chat_id(session, admin_user_id)
+    if admin_user_id is None or admin_id is None:
         await update.message.reply_text(
             "❌ Could not identify event admin to approve modification request."
         )
@@ -280,7 +287,7 @@ async def _submit_modify_request(
 
     adminDM_sent = await send_event_modification_request_dm(
         context=context,
-        telegram_user_id=admin_id,
+        user_id=admin_user_id,
         event_data={
             "description": event.description or "",
             "event_type": event.event_type,

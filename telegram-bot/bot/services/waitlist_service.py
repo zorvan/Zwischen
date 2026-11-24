@@ -15,15 +15,14 @@ Design principles:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup
-
 from bot.common.i18n import t
 from bot.services.participant_service import ParticipantService
+from core.notifier import Action, Message, Notifier, Recipient
 from db.models import Event, EventWaitlist, EventParticipant, User
 
 logger = logging.getLogger("coord_bot.services.waitlist")
@@ -32,6 +31,16 @@ logger = logging.getLogger("coord_bot.services.waitlist")
 # ---------------------------------------------------------------------------
 # Response-window helpers
 # ---------------------------------------------------------------------------
+
+
+def _utcnow() -> datetime:
+    """Timezone-aware now: every waitlist/event timestamp column is timestamptz."""
+    return datetime.now(timezone.utc)
+
+
+def _aware(value: datetime) -> datetime:
+    """Treat a naive timestamp as UTC so comparisons never raise."""
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 def _compute_offer_duration(event_scheduled_time: Optional[datetime]) -> int:
@@ -45,8 +54,7 @@ def _compute_offer_duration(event_scheduled_time: Optional[datetime]) -> int:
     if event_scheduled_time is None:
         return 120  # default 2 hours when no time set
 
-    now = datetime.utcnow()
-    delta = event_scheduled_time - now
+    delta = _aware(event_scheduled_time) - _utcnow()
     total_seconds = delta.total_seconds()
 
     if total_seconds < 2 * 3600:  # <2h
@@ -61,27 +69,17 @@ def _build_waitlist_offer_keyboard(
     *,
     accept: bool = True,
     decline: bool = True,
-) -> InlineKeyboardMarkup:
+) -> list[list[Action]]:
     """Inline keyboard for a waitlist offer DM."""
-    rows: list[list[InlineKeyboardButton]] = []
-    row: list[InlineKeyboardButton] = []
+    rows: list[list[Action]] = []
+    row: list[Action] = []
     if accept:
-        row.append(
-            InlineKeyboardButton(
-                "Yes, I'm in",
-                callback_data=f"waitlist_accept_{event_id}",
-            )
-        )
+        row.append(Action("Yes, I'm in", f"waitlist_accept_{event_id}"))
     if decline:
-        row.append(
-            InlineKeyboardButton(
-                "No thanks",
-                callback_data=f"waitlist_decline_{event_id}",
-            )
-        )
+        row.append(Action("No thanks", f"waitlist_decline_{event_id}"))
     if row:
         rows.append(row)
-    return InlineKeyboardMarkup(rows)
+    return rows
 
 
 # ---------------------------------------------------------------------------
@@ -96,9 +94,13 @@ class WaitlistService:
     for determining who is next.
     """
 
-    def __init__(self, session: AsyncSession, bot: Bot) -> None:
+    def __init__(self, session: AsyncSession, notifier: object) -> None:
         self.session = session
-        self.bot = bot
+        if not isinstance(notifier, Notifier):
+            from bot.common.telegram_notifier import TelegramNotifier
+
+            notifier = TelegramNotifier(notifier, session)
+        self.notifier = notifier
 
     async def _compute_offer_duration(self, event_id: int) -> int:
         """Compatibility wrapper for tests and callers that have an event ID."""
@@ -117,7 +119,7 @@ class WaitlistService:
     async def add_to_waitlist(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> int:
         """Add a user to the waitlist and return their FIFO position (1-based).
 
@@ -130,7 +132,7 @@ class WaitlistService:
         participant = await self.session.execute(
             select(EventParticipant).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.telegram_user_id == telegram_user_id,
+                EventParticipant.user_id == user_id,
             )
         )
         if participant.scalar_one_or_none():
@@ -140,7 +142,7 @@ class WaitlistService:
         existing = await self.session.execute(
             select(EventWaitlist).where(
                 EventWaitlist.event_id == event_id,
-                EventWaitlist.telegram_user_id == telegram_user_id,
+                EventWaitlist.user_id == user_id,
             )
         )
         if existing.scalar_one_or_none():
@@ -148,16 +150,16 @@ class WaitlistService:
 
         entry = EventWaitlist(
             event_id=event_id,
-            telegram_user_id=telegram_user_id,
-            added_at=datetime.utcnow(),
+            user_id=user_id,
+            added_at=_utcnow(),
             status="waiting",
         )
         self.session.add(entry)
 
-        position = await self.get_waitlist_position(event_id, telegram_user_id)
+        position = await self.get_waitlist_position(event_id, user_id)
         logger.info(
             "User %s joined waitlist for event %s (position %s)",
-            telegram_user_id,
+            user_id,
             event_id,
             position,
         )
@@ -166,7 +168,7 @@ class WaitlistService:
     async def leave_waitlist(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> bool:
         """Remove user from the waitlist.
 
@@ -175,7 +177,7 @@ class WaitlistService:
         result = await self.session.execute(
             select(EventWaitlist).where(
                 EventWaitlist.event_id == event_id,
-                EventWaitlist.telegram_user_id == telegram_user_id,
+                EventWaitlist.user_id == user_id,
                 EventWaitlist.status == "waiting",
             )
         )
@@ -186,7 +188,7 @@ class WaitlistService:
         await self.session.delete(entry)
         logger.info(
             "User %s left waitlist for event %s",
-            telegram_user_id,
+            user_id,
             event_id,
         )
         return True
@@ -215,7 +217,7 @@ class WaitlistService:
     async def offer_spot(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
         expires_in_minutes: Optional[int] = None,
     ) -> Optional[EventWaitlist]:
         """Mark a waitlist entry as ``offered`` and send a DM to the user.
@@ -226,7 +228,7 @@ class WaitlistService:
         Returns the updated waitlist record, or None if no matching entry
         was found.
         """
-        entry = await self._get_waiting(event_id, telegram_user_id)
+        entry = await self._get_waiting(event_id, user_id)
         if entry is None:
             return None
 
@@ -241,13 +243,13 @@ class WaitlistService:
             duration = _compute_offer_duration(scheduled_time)
 
         entry.status = "offered"
-        entry.expires_at = datetime.utcnow() + timedelta(minutes=duration)
+        entry.expires_at = _utcnow() + timedelta(minutes=duration)
 
-        await self._send_offer_dm(event_id, telegram_user_id, duration)
+        await self._send_offer_dm(event_id, user_id, duration)
 
         logger.info(
             "Offered spot to user %s for event %s (expires in %s min)",
-            telegram_user_id,
+            user_id,
             event_id,
             duration,
         )
@@ -256,7 +258,7 @@ class WaitlistService:
     async def accept_offer(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> bool:
         """Confirm the user's acceptance of a waitlist offer.
 
@@ -268,29 +270,29 @@ class WaitlistService:
 
         Returns True on success, False if the offer is invalid/expired.
         """
-        entry = await self._get_offered(event_id, telegram_user_id)
+        entry = await self._get_offered(event_id, user_id)
         if entry is None:
             return False
 
         # Check expiration
-        if entry.expires_at and datetime.utcnow() > entry.expires_at:
-            await self.expire_offer(event_id, telegram_user_id)
+        if entry.expires_at and _utcnow() > _aware(entry.expires_at):
+            await self.expire_offer(event_id, user_id)
             return False
 
         # Promote to participant
         participant_service = ParticipantService(self.session)
-        await participant_service.join(event_id, telegram_user_id, source="waitlist")
-        await participant_service.confirm(event_id, telegram_user_id, source="waitlist")
+        await participant_service.join(event_id, user_id, source="waitlist")
+        await participant_service.confirm(event_id, user_id, source="waitlist")
 
         # Remove from waitlist
         await self.session.delete(entry)
 
         # Notify organizer
-        await self._notify_organizer_accepted(event_id, telegram_user_id)
+        await self._notify_organizer_accepted(event_id, user_id)
 
         logger.info(
             "User %s accepted waitlist offer for event %s",
-            telegram_user_id,
+            user_id,
             event_id,
         )
         return True
@@ -298,20 +300,20 @@ class WaitlistService:
     async def decline_offer(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> bool:
         """User declines the offer.  Mark as ``cancelled`` and offer to next.
 
         Returns True if an entry was found and declined, False otherwise.
         """
-        entry = await self._get_offered(event_id, telegram_user_id)
+        entry = await self._get_offered(event_id, user_id)
         if entry is None:
             return False
 
         entry.status = "cancelled"
         logger.info(
             "User %s declined waitlist offer for event %s",
-            telegram_user_id,
+            user_id,
             event_id,
         )
 
@@ -322,20 +324,20 @@ class WaitlistService:
     async def expire_offer(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> bool:
         """Mark an offer as expired and offer to the next person.
 
         Returns True if an entry was found and expired, False otherwise.
         """
-        entry = await self._get_offered(event_id, telegram_user_id)
+        entry = await self._get_offered(event_id, user_id)
         if entry is None:
             return False
 
         entry.status = "expired"
         logger.info(
             "Waitlist offer expired for user %s on event %s",
-            telegram_user_id,
+            user_id,
             event_id,
         )
 
@@ -350,10 +352,10 @@ class WaitlistService:
     async def get_waitlist_position(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> Optional[int]:
         """Return the user's 1-based FIFO position on the waitlist, or None."""
-        entry = await self._get_waiting(event_id, telegram_user_id)
+        entry = await self._get_waiting(event_id, user_id)
         if entry is None:
             return None
 
@@ -415,7 +417,7 @@ class WaitlistService:
             return
 
         duration = _compute_offer_duration(event.scheduled_time)
-        await self.offer_spot(event_id, next_entry.telegram_user_id, duration)
+        await self.offer_spot(event_id, next_entry.user_id, duration)
 
     # ------------------------------------------------------------------
     # Expired-offer sweep (periodic job)
@@ -426,7 +428,7 @@ class WaitlistService:
 
         Returns the number of entries that were swept.
         """
-        now = datetime.utcnow()
+        now = _utcnow()
         query = select(EventWaitlist).where(
             EventWaitlist.status == "offered",
             EventWaitlist.expires_at.isnot(None),
@@ -446,7 +448,7 @@ class WaitlistService:
             swept += 1
             logger.info(
                 "Swept expired offer for user %s on event %s",
-                entry.telegram_user_id,
+                entry.user_id,
                 entry.event_id,
             )
 
@@ -460,26 +462,26 @@ class WaitlistService:
     # ------------------------------------------------------------------
 
     async def _get_waiting(
-        self, event_id: int, telegram_user_id: int
+        self, event_id: int, user_id: int
     ) -> Optional[EventWaitlist]:
         """Fetch a ``waiting`` entry for the given event+user."""
         result = await self.session.execute(
             select(EventWaitlist).where(
                 EventWaitlist.event_id == event_id,
-                EventWaitlist.telegram_user_id == telegram_user_id,
+                EventWaitlist.user_id == user_id,
                 EventWaitlist.status == "waiting",
             )
         )
         return result.scalar_one_or_none()
 
     async def _get_offered(
-        self, event_id: int, telegram_user_id: int
+        self, event_id: int, user_id: int
     ) -> Optional[EventWaitlist]:
         """Fetch an ``offered`` entry for the given event+user."""
         result = await self.session.execute(
             select(EventWaitlist).where(
                 EventWaitlist.event_id == event_id,
-                EventWaitlist.telegram_user_id == telegram_user_id,
+                EventWaitlist.user_id == user_id,
                 EventWaitlist.status == "offered",
             )
         )
@@ -488,7 +490,7 @@ class WaitlistService:
     async def _send_offer_dm(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
         expires_in_minutes: int,
     ) -> None:
         """Send a DM to the waitlisted user with accept/decline buttons."""
@@ -503,68 +505,56 @@ class WaitlistService:
         event = event_result.scalar_one_or_none()
         event_type = event.event_type if event else "event"
 
-        try:
-            await self.bot.send_message(
-                chat_id=telegram_user_id,
-                text=t(
+        await self.notifier.send(
+            Recipient.user(user_id),
+            Message(
+                t(
                     "waitlist_offer_spot",
                     lang="en",
                     event_type=event_type,
                     event_id=event_id,
                     expiry=expiry_text,
                 ),
-                reply_markup=keyboard,
-            )
-        except Exception:
-            logger.exception(
-                "Failed to send waitlist offer DM to user %s for event %s",
-                telegram_user_id,
-                event_id,
-            )
+                keyboard,
+            ),
+        )
 
     async def _notify_organizer_accepted(
         self,
         event_id: int,
-        telegram_user_id: int,
+        user_id: int,
     ) -> None:
         """Notify the event organizer that a waitlisted user accepted."""
         event_result = await self.session.execute(
             select(Event).where(Event.event_id == event_id)
         )
         event = event_result.scalar_one_or_none()
-        if event is None or event.organizer_telegram_user_id is None:
+        if event is None or event.organizer_user_id is None:
             return
 
-        organizer_id = int(event.organizer_telegram_user_id)
+        organizer_id = int(event.organizer_user_id)
 
         # Fetch user display info
         user_result = await self.session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
+            select(User).where(User.user_id == user_id)
         )
         user = user_result.scalar_one_or_none()
-        display_name = self._display_name(user, telegram_user_id)
+        display_name = self._display_name(user, user_id)
 
         event_type = event.event_type
 
-        try:
-            await self.bot.send_message(
-                chat_id=organizer_id,
-                text=t(
+        await self.notifier.send(
+            Recipient.user(organizer_id),
+            Message(
+                t(
                     "waitlist_organizer_notification",
                     lang="en",
                     display_name=display_name,
                     event_type=event_type,
                     event_id=event_id,
-                ),
-            )
-        except Exception:
-            logger.exception(
-                "Failed to notify organizer %s about waitlist acceptance "
-                "for event %s by user %s",
-                organizer_id,
-                event_id,
-                telegram_user_id,
-            )
+                )
+            ),
+        )
 
     @staticmethod
     def _display_name(user: Optional[User], fallback_id: int) -> str:

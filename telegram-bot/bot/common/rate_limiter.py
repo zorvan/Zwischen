@@ -8,16 +8,16 @@ Features:
 - Sliding window algorithm
 - Configurable limits per action type
 
-WARNING: Rate limit state is in-memory and NOT restart-safe.
-For multi-instance deployment, move state to Redis or a dedicated DB table.
+Counters live in ``StateBackend`` so every application instance observes the
+same sliding window.
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Tuple, Any
-from collections import defaultdict
+from typing import Optional, Tuple
+
+from core.state import StateBackend
 
 logger = logging.getLogger("coord_bot.rate_limiter")
 
@@ -52,11 +52,8 @@ class RateLimiter:
         "dm": {"limit": 3, "window": 60},  # DMs from bot per minute
     }
 
-    def __init__(self):
-        # Storage: {key: [timestamps]}
-        self._requests: Dict[str, list[datetime]] = defaultdict(list)
-        self._cleanup_interval = 300  # Cleanup every 5 minutes
-        self._last_cleanup = datetime.utcnow()
+    def __init__(self, backend: StateBackend):
+        self.backend = backend
 
     def _get_key(
         self, user_id: Optional[int], group_id: Optional[int], action_type: str
@@ -69,28 +66,7 @@ class RateLimiter:
         else:
             return f"global:{action_type}"
 
-    def _cleanup(self) -> None:
-        """Remove expired entries."""
-        now = datetime.utcnow()
-        if now - self._last_cleanup < timedelta(seconds=self._cleanup_interval):
-            return
-
-        max_window = max(config["window"] for config in self.ACTION_LIMITS.values())
-        cutoff = now - timedelta(seconds=max_window * 2)
-
-        expired_keys = []
-        for key, timestamps in self._requests.items():
-            self._requests[key] = [ts for ts in timestamps if ts > cutoff]
-            if not self._requests[key]:
-                expired_keys.append(key)
-
-        for key in expired_keys:
-            del self._requests[key]
-
-        self._last_cleanup = now
-        logger.debug("Rate limiter cleanup completed")
-
-    def check_rate_limit(
+    async def check_rate_limit(
         self,
         user_id: Optional[int] = None,
         group_id: Optional[int] = None,
@@ -102,8 +78,6 @@ class RateLimiter:
         Returns:
             (is_allowed, retry_after_seconds)
         """
-        self._cleanup()
-
         # Get limits for action type
         config = self.ACTION_LIMITS.get(
             action_type,
@@ -113,82 +87,25 @@ class RateLimiter:
         window = config["window"]
 
         key = self._get_key(user_id, group_id, action_type)
-        now = datetime.utcnow()
-        window_start = now - timedelta(seconds=window)
-
-        # Count requests in current window
-        self._requests[key] = [ts for ts in self._requests[key] if ts > window_start]
-        current_count = len(self._requests[key])
-
-        if current_count >= limit:
-            # Calculate retry after
-            oldest_in_window = min(self._requests[key])
-            retry_after = int(
-                (oldest_in_window + timedelta(seconds=window) - now).total_seconds()
-            )
-            retry_after = max(1, retry_after)  # At least 1 second
-            return False, retry_after
-
-        return True, None
-
-    def record_request(
-        self,
-        user_id: Optional[int] = None,
-        group_id: Optional[int] = None,
-        action_type: str = "message",
-    ) -> None:
-        """Record a request for rate limiting."""
-        key = self._get_key(user_id, group_id, action_type)
-        self._requests[key].append(datetime.utcnow())
-
-    def get_usage(
-        self,
-        user_id: Optional[int] = None,
-        group_id: Optional[int] = None,
-        action_type: str = "message",
-    ) -> Dict[str, Any]:
-        """
-        Get current usage stats.
-
-        Returns dict with: current_count, limit, window, remaining, reset_at
-        """
-        config = self.ACTION_LIMITS.get(
-            action_type,
-            {"limit": self.DEFAULT_LIMIT, "window": self.DEFAULT_WINDOW_SECONDS},
-        )
-        limit = config["limit"]
-        window = config["window"]
-
-        key = self._get_key(user_id, group_id, action_type)
-        now = datetime.utcnow()
-        window_start = now - timedelta(seconds=window)
-
-        self._requests[key] = [ts for ts in self._requests[key] if ts > window_start]
-        current_count = len(self._requests[key])
-
-        reset_at = now + timedelta(seconds=window)
-        if self._requests[key]:
-            oldest_in_window = min(self._requests[key])
-            reset_at = oldest_in_window + timedelta(seconds=window)
-
-        return {
-            "current_count": current_count,
-            "limit": limit,
-            "window_seconds": window,
-            "remaining": max(0, limit - current_count),
-            "reset_at": reset_at,
-        }
+        current_count = await self.backend.hit_window(key, window)
+        return (current_count <= limit, None if current_count <= limit else window)
 
 
 # Global rate limiter instance
 _rate_limiter: Optional[RateLimiter] = None
 
 
+def configure_rate_limiter(backend: StateBackend) -> RateLimiter:
+    global _rate_limiter
+    _rate_limiter = RateLimiter(backend)
+    return _rate_limiter
+
+
 def get_rate_limiter() -> RateLimiter:
     """Get or create global rate limiter."""
     global _rate_limiter
     if _rate_limiter is None:
-        _rate_limiter = RateLimiter()
+        raise RuntimeError("Rate limiter has not been configured")
     return _rate_limiter
 
 
@@ -208,7 +125,9 @@ async def check_rate_limit(
             return
     """
     limiter = get_rate_limiter()
-    is_allowed, retry_after = limiter.check_rate_limit(user_id, group_id, action_type)
+    is_allowed, retry_after = await limiter.check_rate_limit(
+        user_id, group_id, action_type
+    )
 
     if not is_allowed:
         error_msg = (
@@ -222,27 +141,12 @@ async def check_rate_limit(
     return True, None
 
 
-def record_request(
-    user_id: Optional[int] = None,
-    group_id: Optional[int] = None,
-    action_type: str = "message",
-) -> None:
-    """Record request for rate limiting."""
-    limiter = get_rate_limiter()
-    limiter.record_request(user_id, group_id, action_type)
-
-
-async def rate_limit_middleware(update, context, next_handler):
-    """
-    Rate limiting middleware for telegram.ext.
-
-    Usage in main.py:
-        application.middleware().add(rate_limit_middleware)
-    """
+async def rate_limit_update(update, context):
+    """Stop update dispatch when the shared sliding-window limit is exceeded."""
     from telegram import Update
 
     if not isinstance(update, Update):
-        return await next_handler(update, context)
+        return
 
     user_id = update.effective_user.id if update.effective_user else None
     group_id = update.effective_chat.id if update.effective_chat else None
@@ -273,9 +177,6 @@ async def rate_limit_middleware(update, context, next_handler):
         )
         # Silently drop the update or send rate limit message
         # For now, silently drop to avoid spam
-        return
+        from telegram.ext import ApplicationHandlerStop
 
-    # Record the request
-    record_request(user_id, group_id, action_type)
-
-    return await next_handler(update, context)
+        raise ApplicationHandlerStop

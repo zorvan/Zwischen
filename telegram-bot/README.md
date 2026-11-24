@@ -562,49 +562,42 @@ The bot automatically posts to group chat at key state transitions:
 
 ---
 
-## Data Model (PostgreSQL v2)
+## Data Model (PostgreSQL)
 
-### Core Tables
+`db/models.py` is the source of truth and the Alembic revisions are the DDL.
+Every `*.user_id` column holds an internal `users.user_id`. Telegram IDs live
+only in `user_identities` (`provider = 'telegram'`), so a web or wallet user
+is a first-class user with no Telegram row. Clients only ever see the
+`public_id` UUIDs on users, groups and events.
+
+### Tables
 
 | Table | Description |
 |-------|-------------|
-| `users` | User profiles and Telegram metadata |
-| `groups` | Group information and membership |
-| `events` | Event details with normalized schema |
-| `event_participants` | **NEW** - Normalized participant records |
-| `constraints` | Availability and constraint rules |
-| `reputation` | User reputation scores (deprecated in v3) |
-| `logs` | Audit trail for all actions |
-| `feedback` | Post-event feedback |
-| `early_feedback` | Pre-event signals |
-| `ailog` | AI interaction history |
-| `event_state_transitions` | **NEW** - Audit trail for state changes |
-| `idempotency_keys` | **NEW** - Prevents duplicate command execution |
-| `event_memories` | **NEW** - Fragment Mosaic storage |
+| `users` | Provider-neutral profile (display name, username, `public_id`) |
+| `user_identities` | Linked accounts: `telegram`, `email`, `wallet:ton`, ... |
+| `user_preferences` | Time, budget, transport and language preferences |
+| `groups`, `group_members` | Groups and explicit membership (role, status) |
+| `group_settings` | Live cards, timezone, hashtag limit, anchoring opt-in |
+| `events` | Event details, thresholds, deadlines, state + `version` |
+| `event_participants` | One row per (event, user): `joined` / `confirmed` / ... |
+| `event_waitlist` | Waitlist entries and time-limited offers |
+| `constraints` | Private availability and conditional-attendance rules |
+| `event_enrichments` | Ideas, hashtags and memory fragments added in the panel |
+| `event_memories`, `event_lineage` | Memory weave and links to prior similar events |
+| `event_state_transitions` | Audit trail of state changes |
+| `event_live_cards` | Delivery references for live-updating cards |
+| `group_event_type_stats` | Aggregate counters per group and event type |
+| `idempotency_keys` | Duplicate-command protection |
+| `logs` | Short-lived operational log (90 days) |
+| `anchor_outbox` | Optional commitment anchoring outbox (off by default) |
 
-### Event Fields (v2)
+### Retention
 
-| Field | Description |
-|-------|-------------|
-| `description`, `event_type` | Event details |
-| `organizer_telegram_user_id`, `admin_telegram_user_id` | Ownership |
-| `scheduled_time`, `duration_minutes`, `threshold_attendance` | Timing |
-| `min_participants`, `target_participants` | **NEW** - Viability thresholds |
-| `collapse_at`, `lock_deadline` | **NEW** - Auto-cancel and lock deadlines |
-| `state`, `version` | State machine + optimistic concurrency |
-| `planning_prefs` | JSON configuration |
-
-**Deprecated:** `attendance_list` (migrated to `event_participants` table)
-
-### EventParticipant Table
-
-| Column | Description |
-|--------|-------------|
-| `event_id`, `telegram_user_id` | Composite primary key |
-| `status` | Enum: `joined`, `confirmed`, `cancelled`, `no_show` |
-| `role` | Enum: `organizer`, `participant`, `observer` |
-| `source` | `slash`, `callback`, `mention`, `dm` |
-| `joined_at`, `confirmed_at`, `cancelled_at` | Timestamps |
+Data decays by design: participation, waitlists, conditions and enrichments go
+180 days after an event ends, memories shrink to a summary and then disappear,
+and an account can be erased completely. See
+[`../docs/RETENTION_POLICY.md`](../docs/RETENTION_POLICY.md).
 
 ---
 
@@ -616,8 +609,17 @@ The bot automatically posts to group chat at key state transitions:
 |---------|-------------|
 | `/start`, `/help` | Bot introduction |
 | `/my_groups` | Your group memberships |
-| `/profile` | Personal reputation stats |
-| `/reputation` | Group reputation rankings |
+| `/profile` | Your identity (no scores are computed) |
+| `/how_am_i_doing` | Private attendance mirror (counts only) |
+| `/my_history` | Your participation history (DM) |
+| `/language`, `/preferences` | Interface language and planning preferences |
+
+### Privacy
+
+| Command | Description |
+|---------|-------------|
+| `/privacy` | What is kept, and for how long |
+| `/delete_account` | Erase your account and everything tied to it (DM, with confirmation) |
 
 ### Event Management
 

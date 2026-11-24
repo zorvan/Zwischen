@@ -1,51 +1,37 @@
-"""User identity helpers for mapping Telegram IDs to internal user IDs."""
+"""User identity helpers for mapping Telegram IDs to internal user IDs.
+
+The Telegram-shaped view of ``db/identity.py``. Resolution is delegated there
+rather than duplicated, so a user created by the bot gets the same
+``user_identities`` row a web signup would -- without that, accounts created
+after the identity migration would be invisible to every non-Telegram client.
+"""
 
 from typing import Dict, Optional
 from sqlalchemy import select
 
-from db.models import User
+from db.identity import _normalize_username, resolve_telegram_user
+from db.models import AuthProvider, User, UserIdentity
 
-
-def _normalize_username(username: Optional[str]) -> Optional[str]:
-    """Normalize username to lowercase without leading @."""
-    if not username:
-        return None
-    normalized = username.strip().lstrip("@").lower()
-    return normalized or None
+__all__ = [
+    "get_or_create_user_id",
+    "get_user_id_by_username",
+    "get_user_ids_for_provider_ids",
+]
 
 
 async def get_or_create_user_id(
     session,
-    telegram_user_id: int,
+    provider_user_id: int,
     display_name: Optional[str] = None,
     username: Optional[str] = None,
 ) -> int:
     """Return internal users.user_id for a Telegram user, creating row if needed."""
-    normalized_username = _normalize_username(username)
-    result = await session.execute(
-        select(User).where(User.telegram_user_id == telegram_user_id)
-    )
-    user = result.scalar_one_or_none()
-
-    if user:
-        changed = False
-        if display_name and user.display_name != display_name:
-            user.display_name = display_name
-            changed = True
-        if normalized_username and user.username != normalized_username:
-            user.username = normalized_username
-            changed = True
-        if changed:
-            await session.flush()
-        return int(user.user_id)
-
-    user = User(
-        telegram_user_id=telegram_user_id,
-        username=normalized_username,
+    user = await resolve_telegram_user(
+        session,
+        provider_user_id,
         display_name=display_name,
+        username=username,
     )
-    session.add(user)
-    await session.flush()
     return int(user.user_id)
 
 
@@ -63,16 +49,19 @@ async def get_user_id_by_username(session, username: str) -> Optional[int]:
     return int(user.user_id)
 
 
-async def get_user_ids_for_telegram_ids(
-    session, telegram_user_ids: list[int]
+async def get_user_ids_for_provider_ids(
+    session, provider_user_ids: list[int]
 ) -> Dict[int, int]:
     """Map Telegram user IDs to internal user IDs."""
-    if not telegram_user_ids:
+    if not provider_user_ids:
         return {}
 
     result = await session.execute(
-        select(User).where(User.telegram_user_id.in_(telegram_user_ids))
+        select(UserIdentity.provider_user_id, UserIdentity.user_id).where(
+            UserIdentity.provider == AuthProvider.telegram.value,
+            UserIdentity.provider_user_id.in_(
+                [str(value) for value in provider_user_ids]
+            ),
+        )
     )
-    users = result.scalars().all()
-
-    return {u.telegram_user_id: u.user_id for u in users}
+    return {int(provider_id): user_id for provider_id, user_id in result.all()}

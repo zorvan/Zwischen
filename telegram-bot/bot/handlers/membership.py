@@ -7,8 +7,9 @@ from sqlalchemy import select
 
 from config.settings import settings
 from db.connection import get_session
-from db.models import Group
-from db.users import get_or_create_user_id
+from bot.services.membership_service import MembershipService
+from db.identity import resolve_telegram_user
+from db.models import Group, GroupMemberStatus
 
 
 logger = logging.getLogger("coord_bot.membership")
@@ -27,11 +28,19 @@ async def track_group_members(
     if not settings.db_url:
         return
 
-    users_to_sync: dict[int, User] = {}
+    users_to_sync: dict[int, tuple[User, GroupMemberStatus]] = {}
     if update.effective_user:
-        users_to_sync[update.effective_user.id] = update.effective_user
+        users_to_sync[update.effective_user.id] = (
+            update.effective_user,
+            GroupMemberStatus.active,
+        )
     for member in message.new_chat_members or []:
-        users_to_sync[member.id] = member
+        users_to_sync[member.id] = (member, GroupMemberStatus.active)
+    if message.left_chat_member:
+        users_to_sync[message.left_chat_member.id] = (
+            message.left_chat_member,
+            GroupMemberStatus.left,
+        )
     if not users_to_sync:
         return
 
@@ -45,38 +54,34 @@ async def track_group_members(
             )
             group = result.scalar_one_or_none()
 
-            member_ids = list(users_to_sync.keys())
             if not group:
                 group = Group(
                     telegram_group_id=chat_id,
                     group_name=chat_title,
-                    member_list=member_ids,
                 )
                 session.add(group)
+                await session.flush()
             else:
-                changed = False
                 if group.group_name != chat_title:
                     group.group_name = chat_title
-                    changed = True
-                current_members = group.member_list or []
-                new_members = [
-                    member_id
-                    for member_id in member_ids
-                    if member_id not in current_members
-                ]
-                if new_members:
-                    group.member_list = [*current_members, *new_members]
-                    changed = True
-                if changed:
                     session.add(group)
 
-            for user in users_to_sync.values():
-                await get_or_create_user_id(
+            memberships = MembershipService(session)
+            for user, status in users_to_sync.values():
+                resolved = await resolve_telegram_user(
                     session,
-                    telegram_user_id=user.id,
+                    user.id,
                     display_name=user.full_name,
                     username=user.username,
                 )
+                if status is GroupMemberStatus.active:
+                    await memberships.add_member(
+                        int(group.group_id), int(resolved.user_id)
+                    )
+                else:
+                    await memberships.remove_member(
+                        int(group.group_id), int(resolved.user_id), status=status
+                    )
 
             await session.commit()
     except Exception as e:

@@ -86,12 +86,18 @@ def _inspect_state(db_url: str) -> tuple[bool, bool, str | None]:
     return asyncio.run(_run())
 
 
-def run_migrations(db_url: str) -> None:
-    """Bring the database up to the latest revision.
+def run_migrations(db_url: str, revision: str = "head") -> None:
+    """Bring the database to `revision` (the latest by default).
 
     Safe to call on every boot: it is a no-op once the database is current.
     Synchronous by design -- Alembic drives its own event loop through env.py,
     so this must not be called from inside a running loop.
+
+    A non-head `revision` moves in whichever direction is required, so callers
+    can pin a deployment to a known revision or step back from a bad one
+    without needing to know where the database currently sits. Tests use it to
+    build a database at an earlier revision and migrate forward over seeded
+    data.
     """
     config = _alembic_config(db_url)
     has_version, has_core, current = _inspect_state(db_url)
@@ -107,13 +113,25 @@ def run_migrations(db_url: str) -> None:
     elif not has_version:
         logger.info("Fresh database detected; applying all migrations.")
     else:
-        head = ScriptDirectory.from_config(config).get_current_head()
-        if current == head:
+        script = ScriptDirectory.from_config(config)
+        head = script.get_current_head()
+        # An empty versions directory has no head; nothing to move toward.
+        target = (head if revision == "head" else revision) or revision
+        if current == target:
             logger.info("Database schema is up to date (revision %s).", current)
             return
-        logger.info("Upgrading schema from %s to %s.", current, head)
+        # Walking back from the target tells us whether it sits ahead of or
+        # behind where we are; Alembic has no "go to this revision" command.
+        ancestors = {rev.revision for rev in script.iterate_revisions(target, "base")}
+        if current in ancestors:
+            logger.info("Upgrading schema from %s to %s.", current, target)
+        else:
+            logger.info("Downgrading schema from %s to %s.", current, target)
+            command.downgrade(config, target)
+            logger.info("Database migrations complete.")
+            return
 
-    command.upgrade(config, "head")
+    command.upgrade(config, revision)
     logger.info("Database migrations complete.")
 
 

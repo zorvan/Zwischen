@@ -174,7 +174,7 @@ class WeeklyDigestService:
 
         # Total participants (unique users)
         participant_result = await self.session.execute(
-            select(func.count(func.distinct(EventParticipant.telegram_user_id)))
+            select(func.count(func.distinct(EventParticipant.user_id)))
             .join(Event, EventParticipant.event_id == Event.event_id)
             .where(
                 Event.group_id == group_id,
@@ -206,7 +206,7 @@ class WeeklyDigestService:
     async def _get_participant_count(self, event_id: int) -> int:
         """Get total participant count for event."""
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event_id
             )
         )
@@ -215,7 +215,7 @@ class WeeklyDigestService:
     async def _get_confirmed_count(self, event_id: int) -> int:
         """Get confirmed participant count for event."""
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event_id,
                 EventParticipant.status == ParticipantStatus.confirmed,
             )
@@ -330,6 +330,7 @@ async def send_weekly_digest(
 async def send_digest_to_all_groups(
     bot: Bot,
     session: AsyncSession,
+    claim=None,
 ) -> Dict[str, int]:
     """
     Send weekly digest to all active groups.
@@ -352,6 +353,10 @@ async def send_digest_to_all_groups(
         recent_events = event_result.scalar() or 0
 
         if recent_events == 0:
+            stats["skipped"] += 1
+            continue
+
+        if claim is not None and not await claim(group.group_id):
             stats["skipped"] += 1
             continue
 

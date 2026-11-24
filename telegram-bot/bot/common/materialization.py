@@ -161,7 +161,7 @@ class MaterializationOrchestrator:
         from sqlalchemy import select, func
 
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event.event_id,
                 EventParticipant.status.in_(
                     [
@@ -185,7 +185,7 @@ class MaterializationOrchestrator:
         from sqlalchemy import select, func
 
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event.event_id,
                 EventParticipant.status.in_(
                     [
@@ -235,7 +235,7 @@ class MaterializationOrchestrator:
         from sqlalchemy import select, func
 
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event.event_id,
                 EventParticipant.status.in_(
                     [
@@ -274,7 +274,7 @@ class MaterializationOrchestrator:
         from sqlalchemy import select, func
 
         result = await self.session.execute(
-            select(func.count(EventParticipant.telegram_user_id)).where(
+            select(func.count(EventParticipant.user_id)).where(
                 EventParticipant.event_id == event.event_id,
                 EventParticipant.status.in_(
                     [
@@ -290,13 +290,11 @@ class MaterializationOrchestrator:
             event, user, organizer_chat_id, remaining_count
         )
 
-    async def _get_user(self, telegram_user_id: int) -> Optional[User]:
-        """Get user by Telegram ID."""
+    async def _get_user(self, user_id: int) -> Optional[User]:
+        """Get user by internal ID (callers pass the internal actor ID)."""
         from sqlalchemy import select
 
-        result = await self.session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
-        )
+        result = await self.session.execute(select(User).where(User.user_id == user_id))
         return result.scalar_one_or_none()
 
     async def _get_group_chat_id(self, event: "Event") -> Optional[int]:
@@ -314,13 +312,11 @@ class MaterializationOrchestrator:
         from sqlalchemy import select
         from db.models import User
 
-        if not event.organizer_telegram_user_id:
+        if not event.organizer_user_id:
             return None
 
         result = await self.session.execute(
-            select(User.telegram_user_id).where(
-                User.telegram_user_id == event.organizer_telegram_user_id
-            )
+            select(User.user_id).where(User.user_id == event.organizer_user_id)
         )
         return result.scalar_one_or_none()
 

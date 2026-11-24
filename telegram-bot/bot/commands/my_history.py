@@ -67,9 +67,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
         async with get_session(settings.db_url) as session:
             # Get user
-            result = await session.execute(
-                select(User).where(User.telegram_user_id == user_id)
-            )
+            result = await session.execute(select(User).where(User.user_id == user_id))
             user = result.scalar_one_or_none()
 
             if not user:
@@ -131,7 +129,7 @@ async def _get_participation_history(
     query = (
         select(Event, EventParticipant)
         .join(EventParticipant, Event.event_id == EventParticipant.event_id)
-        .where(EventParticipant.telegram_user_id == user_id)
+        .where(EventParticipant.user_id == user_id)
         .order_by(desc(Event.scheduled_time))
         .limit(limit)
     )
@@ -142,13 +140,24 @@ async def _get_participation_history(
     result = await session.execute(query)
     rows = result.all()
 
+    # One query for every listed event's memory, not one per event.
+    event_ids = [event.event_id for event, _ in rows]
+    memories = (
+        {
+            memory.event_id: memory
+            for memory in (
+                await session.execute(
+                    select(EventMemory).where(EventMemory.event_id.in_(event_ids))
+                )
+            ).scalars()
+        }
+        if event_ids
+        else {}
+    )
+
     history = []
     for event, participant in rows:
-        # Check if event has memory weave
-        memory_result = await session.execute(
-            select(EventMemory).where(EventMemory.event_id == event.event_id)
-        )
-        memory = memory_result.scalar_one_or_none()
+        memory = memories.get(event.event_id)
 
         history.append(
             {
@@ -259,27 +268,27 @@ async def _get_participation_summary(
     # Total events
     total_result = await session.execute(
         select(func.count(func.distinct(EventParticipant.event_id))).where(
-            EventParticipant.telegram_user_id == user_id
+            EventParticipant.user_id == user_id
         )
     )
     total_events = total_result.scalar() or 0
 
     # By status
-    status_counts = {}
-    for status in ParticipantStatus:
-        result = await session.execute(
-            select(func.count(EventParticipant.event_id)).where(
-                EventParticipant.telegram_user_id == user_id,
-                EventParticipant.status == status,
-            )
+    status_counts = {status.value: 0 for status in ParticipantStatus}
+    for status, count in (
+        await session.execute(
+            select(EventParticipant.status, func.count(EventParticipant.event_id))
+            .where(EventParticipant.user_id == user_id)
+            .group_by(EventParticipant.status)
         )
-        status_counts[status.value] = result.scalar() or 0
+    ).all():
+        status_counts[status.value] = int(count or 0)
 
     # By event type
     type_result = await session.execute(
         select(Event.event_type, func.count(func.distinct(Event.event_id)))
         .join(EventParticipant, Event.event_id == EventParticipant.event_id)
-        .where(EventParticipant.telegram_user_id == user_id)
+        .where(EventParticipant.user_id == user_id)
         .group_by(Event.event_type)
     )
     by_type = {row[0]: row[1] for row in type_result.all()}
@@ -289,7 +298,7 @@ async def _get_participation_summary(
         select(func.count(EventMemory.event_id))
         .join(Event)
         .where(
-            EventParticipant.telegram_user_id == user_id,
+            EventParticipant.user_id == user_id,
             EventParticipant.event_id == Event.event_id,
         )
     )

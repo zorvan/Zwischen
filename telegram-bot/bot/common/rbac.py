@@ -5,19 +5,30 @@ PRD v2: Organizer control, permission checks, and group membership enforcement.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import Optional, Tuple, TYPE_CHECKING
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from db.models import Event, EventParticipant, Group
+from bot.services.membership_service import MembershipService
+from db.identity import get_user_by_identity
+from db.models import AuthProvider, Event, EventParticipant, Group
 
 if TYPE_CHECKING:
     from db.models import Event as EventType, Group as GroupType
 
 logger = logging.getLogger("coord_bot.rbac")
+
+
+async def _internal_user_id(
+    session: AsyncSession, telegram_user_id: int
+) -> Optional[int]:
+    """Resolve a Telegram provider ID to the internal users.user_id."""
+    user = await get_user_by_identity(
+        session, AuthProvider.telegram.value, telegram_user_id
+    )
+    return int(user.user_id) if user is not None else None
 
 
 def _sep():
@@ -40,24 +51,14 @@ async def check_group_membership(
     session: AsyncSession,
     group_id: int,
     user_id: int,
-    telegram_chat_id: Optional[int] = None,
-    bot: object = None,
 ) -> Tuple[bool, Optional[str]]:
     """
-    Check if a user is a member of the given group.
-
-    Checks in order:
-    1. If telegram_chat_id matches the group's telegram_group_id → implicit member
-    2. If user has participated in ANY event in this group → proven member
-    3. Explicit check of Group.member_list
-    4. Final fallback: query Telegram API for actual group membership
+    Check persisted membership without consulting a transport API.
     """
     logger.info("")
     logger.info("%s", _sep())
     logger.info("🔍 check_group_membership")
-    logger.info(
-        "   group_id=%d  user_id=%d  chat_id=%r", group_id, user_id, telegram_chat_id
-    )
+    logger.info("   group_id=%d  user_id=%d", group_id, user_id)
 
     result = await session.execute(select(Group).where(Group.group_id == group_id))
     group = result.scalar_one_or_none()
@@ -67,90 +68,14 @@ async def check_group_membership(
         return False, "Group not found"
 
     _info("Group", f"{group.group_name or 'unnamed'} (tg_id={group.telegram_group_id})")
-    _info("Stored members", str(group.member_list or []))
+    internal_user_id = await _internal_user_id(session, user_id)
+    if internal_user_id is None:
+        _info("Result", "DENIED — Telegram identity is not registered")
+        return False, "You are not a member of this group"
 
-    uid = int(user_id)
-
-    # ── Step 1: Same group chat ──────────────────────────────
-    _info("Step 1", "Same group chat check")
-    _info("  group.telegram_group_id", str(group.telegram_group_id))
-    _info("  incoming telegram_chat_id", str(telegram_chat_id))
-
-    if telegram_chat_id is not None and int(group.telegram_group_id) == int(
-        telegram_chat_id
-    ):
-        member_list = group.member_list or []
-        if uid not in [int(m) for m in member_list]:
-            group.member_list = [*member_list, uid]
-            await session.flush()
-        _pass("Step 1 PASS", "Same group chat → implicit member")
+    if await MembershipService(session).is_member(group_id, internal_user_id):
+        _pass("Membership PASS", "active group_members row")
         return True, None
-
-    _fail("Step 1 FAIL", "Chat IDs do not match")
-
-    # ── Step 2: Prior event participation ────────────────────
-    _info("Step 2", "Prior event participation in group")
-    participant_check = await session.execute(
-        select(EventParticipant.event_id)
-        .join(Event, EventParticipant.event_id == Event.event_id)
-        .where(
-            Event.group_id == group_id,
-            EventParticipant.telegram_user_id == uid,
-        )
-        .limit(1)
-    )
-    prior = participant_check.scalar_one_or_none()
-    if prior is not None:
-        member_list = group.member_list or []
-        if uid not in [int(m) for m in member_list]:
-            group.member_list = [*member_list, uid]
-            await session.flush()
-        _pass("Step 2 PASS", f"Participated in event {prior}")
-        return True, None
-
-    _fail("Step 2 FAIL", "No prior event participation in this group")
-
-    # ── Step 3: member_list cache ────────────────────────────
-    _info("Step 3", "member_list cache check")
-    member_list = group.member_list or []
-    _info("  checking user_id", str(uid))
-    _info("  member_list int values", str([int(m) for m in member_list]))
-
-    if uid in [int(m) for m in member_list]:
-        _pass("Step 3 PASS", "User found in cached member_list")
-        return True, None
-
-    _fail("Step 3 FAIL", "User not in member_list")
-
-    # ── Step 4: Telegram API fallback ────────────────────────
-    _info("Step 4", "Telegram API get_chat_member")
-    if bot is not None:
-        try:
-            _info(
-                "  calling get_chat_member",
-                f"chat_id={group.telegram_group_id} user_id={uid}",
-            )
-            member = await asyncio.wait_for(
-                bot.get_chat_member(
-                    chat_id=group.telegram_group_id,
-                    user_id=uid,
-                ),
-                timeout=10.0,
-            )
-            _info("  API returned", f"status={member.status}")
-            if member.status in {"member", "administrator", "creator"}:
-                group.member_list = [*member_list, uid]
-                await session.flush()
-                _pass("Step 4 PASS", f"Telegram API confirms: status={member.status}")
-                return True, None
-            _fail("Step 4 FAIL", f"Telegram API says: status={member.status}")
-        except asyncio.TimeoutError:
-            _fail("Step 4 FAIL", "Telegram API call timed out after 10s")
-        except Exception as e:
-            _fail("Step 4 FAIL", f"API error: {type(e).__name__}: {e}")
-    else:
-        _fail("Step 4 FAIL", "Bot not provided — cannot query Telegram API")
-
     _info("Result", "DENIED — not a member of this group")
     logger.info("%s", _sep())
     return False, "You are not a member of this group"
@@ -166,14 +91,8 @@ async def check_event_visibility_and_get_event(
     """
     Check if an event is visible to the user based on group membership.
 
-    Checks in order:
-    1. Organizer/admin → always allowed
-    2. Same group chat → implicit member
-    3. Participant in THIS event → allowed
-    4. Participant in ANY event in group → proven member
-    5. member_list cache
-    6. Telegram API get_chat_member (final fallback)
-    7. DM invitation (callback with matching group_id) → allowed
+    Organizers and emergency admins are always allowed. Everyone else must
+    have an active persisted group-membership row.
     """
     logger.info("")
     logger.info("%s", _sep())
@@ -195,26 +114,29 @@ async def check_event_visibility_and_get_event(
         return False, None, None, "Event not found"
 
     event, group = row
-    uid = int(user_id)
+    uid = await _internal_user_id(session, user_id)
+    if uid is None:
+        _info("Result", "DENIED — Telegram identity is not registered")
+        return False, None, None, "You do not have access to this event"
 
     _info("Event", f"{event.event_type} (state={event.state}, id={event.event_id})")
-    _info("Organizer", str(event.organizer_telegram_user_id))
-    _info("Admin", str(event.emergency_admin_telegram_user_id))
+    _info("Organizer", str(event.organizer_user_id))
+    _info("Admin", str(event.emergency_admin_user_id))
 
     # ── Check 1: Organizer / Admin ───────────────────────────
     _info("Check 1", "Organizer / Admin check")
-    _info("  event.organizer_telegram_user_id", str(event.organizer_telegram_user_id))
+    _info("  event.organizer_user_id", str(event.organizer_user_id))
     _info(
-        "  event.emergency_admin_telegram_user_id",
-        str(event.emergency_admin_telegram_user_id),
+        "  event.emergency_admin_user_id",
+        str(event.emergency_admin_user_id),
     )
     _info("  requesting user_id", str(uid))
 
-    if event.organizer_telegram_user_id == uid:
+    if event.organizer_user_id == uid:
         _pass("Check 1 PASS", "User is event organizer")
         return True, event, group, None
 
-    if event.emergency_admin_telegram_user_id == uid:
+    if event.emergency_admin_user_id == uid:
         _pass("Check 1 PASS", "User is event admin")
         return True, event, group, None
 
@@ -225,121 +147,8 @@ async def check_event_visibility_and_get_event(
         _fail("Orphaned event", "Event has no group → denied")
         return False, None, None, "Event not found"
 
-    _info("Group", f"{group.group_name or 'unnamed'} (tg_id={group.telegram_group_id})")
-    _info("Stored members", str(group.member_list or []))
-
-    # ── Check 2: Same group chat ─────────────────────────────
-    _info("Check 2", "Same group chat check")
-    _info("  group.telegram_group_id", str(group.telegram_group_id))
-    _info("  incoming telegram_chat_id", str(telegram_chat_id))
-
-    if telegram_chat_id is not None and int(group.telegram_group_id) == int(
-        telegram_chat_id
-    ):
-        member_list = group.member_list or []
-        if uid not in [int(m) for m in member_list]:
-            group.member_list = [*member_list, uid]
-            await session.flush()
-        _pass("Check 2 PASS", "Same group chat → implicit member")
-        return True, event, group, None
-
-    _fail("Check 2 FAIL", "Chat IDs do not match")
-
-    # ── Check 3: Participant in THIS event ───────────────────
-    _info("Check 3", "Participant in THIS event")
-    _info("  event_id", str(event_id))
-    _info("  user_id", str(uid))
-
-    participant_check = await session.execute(
-        select(EventParticipant.event_id)
-        .where(
-            EventParticipant.event_id == event_id,
-            EventParticipant.telegram_user_id == uid,
-        )
-        .limit(1)
-    )
-    this_event = participant_check.scalar_one_or_none()
-    if this_event is not None:
-        _pass("Check 3 PASS", f"Already participant in event {this_event}")
-        return True, event, group, None
-
-    _fail("Check 3 FAIL", "Not a participant in this event")
-
-    # ── Check 4: Participant in ANY event in group ───────────
-    _info("Check 4", "Participant in ANY event in group")
-    group_participant_check = await session.execute(
-        select(EventParticipant.event_id)
-        .join(Event, EventParticipant.event_id == Event.event_id)
-        .where(
-            Event.group_id == group.group_id,
-            EventParticipant.telegram_user_id == uid,
-        )
-        .limit(1)
-    )
-    prior = group_participant_check.scalar_one_or_none()
-    if prior is not None:
-        member_list = group.member_list or []
-        if uid not in [int(m) for m in member_list]:
-            group.member_list = [*member_list, uid]
-            await session.flush()
-        _pass("Check 4 PASS", f"Participated in prior event {prior}")
-        return True, event, group, None
-
-    _fail("Check 4 FAIL", "No prior event participation in group")
-
-    # ── Check 5: member_list cache ───────────────────────────
-    _info("Check 5", "member_list cache check")
-    member_list = group.member_list or []
-    _info("  checking user_id", str(uid))
-    _info("  member_list int values", str([int(m) for m in member_list]))
-
-    if uid in [int(m) for m in member_list]:
-        _pass("Check 5 PASS", "User found in cached member_list")
-        return True, event, group, None
-
-    _fail("Check 5 FAIL", "User not in member_list")
-
-    # ── Check 6: Telegram API fallback ───────────────────────
-    _info("Check 6", "Telegram API get_chat_member")
-    if bot is not None:
-        try:
-            _info(
-                "  calling get_chat_member",
-                f"chat_id={group.telegram_group_id} user_id={uid}",
-            )
-            member = await asyncio.wait_for(
-                bot.get_chat_member(
-                    chat_id=group.telegram_group_id,
-                    user_id=uid,
-                ),
-                timeout=10.0,
-            )
-            _info("  API returned", f"status={member.status}")
-            if member.status in {"member", "administrator", "creator"}:
-                group.member_list = [*member_list, uid]
-                await session.flush()
-                _pass("Check 6 PASS", f"Telegram API confirms: status={member.status}")
-                return True, event, group, None
-            _fail("Check 6 FAIL", f"Telegram API says: status={member.status}")
-        except asyncio.TimeoutError:
-            _fail("Check 6 FAIL", "Telegram API call timed out after 10s")
-        except Exception as e:
-            _fail("Check 6 FAIL", f"API error: {type(e).__name__}: {e}")
-    else:
-        _fail("Check 6 FAIL", "Bot not provided — cannot query Telegram API")
-
-    # ── Check 7: DM/group invitation (callback from bot) ─────
-    _info("Check 7", "Invitation callback context")
-    _info("  telegram_chat_id", str(telegram_chat_id))
-    _info("  group.telegram_group_id", str(group.telegram_group_id))
-
-    # If the user clicked a callback from the bot (DM or group),
-    # they received an invitation and should be allowed access.
-    if telegram_chat_id is not None:
-        if uid not in [int(m) for m in member_list]:
-            group.member_list = [*member_list, uid]
-            await session.flush()
-        _pass("Check 7 PASS", "Invitation callback — user has access")
+    if await MembershipService(session).is_member(group.group_id, uid):
+        _pass("Membership PASS", "active group_members row")
         return True, event, group, None
 
     _info("Result", "DENIED — no access to this event")
@@ -364,7 +173,8 @@ async def check_event_organizer(
     if not event:
         return False, "Event not found"
 
-    if event.organizer_telegram_user_id != telegram_user_id:
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+    if event.organizer_user_id != internal_user_id:
         return False, "Only the event organizer can perform this action"
 
     return True, None
@@ -387,11 +197,13 @@ async def check_event_admin(
     if not event:
         return False, "Event not found"
 
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+
     # Check if user is organizer or admin
-    if event.organizer_telegram_user_id == telegram_user_id:
+    if event.organizer_user_id == internal_user_id:
         return True, None
 
-    if event.emergency_admin_telegram_user_id == telegram_user_id:
+    if event.emergency_admin_user_id == internal_user_id:
         return True, None
 
     return False, "Only event organizer or admin can perform this action"
@@ -408,10 +220,14 @@ async def check_event_participant(
     Returns:
         (is_authorized, error_message, participant_record)
     """
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+    if internal_user_id is None:
+        return False, "You are not a participant of this event", None
+
     result = await session.execute(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.telegram_user_id == telegram_user_id,
+            EventParticipant.user_id == internal_user_id,
         )
     )
     participant = result.scalar_one_or_none()
@@ -444,18 +260,25 @@ async def check_can_modify_event(
     if not event:
         return False, "Event not found"
 
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+    if internal_user_id is None:
+        return (
+            False,
+            "Only organizer, admin, or confirmed participants can modify this event",
+        )
+
     # Organizer or admin can always modify
-    if event.organizer_telegram_user_id == telegram_user_id:
+    if event.organizer_user_id == internal_user_id:
         return True, None
 
-    if event.emergency_admin_telegram_user_id == telegram_user_id:
+    if event.emergency_admin_user_id == internal_user_id:
         return True, None
 
     # Confirmed participants can modify in emergencies
     participant_result = await session.execute(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.telegram_user_id == telegram_user_id,
+            EventParticipant.user_id == internal_user_id,
             EventParticipant.status == "confirmed",
         )
     )
@@ -493,11 +316,15 @@ async def check_can_submit_private_note(
     if not event:
         return False, "Event not found"
 
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+    if internal_user_id is None:
+        return False, "Only joined or confirmed participants can submit private notes"
+
     # Check if user is a participant
     participant_result = await session.execute(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.telegram_user_id == telegram_user_id,
+            EventParticipant.user_id == internal_user_id,
             EventParticipant.status.in_(["joined", "confirmed"]),
         )
     )
@@ -544,16 +371,20 @@ async def get_user_event_role(
     if not event:
         return None
 
-    if event.organizer_telegram_user_id == telegram_user_id:
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+    if internal_user_id is None:
+        return None
+
+    if event.organizer_user_id == internal_user_id:
         return "organizer"
 
-    if event.emergency_admin_telegram_user_id == telegram_user_id:
+    if event.emergency_admin_user_id == internal_user_id:
         return "admin"
 
     participant_result = await session.execute(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.telegram_user_id == telegram_user_id,
+            EventParticipant.user_id == internal_user_id,
         )
     )
     participant = participant_result.scalar_one_or_none()

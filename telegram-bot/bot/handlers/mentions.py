@@ -60,6 +60,25 @@ _PICK_CODE_TO_ACTION: dict[str, str] = {
 _ACTION_TO_PICK_CODE = {v: k for k, v in _PICK_CODE_TO_ACTION.items()}
 
 HISTORY_LIMIT = 40
+# Rolling chat context is a working buffer, not a record: nothing older than
+# this is kept or shown to the model (docs/RETENTION_POLICY.md).
+HISTORY_MAX_AGE = timedelta(hours=24)
+
+
+def _fresh_history(entries: list) -> list:
+    """Entries younger than HISTORY_MAX_AGE, newest HISTORY_LIMIT only."""
+    cutoff = datetime.utcnow() - HISTORY_MAX_AGE
+    fresh = []
+    for entry in entries:
+        try:
+            stamp = datetime.fromisoformat(str(entry.get("timestamp")))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        if stamp >= cutoff:
+            fresh.append(entry)
+    return fresh[-HISTORY_LIMIT:]
+
+
 MENTION_PATTERN = re.compile(r"@([A-Za-z0-9_]{5,32})")
 
 
@@ -229,8 +248,7 @@ async def record_group_history(
             "timestamp": datetime.utcnow().isoformat(),
         }
     )
-    if len(chat_history) > HISTORY_LIMIT:
-        del chat_history[:-HISTORY_LIMIT]
+    chat_history[:] = _fresh_history(chat_history)
 
 
 async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -264,7 +282,7 @@ async def handle_mention(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     parent_text = ""
-    history = context.bot_data.get("chat_history", {}).get(chat.id, [])
+    history = _fresh_history(context.bot_data.get("chat_history", {}).get(chat.id, []))
     if is_reply_to_bot:
         parent_text = (
             message.reply_to_message.text or message.reply_to_message.caption or ""
@@ -812,6 +830,38 @@ async def handle_modify_message(
     )
 
 
+async def _store_modify_request(
+    context: ContextTypes.DEFAULT_TYPE,
+    *,
+    request_id: str,
+    event_id: int,
+    admin_user_id: int,
+    change_text: str,
+    requester_id: int | None,
+    requester_username: str | None,
+) -> None:
+    """Record a pending modify request for the admin's approve/reject buttons.
+
+    ``admin_user_id`` is internal; the approval handler compares against the
+    clicking Telegram user, so the entry stores the admin's Telegram ID.
+    ``requester_id`` is already a Telegram ID (it is DM'd directly).
+    """
+    from db.identity import telegram_chat_id
+
+    async with get_session(settings.db_url) as session:
+        admin_telegram_id = await telegram_chat_id(session, admin_user_id)
+    context.bot_data.setdefault("pending_modify_requests", {})[
+        f"modreq_{request_id}"
+    ] = {
+        "event_id": event_id,
+        "requester_id": requester_id,
+        "requester_username": requester_username,
+        "change_text": change_text,
+        "admin_id": admin_telegram_id,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+
+
 async def _submit_modify_request_via_message(
     update: Update,
     context: ContextTypes.DEFAULT_TYPE,
@@ -826,15 +876,15 @@ async def _submit_modify_request_via_message(
     user_lang = await get_user_language(
         update.effective_user, user_data=context.user_data
     )
-    pending_key = f"modreq_{request_id}"
-    context.bot_data.setdefault("pending_modify_requests", {})[pending_key] = {
-        "event_id": event_id,
-        "requester_id": requester_id,
-        "requester_username": requester_username,
-        "change_text": change_text,
-        "admin_id": admin_id,
-        "created_at": datetime.utcnow().isoformat(),
-    }
+    await _store_modify_request(
+        context,
+        request_id=request_id,
+        event_id=event_id,
+        admin_user_id=admin_id,
+        change_text=change_text,
+        requester_id=requester_id,
+        requester_username=requester_username,
+    )
 
     await update.message.reply_text(
         t(
@@ -850,7 +900,7 @@ async def _submit_modify_request_via_message(
 
     adminDM_sent = await send_event_modification_request_dm(
         context=context,
-        telegram_user_id=admin_id,
+        user_id=admin_id,
         event_data={
             "event_id": event_id,
             "change_text": change_text,
@@ -879,6 +929,17 @@ async def _submit_modify_request_via_callback(
 ) -> None:
     """Helper to submit modification request via callback."""
     user_lang = await get_user_language(update.callback_query.from_user)
+    # Without a pending entry the admin's approve/reject buttons can only
+    # ever answer "expired"; the message path stored one, this path did not.
+    await _store_modify_request(
+        context,
+        request_id=request_id,
+        event_id=event_id,
+        admin_user_id=admin_id,
+        change_text=change_text,
+        requester_id=requester_id,
+        requester_username=requester_username,
+    )
     await update.callback_query.edit_message_text(
         t(
             "mention_modification_submitted",
@@ -893,7 +954,7 @@ async def _submit_modify_request_via_callback(
 
     adminDM_sent = await send_event_modification_request_dm(
         context=context,
-        telegram_user_id=admin_id,
+        user_id=admin_id,
         event_data={
             "event_id": event_id,
             "change_text": change_text,
@@ -930,7 +991,7 @@ async def _resolve_mentioned_participants(text: str, bot_username: str) -> list[
                 result = await session.execute(select(User).where(User.user_id == uid))
                 user = result.scalar_one_or_none()
                 if user is not None:
-                    resolved.append(int(user.telegram_user_id))
+                    resolved.append(int(user.user_id))
     return resolved
 
 
@@ -1136,7 +1197,7 @@ async def _save_constraint_from_inferred(
 
         source_user_id = await get_or_create_user_id(
             session,
-            telegram_user_id=requester_telegram_user_id,
+            provider_user_id=requester_telegram_user_id,
             display_name=requester_display_name,
             username=requester_username,
         )
@@ -1146,7 +1207,7 @@ async def _save_constraint_from_inferred(
                 target_chat = await context.bot.get_chat(target_input)
                 target_user_id = await get_or_create_user_id(
                     session,
-                    telegram_user_id=target_chat.id,
+                    provider_user_id=target_chat.id,
                     display_name=getattr(target_chat, "full_name", None),
                     username=getattr(target_chat, "username", None),
                 )
@@ -1287,7 +1348,7 @@ async def _apply_participation_action(
 
         user_id = await get_or_create_user_id(
             session,
-            telegram_user_id=requester_telegram_user_id,
+            provider_user_id=requester_telegram_user_id,
             display_name=requester_display_name,
             username=requester_username,
         )
@@ -1306,7 +1367,7 @@ async def _apply_participation_action(
                 return
             conflict = await find_user_event_conflict(
                 session=session,
-                telegram_user_id=requester_telegram_user_id,
+                user_id=user_id,
                 start_time=event.scheduled_time,
                 duration_minutes=event.duration_minutes,
                 ignore_event_id=event.event_id,
@@ -1327,7 +1388,7 @@ async def _apply_participation_action(
             participant_service = ParticipantService(session)
             participant, is_new_join = await participant_service.join(
                 event_id=event_id,
-                telegram_user_id=requester_telegram_user_id,
+                user_id=user_id,
                 source="mention",
             )
 
@@ -1339,7 +1400,7 @@ async def _apply_participation_action(
                     event, _ = await lifecycle_service.transition_with_lifecycle(
                         event_id=event_id,
                         target_state="interested",
-                        actor_telegram_user_id=requester_telegram_user_id,
+                        actor_user_id=user_id,
                         source="mention",
                         reason="Participant joined via mention",
                     )
@@ -1365,7 +1426,7 @@ async def _apply_participation_action(
             participant_service = ParticipantService(session)
             participant, is_new_confirm = await participant_service.confirm(
                 event_id=event_id,
-                telegram_user_id=requester_telegram_user_id,
+                user_id=user_id,
                 source="mention",
             )
 
@@ -1377,7 +1438,7 @@ async def _apply_participation_action(
                     event, _ = await lifecycle_service.transition_with_lifecycle(
                         event_id=event_id,
                         target_state="confirmed",
-                        actor_telegram_user_id=requester_telegram_user_id,
+                        actor_user_id=user_id,
                         source="mention",
                         reason="Participant confirmed via mention",
                     )
@@ -1403,7 +1464,7 @@ async def _apply_participation_action(
             try:
                 participant, is_new_cancel = await participant_service.cancel(
                     event_id=event_id,
-                    telegram_user_id=requester_telegram_user_id,
+                    user_id=user_id,
                     source="mention",
                 )
             except Exception as e:
@@ -1422,7 +1483,7 @@ async def _apply_participation_action(
                     event, _ = await lifecycle_service.transition_with_lifecycle(
                         event_id=event_id,
                         target_state=new_state,
-                        actor_telegram_user_id=requester_telegram_user_id,
+                        actor_user_id=requester_telegram_user_id,
                         source="mention",
                         reason="Last participant cancelled",
                     )
@@ -1773,16 +1834,18 @@ async def _handle_organize_event_direct(
             group = Group(
                 telegram_group_id=chat.id,
                 group_name=chat.title or str(chat.id),
-                member_list=[creator_id] if creator_id else [],
             )
             session.add(group)
-            await session.commit()
-            await session.refresh(group)
-        else:
-            current_members = group.member_list or []
-            if creator_id and creator_id not in current_members:
-                group.member_list = [*current_members, creator_id]
-                await session.commit()
+            await session.flush()
+        if creator_id:
+            from bot.services.membership_service import MembershipService
+            from db.identity import resolve_telegram_user
+
+            resolved_creator = await resolve_telegram_user(session, creator_id)
+            await MembershipService(session).add_member(
+                group.group_id, resolved_creator.user_id
+            )
+        await session.commit()
 
         commit_by = None
         if scheduled_time:
@@ -1795,10 +1858,21 @@ async def _handle_organize_event_direct(
             else None
         )
         collapse_at_dt = _derive_collapse_at(scheduled_time, collapse_iso)
+        from db.identity import resolve_telegram_user
+
+        creator = await resolve_telegram_user(
+            session,
+            creator_id,
+            display_name=(
+                update.effective_user.full_name if update.effective_user else None
+            ),
+            username=update.effective_user.username if update.effective_user else None,
+        )
+        creator_user_id = creator.user_id
 
         conflict = await find_user_event_conflict(
             session=session,
-            telegram_user_id=creator_id,
+            user_id=creator_user_id,
             start_time=scheduled_time,
             duration_minutes=duration,
         )
@@ -1819,8 +1893,8 @@ async def _handle_organize_event_direct(
             event_type=event_type,
             title=draft.get("title"),
             description=description,
-            organizer_telegram_user_id=creator_id,
-            emergency_admin_telegram_user_id=creator_id,
+            organizer_user_id=creator_user_id,
+            emergency_admin_user_id=creator_user_id,
             scheduled_time=scheduled_time,
             commit_by=commit_by,
             collapse_at=collapse_at_dt,
@@ -1845,7 +1919,7 @@ async def _handle_organize_event_direct(
         participant_service = ParticipantService(session)
         await participant_service.join(
             event_id=event.event_id,
-            telegram_user_id=creator_id,
+            user_id=creator_user_id,
             source="mention",
             role="organizer",
         )
@@ -1854,22 +1928,8 @@ async def _handle_organize_event_direct(
         inferred_constraints = draft.get("inferred_constraints", [])
         constraints_saved = 0
         if isinstance(inferred_constraints, list):
-            # Get the creator's internal user_id
-            creator_user = (
-                await session.execute(
-                    select(User).where(User.telegram_user_id == creator_id)
-                )
-            ).scalar_one_or_none()
-            creator_internal_user_id = None
-            if creator_user:
-                creator_internal_user_id = creator_user.user_id
-            else:
-                creator_internal_user_id = await get_or_create_user_id(
-                    session,
-                    telegram_user_id=creator_id,
-                    display_name=user.full_name if user else None,
-                    username=user.username if user else None,
-                )
+            # creator_id is the Telegram ID; creator_user_id is internal.
+            creator_internal_user_id = creator_user_id
 
             for ic in inferred_constraints:
                 if not isinstance(ic, dict):
@@ -1889,7 +1949,7 @@ async def _handle_organize_event_direct(
                         target_chat = await context.bot.get_chat(target_input)
                         target_user_id = await get_or_create_user_id(
                             session,
-                            telegram_user_id=target_chat.id,
+                            provider_user_id=target_chat.id,
                             display_name=getattr(target_chat, "full_name", None),
                             username=getattr(target_chat, "username", None),
                         )
@@ -1917,7 +1977,7 @@ async def _handle_organize_event_direct(
             # Bug 2 fix: Fetch organizer info in outer session (no nested session)
             organizer_user = (
                 await session.execute(
-                    select(User).where(User.telegram_user_id == creator_id)
+                    select(User).where(User.user_id == creator_user_id)
                 )
             ).scalar_one_or_none()
             organizer_username = organizer_user.username if organizer_user else None
@@ -1925,7 +1985,12 @@ async def _handle_organize_event_direct(
                 organizer_user.display_name if organizer_user else None
             )
 
-        group_members = group.member_list or []
+        from bot.services.membership_service import MembershipService
+
+        group_members = [
+            row.user_id
+            for row in await MembershipService(session).list_members(group.group_id)
+        ]
 
         # Bug 7: Filter out "@all" sentinel from explicit invitees
         invitees_filtered = [h for h in invitees if h != "@all"]
@@ -1947,7 +2012,7 @@ async def _handle_organize_event_direct(
             "time_window": time_window,
             "planning_notes": planning_notes,
             "inferred_constraints": inferred_constraints,
-            "organizer_telegram_user_id": creator_id,
+            "organizer_user_id": creator_user_id,
             "organizer_username": organizer_username,
             "organizer_display_name": organizer_display_name,
         }
@@ -1959,7 +2024,7 @@ async def _handle_organize_event_direct(
         # Source 1: Group members (if invite_all is true)
         if invite_all:
             for member_id in group_members:
-                if member_id is not None and member_id != creator_id:
+                if member_id is not None and member_id != creator_user_id:
                     recipient_telegram_ids.add(int(member_id))
             logger.info(
                 f"Public event {event.event_id}: Adding {len(group_members)} cached members to recipients"
@@ -1978,10 +2043,10 @@ async def _handle_organize_event_direct(
                         select(User).where(User.user_id == int(user_id))
                     )
                     invitee_user = result.scalar_one_or_none()
-                    if invitee_user and invitee_user.telegram_user_id:
-                        telegram_id = int(invitee_user.telegram_user_id)
+                    if invitee_user and invitee_user.user_id:
+                        telegram_id = int(invitee_user.user_id)
                         if (
-                            telegram_id != creator_id
+                            telegram_id != creator_user_id
                         ):  # Bug 3: consistently exclude creator
                             explicit_tg_ids.add(telegram_id)
                             recipient_telegram_ids.add(telegram_id)

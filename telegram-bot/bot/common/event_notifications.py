@@ -124,9 +124,18 @@ def build_event_modification_keyboard(
     return InlineKeyboardMarkup(rows)
 
 
+async def _telegram_chat_for(user_id: int) -> int | None:
+    """Resolve an internal user ID to the Telegram chat that reaches them."""
+    from db.connection import get_session
+    from db.identity import telegram_chat_id
+
+    async with get_session(settings.db_url) as session:
+        return await telegram_chat_id(session, int(user_id))
+
+
 async def send_event_invitation_dm(
     context: ContextTypes.DEFAULT_TYPE,
-    telegram_user_id: int,
+    user_id: int,
     event_data: dict[str, Any],
     event_id: int,
     group_id: int | None = None,
@@ -136,7 +145,7 @@ async def send_event_invitation_dm(
 
     Args:
         context: Telegram context
-        telegram_user_id: User's Telegram ID
+        user_id: Internal users.user_id; resolved to a Telegram chat here
         event_data: Event details
         event_id: Event ID
         lang: Language code (auto-detected if None)
@@ -147,7 +156,7 @@ async def send_event_invitation_dm(
     logger.info(
         "[NOTIFICATION] Invitation DM start | event_id=%s recipient=%s group_id=%s",
         event_id,
-        telegram_user_id,
+        user_id,
         group_id,
     )
 
@@ -155,7 +164,14 @@ async def send_event_invitation_dm(
         logger.error(
             "[NOTIFICATION] Cannot send - context.bot is None | event_id=%s recipient=%s",
             event_id,
-            telegram_user_id,
+            user_id,
+        )
+        return False
+
+    chat_id = await _telegram_chat_for(user_id)
+    if chat_id is None:
+        logger.info(
+            "[NOTIFICATION] No Telegram identity for user %s; DM skipped", user_id
         )
         return False
 
@@ -191,7 +207,7 @@ async def send_event_invitation_dm(
 
     # Format organizer as clickable mention - fetch from DB if not in event_data
     organizer_text = "N/A"
-    organizer_user_id = event_data.get("organizer_telegram_user_id")
+    organizer_user_id = event_data.get("organizer_user_id")
     organizer_username = event_data.get("organizer_username")
     organizer_display_name = event_data.get("organizer_display_name")
 
@@ -205,9 +221,7 @@ async def send_event_invitation_dm(
             async with get_session(settings.db_url) as session:
                 org_user = (
                     await session.execute(
-                        select(User).where(
-                            User.telegram_user_id == int(organizer_user_id)
-                        )
+                        select(User).where(User.user_id == int(organizer_user_id))
                     )
                 ).scalar_one_or_none()
                 if org_user:
@@ -218,7 +232,7 @@ async def send_event_invitation_dm(
 
     if organizer_user_id:
         organizer_text = format_user_display(
-            telegram_user_id=organizer_user_id,
+            user_id=organizer_user_id,
             username=organizer_username,
             display_name=organizer_display_name,
         )
@@ -278,12 +292,12 @@ async def send_event_invitation_dm(
         logger.info(
             "[NOTIFICATION] Sending message | event_id=%s recipient=%s bot_username=%s",
             event_id,
-            telegram_user_id,
+            user_id,
             bot_username,
         )
 
         await context.bot.send_message(
-            chat_id=telegram_user_id,
+            chat_id=chat_id,
             text=t(
                 "event_invitation_title",
                 lang=tlang,
@@ -310,14 +324,14 @@ async def send_event_invitation_dm(
         logger.info(
             "[NOTIFICATION] Invitation DM sent successfully | event_id=%s recipient=%s",
             event_id,
-            telegram_user_id,
+            user_id,
         )
         return True
     except Exception as e:
         logger.error(
             "[NOTIFICATION] Failed to send invitation DM | event_id=%s recipient=%s error_type=%s error=%s",
             event_id,
-            telegram_user_id,
+            user_id,
             type(e).__name__,
             str(e),
             exc_info=True,
@@ -327,7 +341,7 @@ async def send_event_invitation_dm(
 
 async def send_join_notification_dm(
     context: ContextTypes.DEFAULT_TYPE,
-    telegram_user_id: int,
+    user_id: int,
     event: Any,
     joiner_name: str,
     group_id: int | None = None,
@@ -339,7 +353,7 @@ async def send_join_notification_dm(
 
     Args:
         context: Telegram context
-        telegram_user_id: User's Telegram ID
+        user_id: Internal users.user_id; resolved to a Telegram chat here
         event: Event object
         joiner_name: Display name of the user who joined
         group_id: Optional group ID for callback data
@@ -350,7 +364,7 @@ async def send_join_notification_dm(
     logger.info(
         "[NOTIFICATION] Join notification start | event_id=%s recipient=%s joiner=%s group_id=%s",
         event.event_id if event else None,
-        telegram_user_id,
+        user_id,
         joiner_name,
         group_id,
     )
@@ -359,7 +373,14 @@ async def send_join_notification_dm(
         logger.error(
             "[NOTIFICATION] Cannot send join notification - context.bot is None | event_id=%s recipient=%s",
             event.event_id if event else None,
-            telegram_user_id,
+            user_id,
+        )
+        return False
+
+    chat_id = await _telegram_chat_for(user_id)
+    if chat_id is None:
+        logger.info(
+            "[NOTIFICATION] No Telegram identity for user %s; DM skipped", user_id
         )
         return False
 
@@ -386,12 +407,12 @@ async def send_join_notification_dm(
         logger.info(
             "[NOTIFICATION] Sending join notification | event_id=%s recipient=%s joiner=%s",
             event.event_id,
-            telegram_user_id,
+            user_id,
             joiner_name,
         )
 
         await context.bot.send_message(
-            chat_id=telegram_user_id,
+            chat_id=chat_id,
             text=t(
                 "join_notification_title",
                 lang=tlang,
@@ -416,14 +437,14 @@ async def send_join_notification_dm(
         logger.info(
             "[NOTIFICATION] Join notification sent successfully | event_id=%s recipient=%s",
             event.event_id,
-            telegram_user_id,
+            user_id,
         )
         return True
     except Exception as e:
         logger.error(
             "[NOTIFICATION] Failed to send join notification | event_id=%s recipient=%s error_type=%s error=%s",
             event.event_id if event else None,
-            telegram_user_id,
+            user_id,
             type(e).__name__,
             str(e),
             exc_info=True,
@@ -433,7 +454,7 @@ async def send_join_notification_dm(
 
 async def send_event_modification_request_dm(
     context: ContextTypes.DEFAULT_TYPE,
-    telegram_user_id: int,
+    user_id: int,
     event_data: dict[str, Any],
     event_id: int,
     deadline_info: str,
@@ -444,7 +465,7 @@ async def send_event_modification_request_dm(
 
     Args:
         context: Telegram context
-        telegram_user_id: User's Telegram ID
+        user_id: Internal users.user_id; resolved to a Telegram chat here
         event_data: Event details
         event_id: Event ID
         deadline_info: Deadline information text
@@ -453,6 +474,13 @@ async def send_event_modification_request_dm(
         True if DM sent successfully, False otherwise
     """
     if not context.bot:
+        return False
+
+    chat_id = await _telegram_chat_for(user_id)
+    if chat_id is None:
+        logger.info(
+            "[NOTIFICATION] No Telegram identity for user %s; DM skipped", user_id
+        )
         return False
 
     bot_username = context.bot.username
@@ -485,7 +513,7 @@ async def send_event_modification_request_dm(
 
     try:
         await context.bot.send_message(
-            chat_id=telegram_user_id,
+            chat_id=chat_id,
             text=t(
                 "modification_request_title",
                 lang=tlang,
@@ -503,12 +531,12 @@ async def send_event_modification_request_dm(
             parse_mode="Markdown",
         )
         logger.info(
-            f"Event modification request DM sent to user {telegram_user_id} for event {event_id}"
+            f"Event modification request DM sent to user {user_id} for event {event_id}"
         )
         return True
     except Exception as e:
         logger.error(
-            f"Failed to send event modification request DM to user {telegram_user_id}: {e}",
+            f"Failed to send event modification request DM to user {user_id}: {e}",
             exc_info=True,
         )
         return False

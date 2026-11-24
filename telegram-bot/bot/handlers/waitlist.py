@@ -10,12 +10,19 @@ from sqlalchemy import select
 
 from config.settings import settings
 from db.connection import get_session
+from db.identity import get_telegram_user, resolve_telegram_user
 from db.models import Event, User, Group
 from bot.services import WaitlistService
 from bot.common.i18n import t, get_user_language
 from bot.common.safe_edit import safe_edit_message
 
 logger = logging.getLogger("coord_bot.handlers.waitlist")
+
+
+async def _internal_user_id(session, telegram_user_id: int) -> int | None:
+    """Waitlist rows and organizer columns hold internal user IDs."""
+    user = await get_telegram_user(session, telegram_user_id)
+    return int(user.user_id) if user is not None else None
 
 
 async def handle_accept(
@@ -30,9 +37,12 @@ async def handle_accept(
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
         waitlist_service = WaitlistService(session, context.bot)
+        user_id = await _internal_user_id(session, telegram_user_id)
 
         # Accept the offer
-        accepted = await waitlist_service.accept_offer(event_id, telegram_user_id)
+        accepted = user_id is not None and await waitlist_service.accept_offer(
+            event_id, user_id
+        )
         if not accepted:
             await safe_edit_message(
                 query, "❌ This offer has expired or is no longer available."
@@ -68,7 +78,10 @@ async def handle_decline(
     async with get_session(db_url) as session:
         waitlist_service = WaitlistService(session, context.bot)
 
-        declined = await waitlist_service.decline_offer(event_id, telegram_user_id)
+        user_id = await _internal_user_id(session, telegram_user_id)
+        declined = user_id is not None and await waitlist_service.decline_offer(
+            event_id, user_id
+        )
         if declined:
             await safe_edit_message(query, "👍 Thanks for letting us know.")
         else:
@@ -95,9 +108,10 @@ async def handle_extend_deadline(
             return
 
         # Verify organizer/admin
-        if telegram_user_id not in {
-            event.organizer_telegram_user_id,
-            event.emergency_admin_telegram_user_id,
+        user_id = await _internal_user_id(session, telegram_user_id)
+        if user_id is None or user_id not in {
+            event.organizer_user_id,
+            event.emergency_admin_user_id,
         }:
             await safe_edit_message(
                 query, "❌ Only the organizer can extend the deadline."
@@ -172,9 +186,10 @@ async def handle_view_waitlist(
             return
 
         # Verify organizer/admin
-        if telegram_user_id not in {
-            event.organizer_telegram_user_id,
-            event.emergency_admin_telegram_user_id,
+        user_id = await _internal_user_id(session, telegram_user_id)
+        if user_id is None or user_id not in {
+            event.organizer_user_id,
+            event.emergency_admin_user_id,
         }:
             await safe_edit_message(query, t("waitlist_only_organizer", lang=user_lang))
             return
@@ -189,12 +204,19 @@ async def handle_view_waitlist(
             return
 
         lines = [t("waitlist_header", lang=user_lang, type=event.event_type)]
+        users_by_id = {
+            user.user_id: user
+            for user in (
+                await session.execute(
+                    select(User).where(
+                        User.user_id.in_([entry.user_id for entry in waitlist])
+                    )
+                )
+            ).scalars()
+        }
         for i, entry in enumerate(waitlist, 1):
-            user_result = await session.execute(
-                select(User).where(User.telegram_user_id == entry.telegram_user_id)
-            )
-            user = user_result.scalar_one_or_none()
-            name = f"User #{entry.telegram_user_id}"
+            user = users_by_id.get(entry.user_id)
+            name = f"User #{entry.user_id}"
             if user:
                 name = user.display_name or user.username or name
             lines.append(f"{i}. {name}")
@@ -216,8 +238,14 @@ async def handle_join_waitlist(
         waitlist_service = WaitlistService(session, context.bot)
 
         try:
+            user = await resolve_telegram_user(
+                session,
+                telegram_user_id,
+                display_name=query.from_user.full_name,
+                username=query.from_user.username,
+            )
             position = await waitlist_service.add_to_waitlist(
-                event_id, telegram_user_id
+                event_id, int(user.user_id)
             )
             await safe_edit_message(
                 query,

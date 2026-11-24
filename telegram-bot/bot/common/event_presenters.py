@@ -19,85 +19,65 @@ from db.connection import get_session
 from config.settings import settings
 
 
-async def get_user_mention(session, telegram_user_id: int, bot=None) -> str:
-    """
-    Get a clickable @username mention for a user.
+async def get_user_mention(session, user_id: int, bot=None) -> str:
+    """Get a user mention with fallback hierarchy.
 
-    Fetches user from database first, then from Telegram API if needed:
-    - @username (clickable) if username exists
-    - display_name (clickable) if display_name exists
-    - User ID link as last fallback
+    ``user_id`` is the internal ``users.user_id`` (callers pass event
+    columns such as ``emergency_admin_user_id``). When the database has no
+    username and a bot is available, the user's Telegram identity -- not
+    the internal ID -- is used to ask Telegram.
 
-    Args:
-        session: Database session
-        telegram_user_id: User's Telegram ID
-        bot: Telegram bot instance to fetch user info from API
-
-    Returns:
-        Formatted mention string
+    Returns "Name(@username)", "@username", the display name, or
+    "User<id>" as a last resort.
     """
     user = (
-        await session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
-        )
+        await session.execute(select(User).where(User.user_id == user_id))
     ).scalar_one_or_none()
 
-    username = None
-    display_name = None
+    username = getattr(user, "username", None) if user else None
+    display_name = getattr(user, "display_name", None) if user else None
 
-    if user:
-        username = getattr(user, "username", None)
-        display_name = getattr(user, "display_name", None)
+    if user and not username and bot:
+        from db.identity import get_identities
+        from db.models import AuthProvider
 
-    # If no username in DB and bot is available, fetch from Telegram API
-    if not username and bot:
-        try:
-            tg_user = await bot.get_chat(telegram_user_id)
-            if tg_user:
+        telegram_ids = [
+            identity.provider_user_id
+            for identity in await get_identities(session, int(user.user_id))
+            if identity.provider == AuthProvider.telegram.value
+        ]
+        if telegram_ids:
+            try:
+                tg_user = await bot.get_chat(int(telegram_ids[0]))
                 username = getattr(tg_user, "username", None)
                 if not username:
-                    # Try first_name + last_name
-                    first_name = getattr(tg_user, "first_name", "")
-                    last_name = getattr(tg_user, "last_name", "")
-                    display_name = f"{first_name} {last_name}".strip() or None
-
-                # Update database with fetched username
-                if user and username:
+                    first_name = getattr(tg_user, "first_name", "") or ""
+                    last_name = getattr(tg_user, "last_name", "") or ""
+                    display_name = f"{first_name} {last_name}".strip() or display_name
+                if username:
                     user.username = username.lower()
                     await session.flush()
-                elif not user:
-                    # Create user record
-                    from db.models import User as UserModel
-
-                    new_user = UserModel(
-                        telegram_user_id=telegram_user_id,
-                        username=username.lower() if username else None,
-                        display_name=display_name,
-                    )
-                    session.add(new_user)
-                    await session.flush()
-        except Exception:
-            pass  # User might have privacy settings blocking this
+            except Exception:
+                pass  # Privacy settings may block the lookup.
 
     if username:
         return f"{display_name or username}(@{username})"
     elif display_name:
         return display_name
 
-    # Fallback to User ID
-    return f"User{telegram_user_id}"
+    return f"User{user_id}"
 
 
-async def get_user_mention_with_bot(session, telegram_user_id: int, bot) -> str:
+async def get_user_mention_with_bot(session, user_id: int, bot) -> str:
     """
     Get user mention with guaranteed Telegram API lookup.
     Wrapper that ensures bot is passed for API lookup.
     """
-    return await get_user_mention(session, telegram_user_id, bot=bot)
+    return await get_user_mention(session, user_id, bot=bot)
 
 
 def format_user_display(
-    telegram_user_id: int,
+    user_id: int,
     username: str | None = None,
     display_name: str | None = None,
     include_link: bool = False,  # Deprecated parameter, kept for compatibility
@@ -105,7 +85,7 @@ def format_user_display(
     """Format user display with fallback hierarchy: Name(@username) → @username → display_name → User ID.
 
     Args:
-        telegram_user_id: User's Telegram ID
+        user_id: Internal users.user_id (last-resort label only)
         username: User's @username if available
         display_name: User's display name if available
         include_link: Deprecated - no longer used (Markdown links removed)
@@ -122,7 +102,7 @@ def format_user_display(
         return display_name
     else:
         # Fallback to User ID
-        return f"User{telegram_user_id}"
+        return f"User{user_id}"
 
 
 def summarize_description(description: str | None, max_len: int = 400) -> str:
@@ -148,7 +128,7 @@ async def attendance_stats_with_usernames(
         select(EventParticipant).where(EventParticipant.event_id == event_id)
     )
     participants = result.scalars().all()
-    status_by_user = {p.telegram_user_id: p.status.value for p in participants}
+    status_by_user = {p.user_id: p.status.value for p in participants}
 
     # Count statuses (new system uses 'joined' and 'confirmed')
     interested_count = sum(
@@ -166,11 +146,9 @@ async def attendance_stats_with_usernames(
 
     users = {}
     if user_ids:
-        result = await session.execute(
-            select(User).where(User.telegram_user_id.in_(user_ids))
-        )
+        result = await session.execute(select(User).where(User.user_id.in_(user_ids)))
         for user in result.scalars().all():
-            users[user.telegram_user_id] = user
+            users[user.user_id] = user
 
     for telegram_user_id in sorted(status_by_user.keys()):
         status = status_by_user[telegram_user_id]
@@ -215,7 +193,7 @@ def participant_stats(event: Any) -> tuple[int, int, str]:
         return interested_count, confirmed_count, "No attendees yet."
 
     lines = []
-    for participant in sorted(participants, key=lambda p: int(p.telegram_user_id)):
+    for participant in sorted(participants, key=lambda p: int(p.user_id)):
         status = getattr(participant.status, "value", participant.status)
         status_text = {
             "joined": "has joined",
@@ -223,7 +201,7 @@ def participant_stats(event: Any) -> tuple[int, int, str]:
             "cancelled": "has cancelled",
             "no_show": "was absent",
         }.get(status, str(status))
-        lines.append(f"User{participant.telegram_user_id} {status_text}")
+        lines.append(f"User{participant.user_id} {status_text}")
 
     return interested_count, confirmed_count, "\n".join(lines)
 
@@ -273,7 +251,7 @@ async def format_event_details_message(
         next_step = "Event is in a terminal/locked stage."
 
     # Get admin mention
-    admin_id = getattr(event, "emergency_admin_telegram_user_id", None)
+    admin_id = getattr(event, "emergency_admin_user_id", None)
     admin_text = "N/A"
     if admin_id and settings.db_url:
         async with get_session(settings.db_url) as session:
@@ -384,7 +362,7 @@ async def format_status_message(
             select(EventParticipant, User)
             .join(
                 User,
-                EventParticipant.telegram_user_id == User.telegram_user_id,
+                EventParticipant.user_id == User.user_id,
                 isouter=True,
             )
             .where(EventParticipant.event_id == event_id)
@@ -392,7 +370,7 @@ async def format_status_message(
 
         for participant, user in result.all():
             user_display = format_user_display(
-                telegram_user_id=participant.telegram_user_id,
+                user_id=participant.user_id,
                 username=getattr(user, "username", None),
                 display_name=getattr(user, "display_name", None),
             )
@@ -430,7 +408,7 @@ async def format_status_message(
                 )
 
     # Get admin mention
-    admin_id = getattr(event, "emergency_admin_telegram_user_id", None)
+    admin_id = getattr(event, "emergency_admin_user_id", None)
     admin_text = "N/A"
     if admin_id and settings.db_url:
         async with get_session(settings.db_url) as session:

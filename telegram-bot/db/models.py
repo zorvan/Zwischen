@@ -5,6 +5,7 @@ Aligned with Coordination Engine PRD: From Coordination Tool to Shared Experienc
 
 from datetime import datetime, timezone
 from typing import Any
+import uuid
 from sqlalchemy import (
     Column,
     Integer,
@@ -17,11 +18,12 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     UniqueConstraint,
+    text,
     Enum as SQLEnum,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, synonym
 import enum
 
 # The live schema uses jsonb, not json. jsonb is stored decomposed, supports
@@ -33,13 +35,50 @@ JSON = JSONB
 Base: Any = declarative_base()
 
 
+def _new_uuid() -> uuid.UUID:
+    return uuid.uuid4()
+
+
+class AuthProvider(str, enum.Enum):
+    """Platforms a user can authenticate through.
+
+    Stored as a plain string rather than a PostgreSQL enum: adding a provider
+    must not require a migration and a table rewrite.
+    """
+
+    telegram = "telegram"
+    email = "email"
+    google = "google"
+    apple = "apple"
+    wallet_ton = "wallet:ton"
+
+
 class User(Base):
-    """Users table - global identity across groups."""
+    """Users table - global identity, independent of any one platform.
+
+    ``user_id`` is the internal surrogate key and the only thing foreign keys
+    reference. ``public_id`` is what web, mobile and API clients see, so that
+    URLs do not expose a sequential counter (which leaks user volume and is
+    trivially enumerable).
+
+    Platform credentials live in ``user_identities``, not here -- a user can
+    hold a Telegram identity and an email login at once, and neither is
+    privileged over the other.
+    """
 
     __tablename__ = "users"
 
     user_id = Column(Integer, primary_key=True)
-    telegram_user_id = Column(BigInteger, unique=True, nullable=False)
+    public_id = Column(
+        UUID(as_uuid=True),
+        unique=True,
+        nullable=False,
+        default=_new_uuid,
+        # Server-side default too, so rows inserted by anything other than
+        # this ORM -- raw SQL, a migration, a future service in another
+        # language -- still get a public id instead of failing NOT NULL.
+        server_default=text("gen_random_uuid()"),
+    )
     username = Column(String(255), unique=True)
     display_name = Column(String(255))
     # NOTE: expertise_per_activity removed in v3.5 (behavioral scoring deprecated per spec)
@@ -57,23 +96,123 @@ class User(Base):
     )
     logs = relationship("Log", back_populates="user")
     preferences = relationship("UserPreference", back_populates="user", uselist=False)
+    identities = relationship(
+        "UserIdentity", back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class UserIdentity(Base):
+    """A credential linking one platform account to one User.
+
+    This is what makes the system platform-independent: Telegram becomes one
+    row here rather than a column on ``users``. Linking a web login to an
+    existing Telegram user is an INSERT, not a schema change, and a user who
+    arrives via the web app simply has no telegram row.
+    """
+
+    __tablename__ = "user_identities"
+
+    __table_args__ = (
+        # One account per provider identity: two users must never claim the
+        # same Telegram ID or the same email.
+        UniqueConstraint("provider", "provider_user_id", name="uq_identity_provider"),
+        Index("idx_user_identities_user", "user_id"),
+    )
+
+    identity_id = Column(BigInteger, primary_key=True)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider = Column(String(32), nullable=False)
+    # Text, not BigInteger: Telegram IDs are numeric but email addresses and
+    # OIDC subject claims are not.
+    provider_user_id = Column(String(255), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    user = relationship("User", back_populates="identities")
 
 
 class Group(Base):
-    """Groups table - Telegram group context."""
+    """Groups table - a coordination context, optionally backed by a chat."""
 
     __tablename__ = "groups"
 
     group_id = Column(Integer, primary_key=True)
-    telegram_group_id = Column(BigInteger, unique=True, nullable=False)
+    public_id = Column(
+        UUID(as_uuid=True),
+        unique=True,
+        nullable=False,
+        default=_new_uuid,
+        # Server-side default too, so rows inserted by anything other than
+        # this ORM -- raw SQL, a migration, a future service in another
+        # language -- still get a public id instead of failing NOT NULL.
+        server_default=text("gen_random_uuid()"),
+    )
+    # Nullable: a group created from the web or mobile app has no Telegram
+    # chat behind it. Still unique, so at most one group maps to a given chat.
+    telegram_group_id = Column(BigInteger, unique=True, nullable=True)
     group_name = Column(String(255))
     group_type = Column(String(50), default="casual")
-    member_list = Column(JSON, default=list)
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
     events = relationship("Event", back_populates="group")
+    members = relationship(
+        "GroupMember", back_populates="group", cascade="all, delete-orphan"
+    )
+
+
+class GroupMemberRole(str, enum.Enum):
+    owner = "owner"
+    admin = "admin"
+    member = "member"
+
+
+class GroupMemberStatus(str, enum.Enum):
+    active = "active"
+    left = "left"
+    removed = "removed"
+
+
+class GroupMember(Base):
+    """Explicit group membership.
+
+    Replaces two mechanisms that cannot survive outside Telegram: the
+    ``groups.member_list`` JSON array, and rbac.check_group_membership()'s
+    fallback of asking the Telegram API who is in the chat. A web or mobile
+    client has no such oracle, so membership has to be a fact we store.
+    """
+
+    __tablename__ = "group_members"
+
+    __table_args__ = (
+        Index("idx_group_members_user", "user_id"),
+        Index("idx_group_members_group_status", "group_id", "status"),
+    )
+
+    group_id = Column(
+        Integer,
+        ForeignKey("groups.group_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    user_id = Column(
+        Integer,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    role = Column(String(20), nullable=False, default=GroupMemberRole.member.value)
+    status = Column(String(20), nullable=False, default=GroupMemberStatus.active.value)
+    joined_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    group = relationship("Group", back_populates="members")
+    user = relationship("User")
 
 
 class Event(Base):
@@ -86,22 +225,38 @@ class Event(Base):
     # would DROP them, removing the covering indexes for the hottest query
     # paths.
     __table_args__ = (
-        Index("idx_events_group", "group_id"),
         Index("idx_events_state", "state"),
-        Index("idx_events_organizer_tg", "organizer_telegram_user_id"),
-        Index("idx_events_emergency_admin_tg", "emergency_admin_telegram_user_id"),
+        Index("idx_events_organizer_user", "organizer_user_id"),
+        Index("idx_events_emergency_admin_user", "emergency_admin_user_id"),
+        # The dashboard query is "events for this group in these states,
+        # soonest first". Without a composite index that is a scan of the
+        # group's whole history followed by a sort.
+        Index("idx_events_group_state_time", "group_id", "state", "scheduled_time"),
     )
 
     event_id = Column(Integer, primary_key=True)
+    public_id = Column(
+        UUID(as_uuid=True),
+        unique=True,
+        nullable=False,
+        default=_new_uuid,
+        # Server-side default too, so rows inserted by anything other than
+        # this ORM -- raw SQL, a migration, a future service in another
+        # language -- still get a public id instead of failing NOT NULL.
+        server_default=text("gen_random_uuid()"),
+    )
     group_id = Column(
         Integer, ForeignKey("groups.group_id", ondelete="CASCADE"), nullable=True
     )
     event_type = Column(String(100), nullable=False)
     title = Column(String(300), nullable=True)
     description = Column(Text)
-    organizer_telegram_user_id = Column(BigInteger)
-    # NOTE: Renamed from admin_telegram_user_id in v3.5 for clarity
-    emergency_admin_telegram_user_id = Column(BigInteger)
+    organizer_user_id = Column(
+        Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
+    )
+    emergency_admin_user_id = Column(
+        Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
+    )
     scheduled_time = Column(DateTime(timezone=True))
     commit_by = Column(DateTime(timezone=True))
     duration_minutes = Column(Integer, default=120)
@@ -154,7 +309,6 @@ class UserPreference(Base):
     # would DROP them, removing the covering indexes for the hottest query
     # paths.
     __table_args__ = (
-        Index("idx_user_preferences_user", "user_id"),
         Index("idx_user_preferences_activity", "activity_preference"),
         Index("idx_user_preferences_budget", "budget_preference"),
         Index("idx_user_preferences_time", "time_preference"),
@@ -275,9 +429,14 @@ class EventParticipant(Base):
     # would DROP them, removing the covering indexes for the hottest query
     # paths.
     __table_args__ = (
-        Index("idx_event_participants_event_id", "event_id"),
-        Index("idx_event_participants_user_id", "telegram_user_id"),
         Index("idx_event_participants_status", "status"),
+        Index("idx_event_participants_user", "user_id"),
+        # "How many are confirmed on this event" runs on every join, lock and
+        # threshold check. Counting from this index avoids touching the heap.
+        Index("idx_event_participants_event_status", "event_id", "status"),
+        # No separate unique constraint on (event_id, user_id): the primary
+        # key is exactly that pair, and migration c8f0e2a913b4 dropped the
+        # redundant uq_participant_event_user for that reason.
     )
 
     event_id = Column(
@@ -286,7 +445,12 @@ class EventParticipant(Base):
         primary_key=True,
         nullable=False,
     )
-    telegram_user_id = Column(BigInteger, primary_key=True, nullable=False)
+    user_id = Column(
+        Integer,
+        ForeignKey("users.user_id", ondelete="CASCADE"),
+        primary_key=True,
+        nullable=False,
+    )
     status = Column(
         SQLEnum(ParticipantStatus, name="participant_status"),
         default=ParticipantStatus.joined,
@@ -351,7 +515,10 @@ class EventStateTransition(Base):
     # but were never declared here. Without them an autogenerated migration
     # would DROP them, removing the covering indexes for the hottest query
     # paths.
-    __table_args__ = (Index("idx_event_state_transitions_event_id", "event_id"),)
+    __table_args__ = (
+        Index("idx_event_state_transitions_event_id", "event_id"),
+        Index("idx_event_state_transitions_actor", "actor_user_id"),
+    )
 
     transition_id = Column(Integer, primary_key=True)
     event_id = Column(
@@ -359,7 +526,11 @@ class EventStateTransition(Base):
     )
     from_state = Column(String(20), nullable=False)
     to_state = Column(String(20), nullable=False)
-    actor_telegram_user_id = Column(BigInteger)
+    # SET NULL, not CASCADE: deleting a user must not erase the audit trail of
+    # what happened to an event.
+    actor_user_id = Column(
+        Integer, ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True
+    )
     timestamp = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -461,7 +632,9 @@ class EventWaitlist(Base):
     event_id = Column(
         Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
-    telegram_user_id = Column(BigInteger, nullable=False)
+    user_id = Column(
+        Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
     # Legacy compatibility field. Active v3.2 ordering is by added_at only.
     position = Column(Integer, nullable=True)
     added_at = Column(
@@ -475,10 +648,13 @@ class EventWaitlist(Base):
     )  # waiting, offered, promoted, expired, cancelled
 
     __table_args__ = (
-        UniqueConstraint("event_id", "telegram_user_id", name="uq_waitlist_event_user"),
-        Index("idx_event_waitlist_event_id", "event_id"),
-        Index("idx_event_waitlist_user_id", "telegram_user_id"),
+        UniqueConstraint("event_id", "user_id", name="uq_waitlist_event_user"),
         Index("idx_event_waitlist_status", "status"),
+        Index("idx_event_waitlist_user", "user_id"),
+        # Promotion picks the oldest still-waiting entry for an event.
+        Index(
+            "idx_event_waitlist_event_status_added", "event_id", "status", "added_at"
+        ),
     )
 
     event = relationship("Event", back_populates="waitlist")
@@ -515,16 +691,20 @@ class EventEnrichment(Base):
     # would DROP them, removing the covering indexes for the hottest query
     # paths.
     __table_args__ = (
-        Index("idx_enrichments_event", "event_id"),
         Index("idx_enrichments_type", "enrichment_type"),
         Index("idx_enrichments_public", "is_public"),
+        Index("idx_enrichments_user", "user_id"),
+        # Enrichments are always read as "this event's items of this type".
+        Index("idx_enrichments_event_type", "event_id", "enrichment_type"),
     )
 
     enrichment_id = Column(BigInteger, primary_key=True)
     event_id = Column(
         BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
     )
-    telegram_user_id = Column(BigInteger, nullable=False)
+    user_id = Column(
+        Integer, ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False
+    )
     enrichment_type = Column(
         String(30), nullable=False
     )  # 'idea' | 'hashtag' | 'memory'
@@ -552,10 +732,7 @@ class EventLineage(Base):
     # but were never declared here. Without them an autogenerated migration
     # would DROP them, removing the covering indexes for the hottest query
     # paths.
-    __table_args__ = (
-        Index("idx_lineage_parent", "parent_event_id"),
-        Index("idx_lineage_child", "child_event_id"),
-    )
+    __table_args__ = (Index("idx_lineage_child", "child_event_id"),)
 
     parent_event_id = Column(
         BigInteger, ForeignKey("events.event_id", ondelete="CASCADE"), primary_key=True
@@ -569,6 +746,48 @@ class EventLineage(Base):
     )
 
 
+class AnchorOutbox(Base):
+    """Transactional outbox for optional commitment anchoring (T16).
+
+    A row is written in the same transaction as an event lock and submitted
+    later by the anchor worker, so nothing reaches a chain unless the lock
+    committed, and a crash between commit and submit loses nothing. Only
+    ``commitment`` (a salted hash) ever leaves the system. ``bundle`` is the
+    client-side proof, kept here only until clients have had time to fetch
+    it; retention then removes it (docs/RETENTION_POLICY.md).
+    """
+
+    __tablename__ = "anchor_outbox"
+    __table_args__ = (
+        Index("idx_anchor_outbox_due", "status", "next_attempt_at"),
+        Index("idx_anchor_outbox_event", "event_id"),
+    )
+
+    anchor_id = Column(Integer, primary_key=True)
+    event_id = Column(
+        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
+    )
+    idempotency_key = Column(String(128), nullable=False, unique=True)
+    commitment = Column(String(64), nullable=False)
+    bundle = Column(JSON, nullable=True)
+    # pending -> submitted -> confirmed; dropped back to pending on reorg;
+    # failed once retries are exhausted.
+    status = Column(String(16), nullable=False, default="pending")
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)
+    tx_ref = Column(String(255), nullable=True)
+    next_attempt_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class EventLiveCard(Base):
     """
     EventLiveCard table - Tracks live card messages posted to group chats.
@@ -580,14 +799,20 @@ class EventLiveCard(Base):
     __tablename__ = "event_live_cards"
 
     id = Column(BigInteger, primary_key=True)
+    __table_args__ = (
+        UniqueConstraint(
+            "event_id", "transport", "channel_id", name="uq_live_card_transport"
+        ),
+    )
+
     event_id = Column(
         BigInteger,
         ForeignKey("events.event_id", ondelete="CASCADE"),
-        unique=True,
         nullable=False,
     )
-    message_id = Column(BigInteger, nullable=False)
-    chat_id = Column(BigInteger, nullable=False)
+    transport = Column(String(32), nullable=False, default="telegram")
+    channel_id = Column(String(255), nullable=False)
+    message_id = Column(String(255), nullable=False)
     participant_count = Column(Integer, default=0)
     confirmed_count = Column(Integer, default=0)
     reaction_counts = Column(JSON, default=dict)
@@ -596,6 +821,9 @@ class EventLiveCard(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+    # Constructor/read compatibility for Telegram code during migration.
+    chat_id = synonym("channel_id")
 
 
 class GroupSettings(Base):
@@ -615,6 +843,11 @@ class GroupSettings(Base):
     group_timezone = Column(String(50), default="UTC")
     max_hashtags_per_event = Column(Integer, default=5)
     lineage_selection_method = Column(String(10), default="fixed")
+    # Optional commitment anchoring (T16). Off unless the group opts in;
+    # docs/ANCHORING_DECISION.md requires every affected group to consent.
+    anchoring_enabled = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     # 'fixed' = most recent fragment | 'llm' = context-aware
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

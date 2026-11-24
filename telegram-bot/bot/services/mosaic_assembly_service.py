@@ -252,7 +252,7 @@ class MosaicAssembler:
                         if len(memory.content) > 200
                         else memory.content
                     ),
-                    "author_id": memory.telegram_user_id,
+                    "author_id": memory.user_id,
                     "created_at": (
                         memory.created_at.isoformat() if memory.created_at else None
                     ),
@@ -285,7 +285,7 @@ class MosaicAssembler:
         return MosaicFragment(
             id=memory.id,
             content=content,
-            author_id=memory.telegram_user_id,
+            author_id=memory.user_id,
             created_at=memory.created_at or datetime.now(timezone.utc),
             type="memory",
         )

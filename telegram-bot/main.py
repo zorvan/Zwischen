@@ -5,14 +5,14 @@ PRD v3: Pure mediation through timing, framing, visibility, language, sequence, 
 """
 import asyncio
 import logging
-from pathlib import Path
+from telegram.error import Conflict
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
-    PicklePersistence,
+    TypeHandler,
     filters,
 )
 
@@ -37,6 +37,7 @@ from bot.commands import (
     about,
     preferences,
     language,
+    account,
 )
 from bot.handlers import (
     event_panel,
@@ -49,11 +50,21 @@ from ai.llm import LLMClient
 from bot.common.i18n import init as init_i18n
 from db.connection import wait_for_db
 from db.migrate import run_migrations
+from core.persistence import StateBackendPersistence
+from bot.common.query_budget import QueryBudgetUpdateProcessor
+from core.state import build_state_backend
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log full traceback for uncaught update handling errors with full context."""
     logger = logging.getLogger("coord_bot.bot")
+
+    if isinstance(context.error, Conflict):
+        logger.error(
+            "[GLOBAL_ERROR] Telegram polling conflict: another bot instance is "
+            "using getUpdates with this token. Stop the other instance."
+        )
+        return
 
     # Extract context information
     user_id = None
@@ -73,7 +84,7 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id,
         type(context.error).__name__ if context.error else "None",
         str(context.error) if context.error else "None",
-        exc_info=True,
+        exc_info=context.error,
     )
 
     # Categorize common errors for easier debugging
@@ -118,6 +129,31 @@ async def await_database(logger: logging.Logger, db_url: str) -> None:
     """
     await wait_for_db(db_url)
     logger.info("Startup DB check: Database connection OK")
+    await check_pool_budget(db_url)
+
+
+async def check_pool_budget(db_url: str) -> None:
+    """Log whether the configured pools fit the server (T14).
+
+    Uses a throwaway NullPool engine: this may run on a loop that is about
+    to end, and must not leave a pool behind.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from config.settings import settings
+    from db.pool_budget import check_connection_budget, check_recycle
+
+    check_recycle(settings)
+    engine = create_async_engine(db_url, poolclass=NullPool)
+    try:
+        await check_connection_budget(engine, settings)
+    except Exception:
+        logging.getLogger("coord_bot.db.pool").warning(
+            "Connection budget check failed", exc_info=True
+        )
+    finally:
+        await engine.dispose()
 
 
 async def run_scheduled_tasks(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -159,8 +195,10 @@ def main():
             "TELEGRAM_TOKEN does not look like a valid Telegram bot token. "
             "Expected '<bot_id>:<secret>'."
         )
-    if settings.environment == "production" and not settings.webhook_url:
-        raise ValueError("WEBHOOK_URL must be set when ENVIRONMENT=production.")
+    if settings.webhook_mode and not settings.webhook_url:
+        raise ValueError("WEBHOOK_URL must be set when webhook mode is enabled.")
+    if settings.webhook_mode and not settings.webhook_secret:
+        raise ValueError("WEBHOOK_SECRET must be set when webhook mode is enabled.")
 
     # Create the loop explicitly. asyncio.get_event_loop() with no running loop
     # is deprecated (DeprecationWarning today, RuntimeError in future Python),
@@ -181,27 +219,44 @@ def main():
     else:
         logger.warning("DB_URL is not set. Database-backed features are unavailable.")
 
-    # Build application with job queue for scheduled tasks
-    # v3.5: Add persistence so user_data persists between updates (creation flow)
-    persistence_path = Path(settings.persistence_path)
-    persistence_path.parent.mkdir(parents=True, exist_ok=True)
-    logger.info("Persistence file: %s", persistence_path)
-    persistence = PicklePersistence(filepath=persistence_path)
+    state_backend = build_state_backend(settings.redis_url, settings.state_namespace)
+    persistence = StateBackendPersistence(state_backend)
+
+    async def shutdown_resources(_application) -> None:
+        from db.connection import dispose_engines
+
+        await dispose_engines()
+        await state_backend.close()
 
     application = (
         ApplicationBuilder()
         .token(settings.telegram_token)
         .persistence(persistence)
+        .post_shutdown(shutdown_resources)
+        # One update at a time, as before; each is now query-counted.
+        .concurrent_updates(QueryBudgetUpdateProcessor(1, settings.query_budget))
         .build()
     )
 
     # Store settings in bot_data for access by handlers and jobs
     application.bot_data["settings"] = settings
 
-    # Register middleware (rate limiting)
-    # Note: Uncomment when ready to enable rate limiting
-    # from bot.common.rate_limiter import rate_limit_middleware
-    # application.middleware().add(rate_limit_middleware)
+    # Run before every other update handler. ApplicationHandlerStop raised by
+    # this callback prevents the remaining groups from seeing an over-limit
+    # update.
+    from telegram import Update
+    from bot.common.rate_limiter import configure_rate_limiter, rate_limit_update
+
+    configure_rate_limiter(state_backend)
+
+    # Shared read cache (T13): same backend, so invalidation reaches every
+    # instance.
+    from core.cache import configure_cache
+
+    configure_cache(
+        state_backend, enabled=settings.cache_enabled, ttl_seconds=settings.cache_ttl
+    )
+    application.add_handler(TypeHandler(Update, rate_limit_update), group=-100)
 
     # Capture rolling group history first for mention context.
     application.add_handler(
@@ -251,6 +306,9 @@ def main():
         "about": about.handle,
         "preferences": preferences.handle,
         "language": language.handle,
+        # Retention policy and right to erasure (docs/RETENTION_POLICY.md)
+        "privacy": account.privacy,
+        "delete_account": account.delete_account,
     }
 
     for command, handler in command_map.items():
@@ -325,6 +383,8 @@ def main():
         (r"^private_event_back_to_transport$", event_creation.private_handle_callback),
         # Language preference
         (r"^lang_", language.handle_callback),
+        # Account erasure confirmation
+        (r"^acct_delete_(yes|no)$", account.handle_callback),
         # v3.5: Event panel callbacks (ev:{id}:action format)
         (r"^ev:", event_panel.route_event_callback),
         (r"^mnpick_", mentions.handle_disambiguation_callbacks),
@@ -397,11 +457,7 @@ def main():
     logger.info("Bot started. Press Ctrl+C to stop.")
 
     # Check if webhook mode is enabled
-    if (
-        settings.environment == "production"
-        and hasattr(settings, "webhook_url")
-        and settings.webhook_url
-    ):
+    if settings.webhook_mode and settings.webhook_url:
         # Production: Use webhook.
         logger.info("Starting in webhook mode: %s", settings.webhook_url)
         from bot.common.webhook import setup_webhook

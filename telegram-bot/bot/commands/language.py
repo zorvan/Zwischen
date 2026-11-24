@@ -2,11 +2,10 @@
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
-from sqlalchemy import select
 
 from config.settings import settings
 from db.connection import get_session
-from db.models import User
+from db.identity import resolve_telegram_user
 from bot.common.i18n import t, SUPPORTED_LANGS, DEFAULT_LANG
 from bot.common.user_preferences import set_language_preference
 from bot.common.safe_edit import safe_edit_message
@@ -27,23 +26,17 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     db_url = settings.db_url or ""
 
     async with get_session(db_url) as session:
-        result = await session.execute(
-            select(User).where(User.telegram_user_id == update.effective_user.id)
+        db_user = await resolve_telegram_user(
+            session,
+            update.effective_user.id,
+            display_name=update.effective_user.full_name,
+            username=update.effective_user.username,
         )
-        db_user = result.scalar_one_or_none()
-
-        if not db_user:
-            db_user = User(
-                telegram_user_id=update.effective_user.id,
-                display_name=update.effective_user.full_name,
-            )
-            session.add(db_user)
-            await session.flush()
 
         # Get current language
         from bot.common.user_preferences import get_language_preference
 
-        current_lang = await get_language_preference(session, db_user.user_id)
+        current_lang = await get_language_preference(session, int(db_user.user_id))
         if not current_lang:
             current_lang = DEFAULT_LANG
 
@@ -91,20 +84,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     db_url = settings.db_url or ""
     async with get_session(db_url) as session:
-        result = await session.execute(
-            select(User).where(User.telegram_user_id == query.from_user.id)
+        db_user = await resolve_telegram_user(
+            session,
+            query.from_user.id,
+            display_name=query.from_user.full_name,
+            username=query.from_user.username,
         )
-        db_user = result.scalar_one_or_none()
 
-        if not db_user:
-            db_user = User(
-                telegram_user_id=query.from_user.id,
-                display_name=query.from_user.full_name,
-            )
-            session.add(db_user)
-            await session.flush()
-
-        await set_language_preference(session, db_user.user_id, lang_code)
+        await set_language_preference(session, int(db_user.user_id), lang_code)
         await session.commit()
 
     # Cache in user_data for fast lookup without DB query

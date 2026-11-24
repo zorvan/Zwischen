@@ -15,14 +15,56 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 from telegram import Bot
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, text
 
-from db.models import Event, Log, EventParticipant, ParticipantStatus, Group, User
+from db.models import (
+    Event,
+    IdempotencyKey,
+    Log,
+    EventParticipant,
+    ParticipantStatus,
+    Group,
+    User,
+)
+from sqlalchemy.exc import IntegrityError
 
 from bot.common.i18n import t
 from db.connection import get_session
 
 logger = logging.getLogger("coord_bot.scheduler")
+
+
+async def claim_scheduled_delivery(
+    db_url: str,
+    key: str,
+    command_type: str,
+    *,
+    event_id: int | None = None,
+    expires_in_days: int = 35,
+) -> bool:
+    """Atomically claim a notification before sending it.
+
+    Claims are committed in their own transaction. If a process dies after
+    Telegram accepts the send, a retry sees the existing primary key and does
+    not send it again. This intentionally chooses at-most-once delivery over
+    duplicate user-visible notifications.
+    """
+    async with get_session(db_url) as session:
+        session.add(
+            IdempotencyKey(
+                idempotency_key=key,
+                command_type=command_type,
+                event_id=event_id,
+                status="pending",
+                expires_at=datetime.utcnow() + timedelta(days=expires_in_days),
+            )
+        )
+        try:
+            await session.commit()
+            return True
+        except IntegrityError:
+            await session.rollback()
+            return False
 
 
 class SchedulerService:
@@ -62,7 +104,7 @@ class SchedulerService:
                     EventParticipant, Event.event_id == EventParticipant.event_id
                 )
                 .group_by(Event.event_id)
-                .having(func.count(EventParticipant.telegram_user_id) > 0)
+                .having(func.count(EventParticipant.user_id) > 0)
             )
             events = result.scalars().all()
 
@@ -76,6 +118,14 @@ class SchedulerService:
                 )
                 if memory_result.scalar_one_or_none():
                     # Already collected
+                    continue
+
+                if not await claim_scheduled_delivery(
+                    self.db_url,
+                    f"scheduler:memory:{event.event_id}",
+                    "scheduler_memory_collection",
+                    event_id=event.event_id,
+                ):
                     continue
 
                 # Start collection
@@ -121,6 +171,39 @@ class SchedulerService:
 
             return deleted_count
 
+    async def decay_retained_data(self) -> dict[str, int]:
+        """Run the retention policy once cluster-wide under an advisory lock."""
+        async with get_session(self.db_url) as session:
+            # Transaction-scoped lock: another scheduler instance simply skips.
+            acquired = await session.scalar(
+                text("SELECT pg_try_advisory_xact_lock(9472361)")
+            )
+            if not acquired:
+                return {}
+            from bot.services.retention_service import RetentionService
+
+            counts = await RetentionService(session).decay()
+            await session.commit()
+            logger.info("Applied retention policy", extra={"retention": counts})
+            return counts
+
+    async def run_anchor_worker(self) -> dict[str, int]:
+        """Submit and confirm pending anchors (T16). No sink, no work."""
+        from config.settings import settings
+        from core.anchoring import get_sink
+
+        sink = get_sink()
+        if not settings.anchoring_enabled or sink is None:
+            return {}
+        from bot.services.anchor_service import AnchorService
+
+        async with get_session(self.db_url) as session:
+            counts = await AnchorService(session).run_worker_once(sink)
+            await session.commit()
+        if any(counts.values()):
+            logger.info("Anchor worker", extra={"anchors": counts})
+        return counts
+
     async def check_collapse_deadlines(self) -> int:
         """
         Auto-cancel events that passed collapse_at without meeting threshold.
@@ -147,7 +230,7 @@ class SchedulerService:
             for event in events:
                 # Check if threshold is met
                 participant_result = await session.execute(
-                    select(func.count(EventParticipant.telegram_user_id)).where(
+                    select(func.count(EventParticipant.user_id)).where(
                         EventParticipant.event_id == event.event_id,
                         EventParticipant.status.in_(
                             [
@@ -172,7 +255,7 @@ class SchedulerService:
                         await lifecycle.transition_with_lifecycle(
                             event_id=event.event_id,
                             target_state="cancelled",
-                            actor_telegram_user_id=None,  # System action
+                            actor_user_id=None,  # System action
                             source="system",
                             reason=f"Auto-cancel: threshold not met by collapse_at deadline ({event.collapse_at})",
                             expected_version=event.version,
@@ -231,9 +314,7 @@ class SchedulerService:
                 # Get confirmed participants
                 participant_result = await session.execute(
                     select(EventParticipant, User)
-                    .join(
-                        User, EventParticipant.telegram_user_id == User.telegram_user_id
-                    )
+                    .join(User, EventParticipant.user_id == User.user_id)
                     .where(
                         EventParticipant.event_id == event.event_id,
                         EventParticipant.status.in_(
@@ -254,7 +335,7 @@ class SchedulerService:
                         name = user.display_name or (
                             f"@{user.username}"
                             if user.username
-                            else f"User #{user.telegram_user_id}"
+                            else f"User #{user.user_id}"
                         )
                         names.append(name)
 
@@ -275,6 +356,14 @@ class SchedulerService:
                 )
 
                 try:
+                    reminder_date = event.scheduled_time.date().isoformat()
+                    if not await claim_scheduled_delivery(
+                        self.db_url,
+                        f"scheduler:reminder24h:{event.event_id}:{reminder_date}",
+                        "scheduler_24h_reminder",
+                        event_id=event.event_id,
+                    ):
+                        continue
                     await self.bot.send_message(
                         chat_id=group.telegram_group_id,
                         text=message,
@@ -305,7 +394,19 @@ class SchedulerService:
         from bot.common.weekly_digest import send_digest_to_all_groups
 
         try:
-            stats = await send_digest_to_all_groups(self.bot, get_session(self.db_url))
+
+            async def claim_group(group_id: int) -> bool:
+                year, week, _ = datetime.utcnow().isocalendar()
+                return await claim_scheduled_delivery(
+                    self.db_url,
+                    f"scheduler:weekly_digest:{group_id}:{year}-W{week:02d}",
+                    "scheduler_weekly_digest",
+                )
+
+            async with get_session(self.db_url) as session:
+                stats = await send_digest_to_all_groups(
+                    self.bot, session, claim=claim_group
+                )
             logger.info(
                 "Weekly digest sent: %d sent, %d failed, %d skipped",
                 stats.get("sent", 0),
@@ -318,7 +419,11 @@ class SchedulerService:
             return 0
 
 
-async def run_scheduled_tasks(bot: Bot, db_url: str) -> None:
+SCHEDULER_LOCK_NAMESPACE = 0x5A574953  # stable signed-int-safe "ZWIS"
+SCHEDULER_JOB_ID = 1
+
+
+async def _run_scheduled_tasks_unlocked(bot: Bot, db_url: str) -> None:
     """
     Run all scheduled tasks.
 
@@ -332,11 +437,26 @@ async def run_scheduled_tasks(bot: Bot, db_url: str) -> None:
         if memory_count > 0:
             logger.info("Started %d memory collections", memory_count)
 
+        # Retention decay (daily, 03:xx UTC). Daily rather than weekly so no
+        # row outlives its window by more than a day; idempotent, so the two
+        # ticks inside the hour are harmless.
+        if datetime.utcnow().hour == 3:
+            await scheduler.decay_retained_data()
+
+        # Optional anchoring (T16): every tick; degrades to a no-op.
+        try:
+            await scheduler.run_anchor_worker()
+        except Exception:
+            logger.warning("Anchor worker failed", exc_info=True)
+
         # Log pruning (weekly - check if Sunday)
         if datetime.utcnow().weekday() == 6:  # Sunday
             pruned = await scheduler.prune_old_logs()
             if pruned > 0:
                 logger.info("Pruned %d old logs", pruned)
+            digests = await scheduler.send_weekly_digests()
+            if digests > 0:
+                logger.info("Sent %d weekly digests", digests)
 
         # Collapse check (hourly)
         collapsed = await scheduler.check_collapse_deadlines()
@@ -357,6 +477,38 @@ async def run_scheduled_tasks(bot: Bot, db_url: str) -> None:
 
     except Exception as e:
         logger.exception("Scheduled task execution failed: %s", e)
+
+
+async def run_scheduled_tasks(bot: Bot, db_url: str) -> bool:
+    """Elect one replica for this tick using a session advisory lock."""
+    from db.connection import create_engine
+
+    engine = create_engine(db_url)
+    async with engine.connect() as connection:
+        acquired = bool(
+            await connection.scalar(
+                text("SELECT pg_try_advisory_lock(:namespace, :job_id)"),
+                {"namespace": SCHEDULER_LOCK_NAMESPACE, "job_id": SCHEDULER_JOB_ID},
+            )
+        )
+        if not acquired:
+            logger.info("Skipping scheduler tick; another instance is leader")
+            return False
+        try:
+            await _run_scheduled_tasks_unlocked(bot, db_url)
+            return True
+        finally:
+            try:
+                await connection.execute(
+                    text("SELECT pg_advisory_unlock(:namespace, :job_id)"),
+                    {"namespace": SCHEDULER_LOCK_NAMESPACE, "job_id": SCHEDULER_JOB_ID},
+                )
+            except Exception:
+                # Connection close also releases session locks. If the
+                # connection died, PostgreSQL has already released it.
+                logger.warning(
+                    "Could not explicitly release scheduler lock", exc_info=True
+                )
 
 
 async def cleanup_expired_idempotency_keys(db_url: str) -> int:

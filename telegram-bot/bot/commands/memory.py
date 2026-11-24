@@ -242,15 +242,19 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
                 return
 
             # Check if user was a participant
+            from db.identity import get_telegram_user
             from db.models import EventParticipant
 
-            participant_result = await session.execute(
-                select(EventParticipant).where(
-                    EventParticipant.event_id == event_id,
-                    EventParticipant.telegram_user_id == update.effective_user.id,
+            member = await get_telegram_user(session, update.effective_user.id)
+            participant = None
+            if member is not None:
+                participant_result = await session.execute(
+                    select(EventParticipant).where(
+                        EventParticipant.event_id == event_id,
+                        EventParticipant.user_id == member.user_id,
+                    )
                 )
-            )
-            participant = participant_result.scalar_one_or_none()
+                participant = participant_result.scalar_one_or_none()
 
             if not participant:
                 await update.message.reply_text(
@@ -263,7 +267,7 @@ async def remember(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             memory_service = EventMemoryService(context.bot, session)
             fragment = await memory_service.collect_memory_fragment(
                 event_id=event_id,
-                user_id=update.effective_user.id,
+                user_id=int(participant.user_id),
                 fragment_text=memory_text,
             )
 

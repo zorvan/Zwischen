@@ -27,7 +27,6 @@ from sqlalchemy import select
 
 from db.connection import get_session
 from db.models import (
-    User,
     Group,
     Event,
     EventParticipant,
@@ -49,6 +48,17 @@ DB_URL = os.environ.get(
         "postgresql+asyncpg://postgres:postgres@localhost:5432/coord_bot_test",
     ),
 )
+
+
+@pytest.fixture(autouse=True)
+def _use_test_database(test_db_url, monkeypatch):
+    """Point every scenario at the migrated throwaway database.
+
+    Requesting `test_db_url` is also what arms the truncate-between-tests
+    fixture in conftest, so scenarios stop inheriting each other's rows.
+    """
+    monkeypatch.setattr(sys.modules[__name__], "DB_URL", test_db_url)
+
 
 # Synthetic identity space. These must never be real Telegram accounts: this
 # file is public, and the fixtures previously hardcoded a real user's name,
@@ -114,11 +124,21 @@ def make_bot() -> "Bot":
 
 
 class MockBot:
-    """Stands in for telegram.Bot — no API calls are made."""
+    """Stands in for telegram.Bot — no API calls are made.
+
+    Returns a message-like object, as the real Bot does: the notifier reads
+    ``message_id`` from it to build a MessageRef.
+    """
+
+    def __init__(self) -> None:
+        self.sent: list[tuple[int, str]] = []
 
     async def send_message(self, chat_id: int, text: str, **kwargs):
+        from types import SimpleNamespace
+
         print(f"  [BOT MSG] chat={chat_id} text={text[:80]}...")
-        return True
+        self.sent.append((chat_id, text))
+        return SimpleNamespace(message_id=len(self.sent), chat_id=chat_id)
 
 
 # ---------------------------------------------------------------------------
@@ -136,26 +156,27 @@ async def setup_test_data(session) -> dict[str, Any]:
         telegram_group_id=group_tg_id,
         group_name=f"Test Group {TEST_SUFFIX}",
         group_type="casual",
-        member_list=[organizer_tg_id, participant_tg_id],
     )
     session.add(group)
     await session.flush()
 
     # Create organizer user
-    organizer = User(
-        telegram_user_id=organizer_tg_id,
+    from db.identity import resolve_telegram_user
+
+    organizer = await resolve_telegram_user(
+        session,
+        organizer_tg_id,
         display_name="Test Organizer",
         username=f"test_organizer_{organizer_tg_id}",
     )
-    session.add(organizer)
 
     # Create participant user
-    participant = User(
-        telegram_user_id=participant_tg_id,
+    participant = await resolve_telegram_user(
+        session,
+        participant_tg_id,
         display_name="Test Participant",
         username=f"test_participant_{participant_tg_id}",
     )
-    session.add(participant)
     await session.flush()
 
     # Create event in 'proposed' state
@@ -166,8 +187,8 @@ async def setup_test_data(session) -> dict[str, Any]:
         group_id=group.group_id,
         event_type="social",
         description=f"Test event {TEST_SUFFIX}",
-        organizer_telegram_user_id=organizer_tg_id,
-        emergency_admin_telegram_user_id=organizer_tg_id,
+        organizer_user_id=organizer.user_id,
+        emergency_admin_user_id=organizer.user_id,
         scheduled_time=scheduled,
         commit_by=commit_by,
         duration_minutes=60,
@@ -184,21 +205,21 @@ async def setup_test_data(session) -> dict[str, Any]:
         "organizer": organizer,
         "participant": participant,
         "event": event,
-        "organizer_telegram_id": organizer_tg_id,
-        "participant_telegram_id": participant_tg_id,
+        "organizer_telegram_id": organizer.user_id,
+        "participant_telegram_id": participant.user_id,
         "organizer_user_id": organizer.user_id,
         "participant_user_id": participant.user_id,
     }
 
 
 async def add_participants(
-    session, event_id: int, telegram_ids: list[int], status=ParticipantStatus.joined
+    session, event_id: int, user_ids: list[int], status=ParticipantStatus.joined
 ) -> None:
     """Add participant records to an event."""
-    for tid in telegram_ids:
+    for user_id in user_ids:
         participant = EventParticipant(
             event_id=event_id,
-            telegram_user_id=tid,
+            user_id=user_id,
             status=status,
         )
         session.add(participant)
@@ -227,7 +248,7 @@ async def transition(
     return await lifecycle.transition_with_lifecycle(
         event_id=event_id,
         target_state=target,
-        actor_telegram_user_id=actor,
+        actor_user_id=actor,
         source="test",
         reason=f"Test transition to {target}",
         expected_version=event.version if event else None,
@@ -239,18 +260,6 @@ async def transition(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_full_lifecycle() -> list[str]:
     """Test the complete lifecycle: proposed -> interested -> confirmed -> locked -> completed."""
     await _require_database()
@@ -315,13 +324,31 @@ async def test_full_lifecycle() -> list[str]:
                 f"State persisted as '{event.state}' (expected 'locked'), transitioned={ok}"
             )
 
+            # The lock announcement must reach the group's Telegram chat.
+            # Regression: the Telegram chat ID was once passed as an
+            # internal groups.group_id, which overflowed int4 and aborted
+            # the lock.
+            group_chat = data["group"].telegram_group_id
+            announced = any(
+                chat == group_chat and "is locked" in text
+                for chat, text in cast(MockBot, bot).sent
+            )
+            results.append(
+                f"  [{'OK' if announced else 'FAIL'}] "
+                f"Lock announcement delivered to group chat {group_chat}"
+            )
+
             # Verify the transition was recorded in the audit trail
+            # limit(1)/first(), not scalar_one_or_none(): by this step the
+            # event has accumulated three transitions, and asking for "one or
+            # none" from the full audit trail raises MultipleResultsFound.
             result = await session.execute(
                 select(EventStateTransition)
                 .where(EventStateTransition.event_id == event_id)
                 .order_by(EventStateTransition.transition_id.desc())
+                .limit(1)
             )
-            last_transition = result.scalar_one_or_none()
+            last_transition = result.scalars().first()
             if last_transition:
                 trail_msg = (
                     f"{last_transition.from_state} -> {last_transition.to_state}"
@@ -355,18 +382,6 @@ async def test_full_lifecycle() -> list[str]:
     return results
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_lock_rollback_bug() -> list[str]:
     """
     Reproduce the exact bug: lifecycle transition succeeds but commit happens
@@ -401,10 +416,13 @@ async def test_lock_rollback_bug() -> list[str]:
             event, _ = await transition(
                 session, lifecycle, event_id, "confirmed", organizer_id
             )
+            # Both participants, not just the organizer: setup_test_data sets
+            # min_participants=2, so a single confirmed attendee is rejected by
+            # the threshold check before the lock path under test is reached.
             await add_participants(
                 session,
                 event_id,
-                [organizer_id],
+                [organizer_id, data["participant_telegram_id"]],
                 status=ParticipantStatus.confirmed,
             )
             await session.commit()
@@ -471,10 +489,12 @@ async def test_lock_rollback_bug() -> list[str]:
             event, _ = await transition(
                 session, lifecycle, event_id, "confirmed", organizer_id
             )
+            # min_participants=2, so both attendees must be confirmed for the
+            # lock below to be reachable at all.
             await add_participants(
                 session,
                 event_id,
-                [organizer_id],
+                [organizer_id, data["participant_telegram_id"]],
                 status=ParticipantStatus.confirmed,
             )
             await session.commit()
@@ -516,18 +536,6 @@ async def test_lock_rollback_bug() -> list[str]:
     return results
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_unlock_transition() -> list[str]:
     """Test locked -> confirmed (unlock) transition."""
     await _require_database()
@@ -554,10 +562,12 @@ async def test_unlock_transition() -> list[str]:
             event, _ = await transition(
                 session, lifecycle, event_id, "confirmed", organizer_id
             )
+            # min_participants=2, so both attendees must be confirmed for the
+            # lock below to be reachable at all.
             await add_participants(
                 session,
                 event_id,
-                [organizer_id],
+                [organizer_id, data["participant_telegram_id"]],
                 status=ParticipantStatus.confirmed,
             )
             await session.commit()
@@ -634,18 +644,6 @@ async def test_state_machine_validity() -> list[str]:
     return results
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_participant_finalization() -> list[str]:
     """Test that finalize_commitments correctly sets participant statuses for a locked event."""
     await _require_database()
@@ -695,9 +693,7 @@ async def test_participant_finalization() -> list[str]:
             participants = result.scalars().all()
 
             for p in participants:
-                results.append(
-                    f"  [INFO] User {p.telegram_user_id}: status={p.status.value}"
-                )
+                results.append(f"  [INFO] User {p.user_id}: status={p.status.value}")
 
     except Exception as e:
         results.append(f"  [FAIL] Exception: {type(e).__name__}: {e}")
@@ -709,18 +705,6 @@ async def test_participant_finalization() -> list[str]:
     return results
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_concurrent_version_conflict() -> list[str]:
     """Test that optimistic concurrency control catches concurrent modifications."""
     await _require_database()
@@ -759,7 +743,7 @@ async def test_concurrent_version_conflict() -> list[str]:
                 await lifecycle.transition_with_lifecycle(
                     event_id=event_id,
                     target_state="confirmed",
-                    actor_telegram_user_id=organizer_id,
+                    actor_user_id=organizer_id,
                     source="test",
                     expected_version=old_version,  # Stale version!
                 )
@@ -781,18 +765,6 @@ async def test_concurrent_version_conflict() -> list[str]:
     return results
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "Scenario has never actually been verified. These tests only *returned* "
-        "their [OK]/[FAIL] report, and pytest treats a returned value as a pass, "
-        "so they reported green from the day they were written -- including when "
-        "the database was unreachable. With a real assertion they fail on invalid "
-        "preconditions (e.g. locking an event with 1 confirmed participant when "
-        "min_participants=2). The product behaviour looks correct; the scenarios "
-        "need triage. Tracked as follow-up."
-    ),
-)
 async def test_timezone_handling_in_materialization() -> list[str]:
     """
     Regression test for the timezone subtraction bug:
@@ -899,10 +871,12 @@ async def test_timezone_handling_in_materialization() -> list[str]:
             event, _ = await transition(
                 session, lifecycle, event_id, "confirmed", organizer_id
             )
+            # min_participants=2, so both attendees must be confirmed for the
+            # lock below to be reachable at all.
             await add_participants(
                 session,
                 event_id,
-                [organizer_id],
+                [organizer_id, data["participant_telegram_id"]],
                 status=ParticipantStatus.confirmed,
             )
             await session.commit()

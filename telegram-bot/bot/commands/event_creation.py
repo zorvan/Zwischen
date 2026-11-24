@@ -772,24 +772,21 @@ async def start_event_flow(
                 group = Group(
                     telegram_group_id=chat_id,
                     group_name=chat_title,
-                    member_list=[telegram_user_id] if telegram_user_id else [],
                 )
                 session.add(group)
-                await session.commit()
-                await session.refresh(group)
+                await session.flush()
             else:
-                changed = False
                 if chat_title and group.group_name != chat_title:
                     group.group_name = chat_title
-                    changed = True
+            if telegram_user_id:
+                from bot.services.membership_service import MembershipService
+                from db.identity import resolve_telegram_user
 
-                current_members = group.member_list or []
-                if telegram_user_id and telegram_user_id not in current_members:
-                    group.member_list = [*current_members, telegram_user_id]
-                    changed = True
-
-                if changed:
-                    await session.commit()
+                resolved = await resolve_telegram_user(session, telegram_user_id)
+                await MembershipService(session).add_member(
+                    group.group_id, resolved.user_id
+                )
+            await session.commit()
 
     if context.user_data is None:
         await message.reply_text("ℹ️ User session data is unavailable.")
@@ -1593,19 +1590,45 @@ async def _handle_callback_common(
                 await finalize_private_event(query, context)
             except Exception as e:
                 logger.error(
-                    "finalize_private_event failed | error=%s", e, exc_info=True
+                    "finalize_private_event failed | error_type=%s error=%s",
+                    type(e).__name__,
+                    e,
+                    exc_info=True,
                 )
-                await _safe_edit_message(
-                    query, "❌ Failed to create event. Please try again."
-                )
+                created_event_id = event_flow.get("created_event_id")
+                if created_event_id is not None:
+                    await _safe_edit_message(
+                        query,
+                        "✅ Event created successfully.\n\n"
+                        f"Event ID: `{created_event_id}`\n"
+                        "⚠️ Some follow-up notifications could not be delivered.",
+                    )
+                else:
+                    await _safe_edit_message(
+                        query, "❌ Failed to create event. Please try again."
+                    )
         else:
             try:
                 await finalize_event(query, context)
             except Exception as e:
-                logger.error("finalize_event failed | error=%s", e, exc_info=True)
-                await _safe_edit_message(
-                    query, "❌ Failed to create event. Please try again."
+                logger.error(
+                    "finalize_event failed | error_type=%s error=%s",
+                    type(e).__name__,
+                    e,
+                    exc_info=True,
                 )
+                created_event_id = event_flow.get("created_event_id")
+                if created_event_id is not None:
+                    await _safe_edit_message(
+                        query,
+                        "✅ Event created successfully.\n\n"
+                        f"Event ID: `{created_event_id}`\n"
+                        "⚠️ Some follow-up notifications could not be delivered.",
+                    )
+                else:
+                    await _safe_edit_message(
+                        query, "❌ Failed to create event. Please try again."
+                    )
     elif data == f"{prefix}_final_edit":
         await _safe_edit_message(
             query,
@@ -1932,9 +1955,13 @@ async def finalize_event(
         commit_by = compute_commit_by_time(candidate_time)
         duration_minutes = int(data.get("duration_minutes", 120))
         creator_id = int(data.get("creator", query.from_user.id))
+        from db.identity import resolve_telegram_user
+
+        creator = await resolve_telegram_user(session, creator_id)
+        creator_user_id = creator.user_id
         conflict = await find_user_event_conflict(
             session=session,
-            telegram_user_id=creator_id,
+            user_id=creator_user_id,
             start_time=candidate_time,
             duration_minutes=duration_minutes,
         )
@@ -1953,8 +1980,8 @@ async def finalize_event(
             event_type=data.get("event_type", "general"),
             title=data.get("title"),
             description=data.get("description"),
-            organizer_telegram_user_id=creator_id,
-            emergency_admin_telegram_user_id=creator_id,
+            organizer_user_id=creator_user_id,
+            emergency_admin_user_id=creator_user_id,
             scheduled_time=candidate_time,
             commit_by=commit_by,
             duration_minutes=duration_minutes,
@@ -1974,6 +2001,8 @@ async def finalize_event(
         session.add(event)
         await session.commit()
         await session.refresh(event)
+        event_flow["created_event_id"] = int(event.event_id)
+        context.user_data["event_flow"] = event_flow
 
         # Create participant record for the organizer
         from bot.services import ParticipantService
@@ -1981,10 +2010,11 @@ async def finalize_event(
         participant_service = ParticipantService(session)
         await participant_service.join(
             event_id=event.event_id,
-            telegram_user_id=creator_id,
+            user_id=creator_user_id,
             source="creation",
             role="organizer",
         )
+        await session.commit()
 
         # Check for event lineage (TODO-013) - prior events of same type
         from bot.services.event_memory_service import EventMemoryService
@@ -2036,7 +2066,7 @@ async def finalize_event(
         # Get organizer's username and display_name for display in invitation
         organizer_user = (
             await session.execute(
-                select(User).where(User.telegram_user_id == int(creator_id))
+                select(User).where(User.user_id == int(creator_user_id))
             )
         ).scalar_one_or_none()
         organizer_username = organizer_user.username if organizer_user else None
@@ -2047,7 +2077,7 @@ async def finalize_event(
         ).scalar_one_or_none()
 
         # Add organizer info to data for the invitation message
-        data["organizer_telegram_user_id"] = int(creator_id)
+        data["organizer_user_id"] = int(creator_user_id)
         data["organizer_username"] = organizer_username
         data["organizer_display_name"] = organizer_display_name
 
@@ -2069,43 +2099,15 @@ async def finalize_event(
             group.telegram_group_id if group else None,
         )
 
-        if invite_all and group and context.bot and group.telegram_group_id:
-            # Try cached members first
-            cached_members = group.member_list or []
-            if cached_members:
-                logger.info(
-                    "[INVITATION_FLOW] Using cached member_list | event_id=%s cached_count=%d",
-                    event.event_id,
-                    len(cached_members),
-                )
-                for member_id in cached_members:
-                    if member_id is not None:
-                        recipient_telegram_ids.add(int(member_id))
-            else:
-                # Fetch real Telegram group members
-                logger.info(
-                    "[INVITATION_FLOW] Cached member_list empty, fetching from Telegram API | event_id=%s",
-                    event.event_id,
-                )
-                try:
-                    members = await context.bot.get_chat_members(
-                        group.telegram_group_id
-                    )
-                    for member in members:
-                        if member.user.id:
-                            recipient_telegram_ids.add(member.user.id)
-                    logger.info(
-                        "[INVITATION_FLOW] Fetched %d real members from Telegram | event_id=%s",
-                        len(recipient_telegram_ids),
-                        event.event_id,
-                    )
-                except Exception as e:
-                    logger.error(
-                        "[INVITATION_FLOW] Failed to fetch Telegram members | event_id=%s error=%s",
-                        event.event_id,
-                        str(e),
-                        exc_info=True,
-                    )
+        cached_members: list[int] = []
+        if invite_all and group:
+            from bot.services.membership_service import MembershipService
+
+            cached_members = [
+                row.user_id
+                for row in await MembershipService(session).list_members(group.group_id)
+            ]
+            recipient_telegram_ids.update(cached_members)
 
         # Source 3: Explicit invitees (always added, regardless of invite_all)
         explicit_tg_ids = set()
@@ -2130,8 +2132,8 @@ async def finalize_event(
                         select(User).where(User.user_id == int(user_id))
                     )
                     invitee_user = result.scalar_one_or_none()
-                    if invitee_user and invitee_user.telegram_user_id:
-                        tg_id = int(invitee_user.telegram_user_id)
+                    if invitee_user and invitee_user.user_id:
+                        tg_id = int(invitee_user.user_id)
                         explicit_tg_ids.add(tg_id)
                         recipient_telegram_ids.add(tg_id)
                         logger.info(
@@ -2170,18 +2172,18 @@ async def finalize_event(
             )
 
         # Exclude creator from recipient list (they get a separate admin DM)
-        recipient_telegram_ids.discard(creator_id)
+        # Recipients are internal user IDs, so exclude the creator by theirs.
+        recipient_telegram_ids.discard(creator_user_id)
 
         logger.info(
             "[INVITATION_FLOW] Recipients finalized | event_id=%s total_recipients=%d "
             "cached_members=%d explicit_invitees=%d invite_all=%s creator_excluded=%s",
             event.event_id,
             len(recipient_telegram_ids),
-            len(group.member_list or []) if group else 0,
+            len(cached_members),
             len(explicit_tg_ids),
             invite_all,
-            creator_id
-            in (recipient_telegram_ids | {creator_id}),  # Check if creator was in set
+            creator_user_id not in recipient_telegram_ids,
         )
 
         if not recipient_telegram_ids:
@@ -2375,17 +2377,27 @@ async def finalize_event(
     ]
     dm_reply_markup = InlineKeyboardMarkup(dm_keyboard)
 
-    await context.bot.send_message(
-        chat_id=creator_id,
-        text=full_summary,
-        reply_markup=dm_reply_markup,
-        parse_mode="Markdown",
-    )
-    logger.info(
-        "Full event details sent to admin %s via DM for event %s",
-        creator_id,
-        event.event_id,
-    )
+    try:
+        await context.bot.send_message(
+            chat_id=creator_id,
+            text=full_summary,
+            reply_markup=dm_reply_markup,
+            parse_mode="Markdown",
+        )
+        logger.info(
+            "Full event details sent to admin %s via DM for event %s",
+            creator_id,
+            event.event_id,
+        )
+    except Exception as dm_err:
+        # The event and organizer are already committed. Telegram may reject
+        # this optional DM when the organizer has not opened the bot privately.
+        logger.warning(
+            "Event %s was created, but admin DM to %s failed: %s",
+            event.event_id,
+            creator_id,
+            dm_err,
+        )
 
 
 async def finalize_private_event(
@@ -2424,11 +2436,15 @@ async def finalize_private_event(
         )
         commit_by = compute_commit_by_time(candidate_time)
         duration_minutes = int(data.get("duration_minutes", 120))
+        from db.identity import resolve_telegram_user
+
+        creator = await resolve_telegram_user(session, creator_id)
+        creator_user_id = creator.user_id
 
         try:
             conflict = await find_user_event_conflict(
                 session=session,
-                telegram_user_id=creator_id,
+                user_id=creator_user_id,
                 start_time=candidate_time,
                 duration_minutes=duration_minutes,
             )
@@ -2449,7 +2465,7 @@ async def finalize_private_event(
             event_type=data.get("event_type", "general"),
             title=data.get("title"),
             description=data.get("description"),
-            organizer_telegram_user_id=creator_id,
+            organizer_user_id=creator_user_id,
             scheduled_time=candidate_time,
             commit_by=commit_by,
             duration_minutes=duration_minutes,
@@ -2469,6 +2485,8 @@ async def finalize_private_event(
         session.add(event)
         await session.commit()
         await session.refresh(event)
+        event_flow["created_event_id"] = int(event.event_id)
+        context.user_data["private_event_flow"] = event_flow
 
         # Create participant record for the organizer
         from bot.services import ParticipantService
@@ -2476,10 +2494,11 @@ async def finalize_private_event(
         participant_service = ParticipantService(session)
         await participant_service.join(
             event_id=event.event_id,
-            telegram_user_id=creator_id,
+            user_id=creator_user_id,
             source="creation",
             role="organizer",
         )
+        await session.commit()
 
     # Send invitations to invitees (private events)
     # Private events: DM ONLY to listed invitees + admin (NOT to all group members)
@@ -2491,13 +2510,13 @@ async def finalize_private_event(
         # Get organizer's username for display in invitation
         organizer_user = (
             await session.execute(
-                select(User).where(User.telegram_user_id == int(creator_id))
+                select(User).where(User.user_id == int(creator_user_id))
             )
         ).scalar_one_or_none()
         organizer_username = organizer_user.username if organizer_user else None
 
         # Add organizer info to data for the invitation message
-        data["organizer_telegram_user_id"] = int(creator_id)
+        data["organizer_user_id"] = int(creator_user_id)
         data["organizer_username"] = organizer_username
 
         dm_count = 0
@@ -2521,17 +2540,17 @@ async def finalize_private_event(
                             select(User).where(User.user_id == int(user_id))
                         )
                         invitee_user = result.scalar_one_or_none()
-                        if invitee_user and invitee_user.telegram_user_id:
+                        if invitee_user and invitee_user.user_id:
                             sent = await send_event_invitation_dm(
                                 context,
-                                int(invitee_user.telegram_user_id),
+                                int(invitee_user.user_id),
                                 data,
                                 int(event.event_id),
                             )
                             if sent:
                                 logger.info(
                                     "DM sent to user %s (@%s) for private event %s (invitee)",
-                                    invitee_user.telegram_user_id,
+                                    invitee_user.user_id,
                                     username,
                                     event.event_id,
                                 )
@@ -2570,7 +2589,7 @@ async def finalize_private_event(
         # Also send to admin/creator
         try:
             sent = await send_event_invitation_dm(
-                context, int(creator_id), data, int(event.event_id)
+                context, int(creator_user_id), data, int(event.event_id)
             )
             if sent:
                 logger.info(

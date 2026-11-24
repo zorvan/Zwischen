@@ -11,6 +11,14 @@ POSTGRES_USER="${POSTGRES_USER:-coord_user}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-coord_pass}"
 POSTGRES_DB="${POSTGRES_DB:-coord_db}"
 POSTGRES_PORT="${POSTGRES_PORT:-5432}"
+REDIS_CONTAINER_NAME="${REDIS_CONTAINER_NAME:-coord_bot_redis}"
+REDIS_VOLUME_NAME="${REDIS_VOLUME_NAME:-coord_bot_redis_data}"
+REDIS_IMAGE="${REDIS_IMAGE:-redis:7-alpine}"
+REDIS_PORT="${REDIS_PORT:-6379}"
+BOT_PID_FILE="${BOT_PID_FILE:-$ROOT/.coord_bot.pid}"
+BOT_LOCK_FILE="${BOT_LOCK_FILE:-$ROOT/.coord_bot.lock}"
+BOT_PID=""
+SHUTTING_DOWN=0
 
 load_env() {
   if [ -f .env ]; then
@@ -105,6 +113,17 @@ is_local_db_url() {
   esac
 }
 
+is_local_redis_url() {
+  case "${REDIS_URL:-}" in
+    redis://localhost:${REDIS_PORT}/*|redis://127.0.0.1:${REDIS_PORT}/*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "Error: required command '$1' is not available."
@@ -124,6 +143,21 @@ wait_for_db_health() {
 
   echo "Error: database container '$DB_CONTAINER_NAME' did not become healthy."
   docker logs "$DB_CONTAINER_NAME" || true
+  exit 1
+}
+
+wait_for_redis_health() {
+  local status=""
+  for _ in $(seq 1 30); do
+    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$REDIS_CONTAINER_NAME" 2>/dev/null || true)"
+    if [ "$status" = "healthy" ]; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "Error: Redis container '$REDIS_CONTAINER_NAME' did not become healthy."
+  docker logs "$REDIS_CONTAINER_NAME" || true
   exit 1
 }
 
@@ -157,19 +191,96 @@ ensure_local_db_running() {
   wait_for_db_health
 }
 
+ensure_local_redis_running() {
+  require_command docker
+
+  if docker ps --format '{{.Names}}' | grep -qx "$REDIS_CONTAINER_NAME"; then
+    wait_for_redis_health
+    return 0
+  fi
+
+  if docker ps -a --format '{{.Names}}' | grep -qx "$REDIS_CONTAINER_NAME"; then
+    echo "Starting existing Redis container: $REDIS_CONTAINER_NAME"
+    docker start "$REDIS_CONTAINER_NAME" >/dev/null
+  else
+    echo "Creating persistent local Redis container: $REDIS_CONTAINER_NAME"
+    docker run -d \
+      --name "$REDIS_CONTAINER_NAME" \
+      -p "${REDIS_PORT}:6379" \
+      -v "${REDIS_VOLUME_NAME}:/data" \
+      --health-cmd="redis-cli ping" \
+      --health-interval=5s \
+      --health-timeout=3s \
+      --health-retries=10 \
+      "$REDIS_IMAGE" redis-server --appendonly yes >/dev/null
+  fi
+
+  wait_for_redis_health
+}
+
+acquire_bot_lock() {
+  require_command flock
+
+  exec 9>"$BOT_LOCK_FILE"
+  if ! flock -n 9; then
+    echo "Error: another bot instance is already running from this workspace."
+    exit 1
+  fi
+}
+
 start_bot() {
   echo "Starting Coordination Engine Bot with .venv/bin/python"
-  exec .venv/bin/python main.py
+  .venv/bin/python main.py &
+  BOT_PID=$!
+  printf '%s\n' "$BOT_PID" >"$BOT_PID_FILE"
+  wait "$BOT_PID"
+}
+
+shutdown() {
+  local exit_code=$?
+  if [ "$SHUTTING_DOWN" -eq 1 ]; then
+    return
+  fi
+  SHUTTING_DOWN=1
+  trap - INT TERM
+
+  if [ -n "$BOT_PID" ] && kill -0 "$BOT_PID" 2>/dev/null; then
+    echo "Stopping bot process gracefully: $BOT_PID"
+    kill -TERM "$BOT_PID" 2>/dev/null || true
+    for _ in $(seq 1 50); do
+      if ! kill -0 "$BOT_PID" 2>/dev/null; then
+        break
+      fi
+      sleep 0.2
+    done
+    if kill -0 "$BOT_PID" 2>/dev/null; then
+      echo "Bot did not stop within 10 seconds; forcing shutdown."
+      kill -KILL "$BOT_PID" 2>/dev/null || true
+    fi
+    wait "$BOT_PID" 2>/dev/null || true
+  fi
+
+  rm -f "$BOT_PID_FILE"
+  ./stop.sh --services-only || true
+  exit "$exit_code"
 }
 
 load_env
 ensure_python
 ensure_required_env
+acquire_bot_lock
+trap shutdown EXIT INT TERM
 
 if is_local_db_url; then
   ensure_local_db_running
 else
   echo "DB_URL points to a non-local database. Skipping Docker management."
+fi
+
+if is_local_redis_url; then
+  ensure_local_redis_running
+elif [ -n "${REDIS_URL:-}" ]; then
+  echo "REDIS_URL points to a non-local Redis server. Skipping Docker management."
 fi
 
 start_bot

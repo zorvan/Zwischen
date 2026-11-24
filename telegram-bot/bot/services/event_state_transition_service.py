@@ -66,7 +66,7 @@ class EventStateTransitionService:
         self,
         event_id: int,
         target_state: str,
-        actor_telegram_user_id: int,
+        actor_user_id: int,
         source: str,  # slash, callback, AI mention
         reason: Optional[str] = None,
         expected_version: Optional[int] = None,
@@ -77,7 +77,7 @@ class EventStateTransitionService:
         Args:
             event_id: Target event ID
             target_state: Desired state
-            actor_telegram_user_id: User initiating transition
+            actor_user_id: User initiating transition
             source: Origin of action (slash/callback/AI mention)
             reason: Optional human-readable reason
             expected_version: For optimistic concurrency (optional)
@@ -135,7 +135,7 @@ class EventStateTransitionService:
             event_id=event_id,
             from_state=current_state,
             to_state=target_state,
-            actor_telegram_user_id=actor_telegram_user_id,
+            actor_user_id=actor_user_id,
             reason=reason,
             source=source,
         )
@@ -144,13 +144,21 @@ class EventStateTransitionService:
         # Increment version for return
         await self.session.flush()
 
+        if target_state == "locked":
+            # Optional attestation (T16): an outbox row in this same
+            # transaction. A no-op unless enabled and the group opted in, and
+            # it never raises.
+            from bot.services.anchor_service import AnchorService
+
+            await AnchorService(self.session).enqueue_event_lock(event)
+
         logger.info(
             "Event state transition",
             extra={
                 "event_id": event_id,
                 "from_state": current_state,
                 "to_state": target_state,
-                "actor": actor_telegram_user_id,
+                "actor": actor_user_id,
                 "source": source,
                 "transition_id": transition_log.transition_id,
             },

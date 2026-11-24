@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """Profile command handler."""
-from sqlalchemy import select
 from telegram import Update
 from telegram.ext import ContextTypes
 
 from config.settings import settings
 from db.connection import get_session
-from db.models import User
+from db.identity import get_telegram_user
 
 
 async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -22,10 +21,7 @@ async def handle(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
 
     telegram_user_id = update.effective_user.id
     async with get_session(settings.db_url) as session:
-        user_result = await session.execute(
-            select(User).where(User.telegram_user_id == telegram_user_id)
-        )
-        user = user_result.scalar_one_or_none()
+        user = await get_telegram_user(session, telegram_user_id)
         if not user:
             await update.message.reply_text(
                 "👤 *Your Profile*\n\n"
