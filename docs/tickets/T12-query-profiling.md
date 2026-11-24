@@ -48,10 +48,11 @@ Also likely:
 
 ## Acceptance criteria
 
-- [ ] Rendering an event with N participants issues O(1) queries, not O(N)
+- [x] Rendering an event with N participants issues O(1) queries, not O(N)
 - [ ] Top 10 queries by total time identified from real data
-- [ ] Every index added by `3fead70d5078` is either used or dropped
-- [ ] Query-count regression test on at least one hot path
+      (tooling and runbook in `docs/QUERY_PROFILING.md`; needs production access)
+- [x] Every index added by `3fead70d5078` is either used or dropped
+- [x] Query-count regression test on at least one hot path
 
 ## Notes for the target architecture
 

@@ -49,6 +49,10 @@ services:
 
   db:
     image: postgres:15
+    # pg_stat_statements records per-statement totals so the real top-N by
+    # time can be read from production (scripts/top_queries.sql, T12).
+    # Loading it costs a small constant per statement.
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=top"]
     environment:
       - POSTGRES_USER=coord_user
       - POSTGRES_PASSWORD=coord_pass

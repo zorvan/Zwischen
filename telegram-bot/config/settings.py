@@ -37,6 +37,9 @@ class Settings:
         # Fail fast instead of stacking requests on an exhausted pool.
         self.db_pool_timeout: int = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
         self.db_echo: bool = os.environ.get("DB_ECHO", "false").lower() == "true"
+        # Statements one Telegram update or API request may issue before a
+        # "Query budget exceeded" warning is logged (T12 regression signal).
+        self.query_budget: int = int(os.environ.get("QUERY_BUDGET", "40"))
 
         # Shared state (conversation flows, rate limits). Unset means
         # in-process state, which is correct for one instance and silently

@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Any, AsyncIterator, Awaitable, Callable
 from uuid import UUID
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -73,6 +73,22 @@ def create_app(
     bus = event_bus or InMemoryEventBus()
     updates = EventUpdates(bus)
     app = FastAPI(title="Zwischen API", version="1.0.0")
+
+    @app.middleware("http")
+    async def query_budget(request: Request, call_next: Any) -> Any:
+        """Log any request that exceeds the per-request query budget (T12)."""
+        from config.settings import settings as current_settings
+        from core.query_counter import count_queries
+
+        with count_queries(
+            request.method, warn_above=current_settings.query_budget
+        ) as counter:
+            response = await call_next(request)
+            # The route template, known only after routing, keeps the label
+            # low-cardinality (no event UUIDs).
+            route = request.scope.get("route")
+            counter.label = f"{request.method} {getattr(route, 'path', '<unmatched>')}"
+            return response
 
     async def session_dependency() -> AsyncIterator[AsyncSession]:
         async with get_session(db_url) as session:
@@ -209,34 +225,67 @@ def create_app(
             raise HTTPException(status.HTTP_403_FORBIDDEN, "Not a member of this group")
         return event
 
-    async def serialize(event: Event, session: AsyncSession) -> dict[str, Any]:
-        counts = dict(
-            (status.value, count)
-            for status, count in (
-                await session.execute(
-                    select(EventParticipant.status, func.count())
-                    .where(EventParticipant.event_id == event.event_id)
-                    .group_by(EventParticipant.status)
-                )
-            ).all()
+    async def serialize_many(
+        events: list[Event], session: AsyncSession
+    ) -> list[dict[str, Any]]:
+        """Serialize events in a constant number of queries.
+
+        One grouped count for every event's participants and one fetch for
+        their groups, however many events there are. Serializing one at a
+        time cost two queries per event, which a mobile list view multiplies.
+        """
+        if not events:
+            return []
+        event_ids = [event.event_id for event in events]
+        counts: dict[int, dict[str, int]] = {}
+        for event_id, status_value, count in (
+            await session.execute(
+                select(EventParticipant.event_id, EventParticipant.status, func.count())
+                .where(EventParticipant.event_id.in_(event_ids))
+                .group_by(EventParticipant.event_id, EventParticipant.status)
+            )
+        ).all():
+            counts.setdefault(int(event_id), {})[status_value.value] = int(count)
+        group_ids = {event.group_id for event in events if event.group_id is not None}
+        groups = (
+            {
+                group.group_id: group
+                for group in (
+                    await session.execute(
+                        select(Group).where(Group.group_id.in_(group_ids))
+                    )
+                ).scalars()
+            }
+            if group_ids
+            else {}
         )
-        group = await session.get(Group, event.group_id) if event.group_id else None
-        return EventSummary(
-            event.public_id,
-            group.public_id if group else None,
-            event.title or event.event_type,
-            event.event_type,
-            event.state,
-            event.scheduled_time,
-            counts.get("confirmed", 0),
-            counts.get("joined", 0),
-            event.min_participants or 1,
-        ).as_json()
+        summaries = []
+        for event in events:
+            event_counts = counts.get(int(event.event_id), {})
+            group = groups.get(event.group_id) if event.group_id else None
+            summaries.append(
+                EventSummary(
+                    event.public_id,
+                    group.public_id if group else None,
+                    event.title or event.event_type,
+                    event.event_type,
+                    event.state,
+                    event.scheduled_time,
+                    event_counts.get("confirmed", 0),
+                    event_counts.get("joined", 0),
+                    event.min_participants or 1,
+                ).as_json()
+            )
+        return summaries
+
+    async def serialize(event: Event, session: AsyncSession) -> dict[str, Any]:
+        return (await serialize_many([event], session))[0]
 
     @app.get("/events")
     async def list_events(
         user: User = Depends(current_user),
         session: AsyncSession = Depends(session_dependency),
+        limit: int = Query(default=100, ge=1, le=500),
     ) -> list[dict[str, Any]]:
         rows = (
             (
@@ -244,13 +293,14 @@ def create_app(
                     select(Event)
                     .join(Group, Event.group_id == Group.group_id)
                     .where(Group.members.any(user_id=user.user_id, status="active"))
-                    .order_by(Event.scheduled_time)
+                    .order_by(Event.scheduled_time, Event.event_id)
+                    .limit(limit)
                 )
             )
             .scalars()
             .all()
         )
-        return [await serialize(event, session) for event in rows]
+        return await serialize_many(list(rows), session)
 
     @app.get("/events/{event_id}")
     async def view_event(

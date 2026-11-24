@@ -51,6 +51,7 @@ from bot.common.i18n import init as init_i18n
 from db.connection import wait_for_db
 from db.migrate import run_migrations
 from core.persistence import StateBackendPersistence
+from bot.common.query_budget import QueryBudgetUpdateProcessor
 from core.state import build_state_backend
 
 
@@ -207,6 +208,8 @@ def main():
         .token(settings.telegram_token)
         .persistence(persistence)
         .post_shutdown(shutdown_resources)
+        # One update at a time, as before; each is now query-counted.
+        .concurrent_updates(QueryBudgetUpdateProcessor(1, settings.query_budget))
         .build()
     )
 

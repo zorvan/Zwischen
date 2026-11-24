@@ -143,15 +143,30 @@ class EventMaterializationService:
         time_str = self._format_event_time(event)
         tier = get_time_framing_tier(event)
 
-        names = []
-        for p in participants:
-            if p.status in {ParticipantStatus.confirmed, ParticipantStatus.joined}:
-                user_result = await self.session.execute(
-                    sqlalchemy.select(User).where(User.user_id == p.user_id)
-                )
-                user = user_result.scalar_one_or_none()
-                if user:
-                    names.append(self._get_display_name(user))
+        active = [
+            p
+            for p in participants
+            if p.status in {ParticipantStatus.confirmed, ParticipantStatus.joined}
+        ]
+        users_by_id = (
+            {
+                user.user_id: user
+                for user in (
+                    await self.session.execute(
+                        sqlalchemy.select(User).where(
+                            User.user_id.in_([p.user_id for p in active])
+                        )
+                    )
+                ).scalars()
+            }
+            if active
+            else {}
+        )
+        names = [
+            self._get_display_name(users_by_id[p.user_id])
+            for p in active
+            if p.user_id in users_by_id
+        ]
 
         names_str = ", ".join(names) if names else "TBD"
 
