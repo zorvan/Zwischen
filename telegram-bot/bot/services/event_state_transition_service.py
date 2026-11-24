@@ -144,6 +144,14 @@ class EventStateTransitionService:
         # Increment version for return
         await self.session.flush()
 
+        if target_state == "locked":
+            # Optional attestation (T16): an outbox row in this same
+            # transaction. A no-op unless enabled and the group opted in, and
+            # it never raises.
+            from bot.services.anchor_service import AnchorService
+
+            await AnchorService(self.session).enqueue_event_lock(event)
+
         logger.info(
             "Event state transition",
             extra={

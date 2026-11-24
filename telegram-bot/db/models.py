@@ -746,6 +746,48 @@ class EventLineage(Base):
     )
 
 
+class AnchorOutbox(Base):
+    """Transactional outbox for optional commitment anchoring (T16).
+
+    A row is written in the same transaction as an event lock and submitted
+    later by the anchor worker, so nothing reaches a chain unless the lock
+    committed, and a crash between commit and submit loses nothing. Only
+    ``commitment`` (a salted hash) ever leaves the system. ``bundle`` is the
+    client-side proof, kept here only until clients have had time to fetch
+    it; retention then removes it (docs/RETENTION_POLICY.md).
+    """
+
+    __tablename__ = "anchor_outbox"
+    __table_args__ = (
+        Index("idx_anchor_outbox_due", "status", "next_attempt_at"),
+        Index("idx_anchor_outbox_event", "event_id"),
+    )
+
+    anchor_id = Column(Integer, primary_key=True)
+    event_id = Column(
+        Integer, ForeignKey("events.event_id", ondelete="CASCADE"), nullable=False
+    )
+    idempotency_key = Column(String(128), nullable=False, unique=True)
+    commitment = Column(String(64), nullable=False)
+    bundle = Column(JSON, nullable=True)
+    # pending -> submitted -> confirmed; dropped back to pending on reorg;
+    # failed once retries are exhausted.
+    status = Column(String(16), nullable=False, default="pending")
+    attempts = Column(Integer, nullable=False, default=0)
+    last_error = Column(Text, nullable=True)
+    tx_ref = Column(String(255), nullable=True)
+    next_attempt_at = Column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
+    submitted_at = Column(DateTime(timezone=True), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+
+
 class EventLiveCard(Base):
     """
     EventLiveCard table - Tracks live card messages posted to group chats.
@@ -801,6 +843,11 @@ class GroupSettings(Base):
     group_timezone = Column(String(50), default="UTC")
     max_hashtags_per_event = Column(Integer, default=5)
     lineage_selection_method = Column(String(10), default="fixed")
+    # Optional commitment anchoring (T16). Off unless the group opts in;
+    # docs/ANCHORING_DECISION.md requires every affected group to consent.
+    anchoring_enabled = Column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
     # 'fixed' = most recent fragment | 'llm' = context-aware
     created_at = Column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)

@@ -23,6 +23,7 @@ decay job repeatedly has the same result as running it once.
 | Group event-type statistics | Keep aggregate counters while the group exists | Contains no individual attribution |
 | Idempotency keys | Delete once expired | Retry safety only |
 | Live-card references | Delete with the event or when the referenced message/subscription disappears | Delivery metadata, not a memory |
+| Anchor outbox (optional anchoring) | Proof bundle held 7 days after confirmation (30 if never confirmed); row deleted 30 days after confirmation | Clients need time to fetch their proof; after that the commitment is theirs alone to open |
 | Rolling group chat context (for mention suggestions) | Last 40 messages, none older than 24 hours, in bot state only | A working buffer for the assistant, never a record |
 
 ## Account deletion

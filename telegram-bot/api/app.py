@@ -321,6 +321,25 @@ def create_app(
     ) -> dict[str, Any]:
         return await serialize(await event_for_member(event_id, user, session), session)
 
+    @app.get("/events/{event_id}/anchor")
+    async def event_anchor(
+        event_id: UUID,
+        user: User = Depends(current_user),
+        session: AsyncSession = Depends(session_dependency),
+    ) -> dict[str, Any]:
+        """The lock's proof bundle and anchor status, while the server holds it.
+
+        Members fetch and keep the bundle; after the retention window only
+        their copies can open the commitment (docs/ANCHORING_DECISION.md).
+        """
+        from bot.services.anchor_service import AnchorService
+
+        event = await event_for_member(event_id, user, session)
+        anchor = await AnchorService(session).bundle_for_event(int(event.event_id))
+        if anchor is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Event is not anchored")
+        return anchor
+
     async def mutate_participation(
         event_id: UUID, action: str, key: str | None, user: User, session: AsyncSession
     ) -> dict[str, Any]:

@@ -76,13 +76,16 @@ coordination action.
 
 ## Acceptance criteria
 
-- [ ] Written decision on questions 1–4 **before** any code
-- [ ] Anchoring fully optional; all features work with it disabled
-- [ ] No content on-chain, only commitments — verified by inspecting payloads
-- [ ] Outbox survives crash between commit and submit
-- [ ] A decayed memory leaves an unverifiable-but-harmless commitment,
+- [x] Written decision on questions 1–4 **before** any code (`docs/ANCHORING_DECISION.md`)
+- [x] Anchoring fully optional; all features work with it disabled
+- [x] No content on-chain, only commitments — verified by inspecting payloads
+- [x] Outbox survives crash between commit and submit
+- [x] A decayed memory leaves an unverifiable-but-harmless commitment,
       and that is tested
-- [ ] Chain unavailability degrades gracefully
+- [x] Chain unavailability degrades gracefully
+
+Still open (Tier 3): the chain adapter and seal construction; see the
+implementation notes in `docs/ANCHORING_DECISION.md`.
 
 ## Notes
 

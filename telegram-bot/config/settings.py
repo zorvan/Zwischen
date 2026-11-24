@@ -59,6 +59,11 @@ class Settings:
             os.environ.get("CACHE_ENABLED", "true").lower() == "true"
         )
         self.cache_ttl: int = int(os.environ.get("CACHE_TTL", "300"))
+        # Optional commitment anchoring (T16, docs/ANCHORING_DECISION.md).
+        # Off by default; groups must also opt in individually.
+        self.anchoring_enabled: bool = (
+            os.environ.get("ANCHORING_ENABLED", "false").lower() == "true"
+        )
 
         # Shared state (conversation flows, rate limits). Unset means
         # in-process state, which is correct for one instance and silently

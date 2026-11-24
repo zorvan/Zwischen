@@ -187,6 +187,23 @@ class SchedulerService:
             logger.info("Applied retention policy", extra={"retention": counts})
             return counts
 
+    async def run_anchor_worker(self) -> dict[str, int]:
+        """Submit and confirm pending anchors (T16). No sink, no work."""
+        from config.settings import settings
+        from core.anchoring import get_sink
+
+        sink = get_sink()
+        if not settings.anchoring_enabled or sink is None:
+            return {}
+        from bot.services.anchor_service import AnchorService
+
+        async with get_session(self.db_url) as session:
+            counts = await AnchorService(session).run_worker_once(sink)
+            await session.commit()
+        if any(counts.values()):
+            logger.info("Anchor worker", extra={"anchors": counts})
+        return counts
+
     async def check_collapse_deadlines(self) -> int:
         """
         Auto-cancel events that passed collapse_at without meeting threshold.
@@ -425,6 +442,12 @@ async def _run_scheduled_tasks_unlocked(bot: Bot, db_url: str) -> None:
         # ticks inside the hour are harmless.
         if datetime.utcnow().hour == 3:
             await scheduler.decay_retained_data()
+
+        # Optional anchoring (T16): every tick; degrades to a no-op.
+        try:
+            await scheduler.run_anchor_worker()
+        except Exception:
+            logger.warning("Anchor worker failed", exc_info=True)
 
         # Log pruning (weekly - check if Sunday)
         if datetime.utcnow().weekday() == 6:  # Sunday

@@ -36,6 +36,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from bot.services.event_memory_service import fragment_contributor_hash
 from db.models import (
+    AnchorOutbox,
     Constraint,
     Event,
     EventEnrichment,
@@ -67,6 +68,10 @@ class ErasureResult:
 
 
 class RetentionService:
+    #: Proof bundles stay fetchable this long after their anchor confirms...
+    ANCHOR_BUNDLE_DAYS = 7
+    #: ...and anchor rows (commitment, tx ref) are deleted after this long.
+    ANCHOR_ROW_DAYS = 30
     LOG_DAYS = 90
     SOCIAL_GRAPH_DAYS = 180
     DETAIL_DAYS = 180
@@ -205,7 +210,42 @@ class RetentionService:
             "idempotency_keys",
             delete(IdempotencyKey).where(IdempotencyKey.expires_at < moment),
         )
+        # Anchoring (T16): the server's copy of a proof bundle goes first;
+        # after that only consenting clients can open the commitment.
+        await run(
+            "anchor_bundles_dropped",
+            update(AnchorOutbox)
+            .where(self._anchor_bundle_expired(moment))
+            .values(bundle=null()),
+        )
+        await run(
+            "anchor_rows",
+            delete(AnchorOutbox).where(self._anchor_row_expired(moment)),
+        )
         return counts
+
+    def _anchor_bundle_expired(self, moment: datetime) -> Any:
+        bundle_cutoff = moment - timedelta(days=self.ANCHOR_BUNDLE_DAYS)
+        row_cutoff = moment - timedelta(days=self.ANCHOR_ROW_DAYS)
+        return and_(
+            AnchorOutbox.bundle.is_not(None),
+            text_not_null(AnchorOutbox.bundle),
+            or_(
+                AnchorOutbox.confirmed_at < bundle_cutoff,
+                # Never confirmed (chain down, or failed): give up holding it.
+                AnchorOutbox.created_at < row_cutoff,
+            ),
+        )
+
+    def _anchor_row_expired(self, moment: datetime) -> Any:
+        row_cutoff = moment - timedelta(days=self.ANCHOR_ROW_DAYS)
+        return or_(
+            AnchorOutbox.confirmed_at < row_cutoff,
+            and_(
+                AnchorOutbox.status == "failed",
+                AnchorOutbox.created_at < row_cutoff,
+            ),
+        )
 
     async def overdue(self, *, now: datetime | None = None) -> dict[str, int]:
         """Rows that the policy says should no longer exist.
@@ -292,6 +332,16 @@ class RetentionService:
                 .select_from(IdempotencyKey)
                 .where(IdempotencyKey.expires_at < moment)
             ),
+            "anchor_bundles": await count(
+                select(func.count())
+                .select_from(AnchorOutbox)
+                .where(self._anchor_bundle_expired(moment))
+            ),
+            "anchor_rows": await count(
+                select(func.count())
+                .select_from(AnchorOutbox)
+                .where(self._anchor_row_expired(moment))
+            ),
         }
 
     # -- right to erasure -----------------------------------------------------
@@ -370,6 +420,11 @@ class RetentionService:
                 memory.fragments = kept  # type: ignore[assignment]
                 flag_modified(memory, "fragments")
         return removed
+
+
+def text_not_null(column: Any) -> Any:
+    """SQL: a JSON column is not JSON null."""
+    return cast(column, Text) != "null"
 
 
 def _has_items(column: Any) -> Any:
