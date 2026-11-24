@@ -60,7 +60,7 @@ async def handle(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             await check_event_visibility_and_get_event(
                 session,
                 event_id,
-                user_id,
+                telegram_user_id,
                 telegram_chat_id=chat_id,
                 bot=context.bot,
             )

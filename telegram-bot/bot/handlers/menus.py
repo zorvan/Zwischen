@@ -15,7 +15,8 @@ from bot.common.menus import (
 from bot.common.rbac import check_group_membership, check_event_visibility_and_get_event
 from config.settings import settings
 from db.connection import get_session
-from db.models import Event, Group, EventParticipant
+from db.identity import get_user_by_identity
+from db.models import AuthProvider, Event, Group, EventParticipant
 from bot.common.safe_edit import safe_edit_message
 
 logger = logging.getLogger("coord_bot.menus")
@@ -115,13 +116,18 @@ async def _show_my_events(
     db_url = settings.db_url or ""
 
     async with get_session(db_url) as session:
+        user = await get_user_by_identity(session, AuthProvider.telegram.value, user_id)
+        internal_user_id = int(user.user_id) if user is not None else None
+
         # Get events where user is a participant
-        result = await session.execute(
-            select(EventParticipant.event_id)
-            .where(EventParticipant.user_id == user_id)
-            .distinct()
-        )
-        participant_event_ids = [row[0] for row in result.all()]
+        participant_event_ids = []
+        if internal_user_id is not None:
+            result = await session.execute(
+                select(EventParticipant.event_id)
+                .where(EventParticipant.user_id == internal_user_id)
+                .distinct()
+            )
+            participant_event_ids = [row[0] for row in result.all()]
 
         # Get recent events (prioritize user's events)
         query_events = (
@@ -334,10 +340,12 @@ async def _show_event_detail(
             return
 
         # Get user's participation status
+        user = await get_user_by_identity(session, AuthProvider.telegram.value, user_id)
+        internal_user_id = int(user.user_id) if user is not None else None
         result = await session.execute(
             select(EventParticipant).where(
                 EventParticipant.event_id == event_id,
-                EventParticipant.user_id == user_id,
+                EventParticipant.user_id == internal_user_id,
             )
         )
         participant = result.scalar_one_or_none()
@@ -626,12 +634,16 @@ async def _handle_enrichment_message(
         return
 
     text = update.message.text or ""
-    user_id = update.effective_user.id
+    telegram_user_id = update.effective_user.id
     user_lang = await get_user_language(
         update.effective_user, user_data=context.user_data
     )
 
     async with get_session(settings.db_url) as session:
+        from db.identity import resolve_telegram_user
+
+        resolved_user = await resolve_telegram_user(session, telegram_user_id)
+        user_id = int(resolved_user.user_id)
         enrichment_service = EventEnrichmentService(session)
 
         try:
@@ -786,7 +798,7 @@ async def _handle_enrichment_message(
             )
 
     # Clear enrichment state
-    store = get_state_store(user_id, context.user_data)
+    store = get_state_store(telegram_user_id, context.user_data)
     store.clear_enrichment_session()
 
 

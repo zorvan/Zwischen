@@ -12,12 +12,23 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from bot.services.membership_service import MembershipService
-from db.models import Event, EventParticipant, Group
+from db.identity import get_user_by_identity
+from db.models import AuthProvider, Event, EventParticipant, Group
 
 if TYPE_CHECKING:
     from db.models import Event as EventType, Group as GroupType
 
 logger = logging.getLogger("coord_bot.rbac")
+
+
+async def _internal_user_id(
+    session: AsyncSession, telegram_user_id: int
+) -> Optional[int]:
+    """Resolve a Telegram provider ID to the internal users.user_id."""
+    user = await get_user_by_identity(
+        session, AuthProvider.telegram.value, telegram_user_id
+    )
+    return int(user.user_id) if user is not None else None
 
 
 def _sep():
@@ -57,7 +68,12 @@ async def check_group_membership(
         return False, "Group not found"
 
     _info("Group", f"{group.group_name or 'unnamed'} (tg_id={group.telegram_group_id})")
-    if await MembershipService(session).is_member(group_id, user_id):
+    internal_user_id = await _internal_user_id(session, user_id)
+    if internal_user_id is None:
+        _info("Result", "DENIED — Telegram identity is not registered")
+        return False, "You are not a member of this group"
+
+    if await MembershipService(session).is_member(group_id, internal_user_id):
         _pass("Membership PASS", "active group_members row")
         return True, None
     _info("Result", "DENIED — not a member of this group")
@@ -98,7 +114,10 @@ async def check_event_visibility_and_get_event(
         return False, None, None, "Event not found"
 
     event, group = row
-    uid = int(user_id)
+    uid = await _internal_user_id(session, user_id)
+    if uid is None:
+        _info("Result", "DENIED — Telegram identity is not registered")
+        return False, None, None, "You do not have access to this event"
 
     _info("Event", f"{event.event_type} (state={event.state}, id={event.event_id})")
     _info("Organizer", str(event.organizer_user_id))
@@ -154,7 +173,8 @@ async def check_event_organizer(
     if not event:
         return False, "Event not found"
 
-    if event.organizer_user_id != telegram_user_id:
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+    if event.organizer_user_id != internal_user_id:
         return False, "Only the event organizer can perform this action"
 
     return True, None
@@ -177,11 +197,13 @@ async def check_event_admin(
     if not event:
         return False, "Event not found"
 
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+
     # Check if user is organizer or admin
-    if event.organizer_user_id == telegram_user_id:
+    if event.organizer_user_id == internal_user_id:
         return True, None
 
-    if event.emergency_admin_user_id == telegram_user_id:
+    if event.emergency_admin_user_id == internal_user_id:
         return True, None
 
     return False, "Only event organizer or admin can perform this action"
@@ -198,10 +220,14 @@ async def check_event_participant(
     Returns:
         (is_authorized, error_message, participant_record)
     """
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+    if internal_user_id is None:
+        return False, "You are not a participant of this event", None
+
     result = await session.execute(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.user_id == telegram_user_id,
+            EventParticipant.user_id == internal_user_id,
         )
     )
     participant = result.scalar_one_or_none()
@@ -234,18 +260,25 @@ async def check_can_modify_event(
     if not event:
         return False, "Event not found"
 
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+    if internal_user_id is None:
+        return (
+            False,
+            "Only organizer, admin, or confirmed participants can modify this event",
+        )
+
     # Organizer or admin can always modify
-    if event.organizer_user_id == telegram_user_id:
+    if event.organizer_user_id == internal_user_id:
         return True, None
 
-    if event.emergency_admin_user_id == telegram_user_id:
+    if event.emergency_admin_user_id == internal_user_id:
         return True, None
 
     # Confirmed participants can modify in emergencies
     participant_result = await session.execute(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.user_id == telegram_user_id,
+            EventParticipant.user_id == internal_user_id,
             EventParticipant.status == "confirmed",
         )
     )
@@ -283,11 +316,15 @@ async def check_can_submit_private_note(
     if not event:
         return False, "Event not found"
 
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+    if internal_user_id is None:
+        return False, "Only joined or confirmed participants can submit private notes"
+
     # Check if user is a participant
     participant_result = await session.execute(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.user_id == telegram_user_id,
+            EventParticipant.user_id == internal_user_id,
             EventParticipant.status.in_(["joined", "confirmed"]),
         )
     )
@@ -334,16 +371,20 @@ async def get_user_event_role(
     if not event:
         return None
 
-    if event.organizer_user_id == telegram_user_id:
+    internal_user_id = await _internal_user_id(session, telegram_user_id)
+    if internal_user_id is None:
+        return None
+
+    if event.organizer_user_id == internal_user_id:
         return "organizer"
 
-    if event.emergency_admin_user_id == telegram_user_id:
+    if event.emergency_admin_user_id == internal_user_id:
         return "admin"
 
     participant_result = await session.execute(
         select(EventParticipant).where(
             EventParticipant.event_id == event_id,
-            EventParticipant.user_id == telegram_user_id,
+            EventParticipant.user_id == internal_user_id,
         )
     )
     participant = participant_result.scalar_one_or_none()

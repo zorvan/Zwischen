@@ -555,13 +555,21 @@ async def _handle_view(
             )
             return
 
+        from db.identity import resolve_telegram_user
+
+        resolved_user = await resolve_telegram_user(session, user_id)
+        internal_user_id = int(resolved_user.user_id)
+
         # Get user's participant status
         participant_service = ParticipantService(session)
-        participant = await participant_service.get_participant(event_id, user_id)
+        participant = await participant_service.get_participant(
+            event_id, internal_user_id
+        )
 
         # Check if user is organizer
-        is_organizer = event.organizer_user_id == user_id or (
-            event.emergency_admin_user_id and event.emergency_admin_user_id == user_id
+        is_organizer = event.organizer_user_id == internal_user_id or (
+            event.emergency_admin_user_id
+            and event.emergency_admin_user_id == internal_user_id
         )
 
         # Get participant counts
@@ -940,7 +948,7 @@ async def _handle_join(
                         event, _ = await lifecycle_service.transition_with_lifecycle(
                             event_id=event_id,
                             target_state="interested",
-                            actor_user_id=telegram_user_id,
+                            actor_user_id=internal_user_id,
                             source="callback",
                             reason="Non-organizer participant joined",
                             expected_version=event.version,
@@ -1171,7 +1179,7 @@ async def _handle_commit(
                     event, _ = await lifecycle_service.transition_with_lifecycle(
                         event_id=event_id,
                         target_state="confirmed",
-                        actor_user_id=telegram_user_id,
+                        actor_user_id=internal_user_id,
                         source="callback",
                         reason="Non-organizer participant confirmed attendance",
                         expected_version=event.version,
@@ -1223,6 +1231,10 @@ async def _handle_lock(
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
+        from db.identity import resolve_telegram_user
+
+        resolved_user = await resolve_telegram_user(session, telegram_user_id)
+        internal_user_id = int(resolved_user.user_id)
         # Fetch event to get its group for RBAC
         from sqlalchemy.orm import selectinload
 
@@ -1279,9 +1291,9 @@ async def _handle_lock(
             return
 
         # Check organizer permission
-        is_organizer = event.organizer_user_id == telegram_user_id or (
+        is_organizer = event.organizer_user_id == internal_user_id or (
             event.emergency_admin_user_id
-            and event.emergency_admin_user_id == telegram_user_id
+            and event.emergency_admin_user_id == internal_user_id
         )
         if not is_organizer:
             await query.answer(
@@ -1294,7 +1306,7 @@ async def _handle_lock(
             event, _ = await lifecycle_service.transition_with_lifecycle(
                 event_id=event_id,
                 target_state="locked",
-                actor_user_id=telegram_user_id,
+                actor_user_id=internal_user_id,
                 source="callback",
                 reason="Lock via event panel",
                 expected_version=event.version,
@@ -1333,6 +1345,10 @@ async def _handle_unlock(
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
+        from db.identity import resolve_telegram_user
+
+        resolved_user = await resolve_telegram_user(session, telegram_user_id)
+        internal_user_id = int(resolved_user.user_id)
         # Fetch event to get its group for RBAC
         event_result = await session.execute(
             select(Event)
@@ -1387,9 +1403,9 @@ async def _handle_unlock(
             return
 
         # Check organizer permission
-        is_organizer = event.organizer_user_id == telegram_user_id or (
+        is_organizer = event.organizer_user_id == internal_user_id or (
             event.emergency_admin_user_id
-            and event.emergency_admin_user_id == telegram_user_id
+            and event.emergency_admin_user_id == internal_user_id
         )
         if not is_organizer:
             await query.answer(
@@ -1402,7 +1418,7 @@ async def _handle_unlock(
             event, _ = await lifecycle_service.transition_with_lifecycle(
                 event_id=event_id,
                 target_state="confirmed",
-                actor_user_id=telegram_user_id,
+                actor_user_id=internal_user_id,
                 source="callback",
                 reason="Unlock via event panel",
                 expected_version=event.version,
@@ -1435,6 +1451,10 @@ async def _handle_complete(
     user_lang = await get_user_language(query.from_user, user_data=context.user_data)
 
     async with get_session(db_url) as session:
+        from db.identity import resolve_telegram_user
+
+        resolved_user = await resolve_telegram_user(session, telegram_user_id)
+        internal_user_id = int(resolved_user.user_id)
         event_result = await session.execute(
             select(Event)
             .options(selectinload(Event.group))
@@ -1486,9 +1506,9 @@ async def _handle_complete(
             )
             return
 
-        is_organizer = event.organizer_user_id == telegram_user_id or (
+        is_organizer = event.organizer_user_id == internal_user_id or (
             event.emergency_admin_user_id
-            and event.emergency_admin_user_id == telegram_user_id
+            and event.emergency_admin_user_id == internal_user_id
         )
         if not is_organizer:
             await query.answer(
@@ -1501,7 +1521,7 @@ async def _handle_complete(
             event, _ = await lifecycle_service.transition_with_lifecycle(
                 event_id=event_id,
                 target_state="completed",
-                actor_user_id=telegram_user_id,
+                actor_user_id=internal_user_id,
                 source="callback",
                 reason="Complete via event panel",
                 expected_version=event.version,

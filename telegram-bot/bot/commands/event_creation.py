@@ -1590,19 +1590,45 @@ async def _handle_callback_common(
                 await finalize_private_event(query, context)
             except Exception as e:
                 logger.error(
-                    "finalize_private_event failed | error=%s", e, exc_info=True
+                    "finalize_private_event failed | error_type=%s error=%s",
+                    type(e).__name__,
+                    e,
+                    exc_info=True,
                 )
-                await _safe_edit_message(
-                    query, "❌ Failed to create event. Please try again."
-                )
+                created_event_id = event_flow.get("created_event_id")
+                if created_event_id is not None:
+                    await _safe_edit_message(
+                        query,
+                        "✅ Event created successfully.\n\n"
+                        f"Event ID: `{created_event_id}`\n"
+                        "⚠️ Some follow-up notifications could not be delivered.",
+                    )
+                else:
+                    await _safe_edit_message(
+                        query, "❌ Failed to create event. Please try again."
+                    )
         else:
             try:
                 await finalize_event(query, context)
             except Exception as e:
-                logger.error("finalize_event failed | error=%s", e, exc_info=True)
-                await _safe_edit_message(
-                    query, "❌ Failed to create event. Please try again."
+                logger.error(
+                    "finalize_event failed | error_type=%s error=%s",
+                    type(e).__name__,
+                    e,
+                    exc_info=True,
                 )
+                created_event_id = event_flow.get("created_event_id")
+                if created_event_id is not None:
+                    await _safe_edit_message(
+                        query,
+                        "✅ Event created successfully.\n\n"
+                        f"Event ID: `{created_event_id}`\n"
+                        "⚠️ Some follow-up notifications could not be delivered.",
+                    )
+                else:
+                    await _safe_edit_message(
+                        query, "❌ Failed to create event. Please try again."
+                    )
     elif data == f"{prefix}_final_edit":
         await _safe_edit_message(
             query,
@@ -1975,6 +2001,8 @@ async def finalize_event(
         session.add(event)
         await session.commit()
         await session.refresh(event)
+        event_flow["created_event_id"] = int(event.event_id)
+        context.user_data["event_flow"] = event_flow
 
         # Create participant record for the organizer
         from bot.services import ParticipantService
@@ -1986,6 +2014,7 @@ async def finalize_event(
             source="creation",
             role="organizer",
         )
+        await session.commit()
 
         # Check for event lineage (TODO-013) - prior events of same type
         from bot.services.event_memory_service import EventMemoryService
@@ -2346,17 +2375,27 @@ async def finalize_event(
     ]
     dm_reply_markup = InlineKeyboardMarkup(dm_keyboard)
 
-    await context.bot.send_message(
-        chat_id=creator_id,
-        text=full_summary,
-        reply_markup=dm_reply_markup,
-        parse_mode="Markdown",
-    )
-    logger.info(
-        "Full event details sent to admin %s via DM for event %s",
-        creator_id,
-        event.event_id,
-    )
+    try:
+        await context.bot.send_message(
+            chat_id=creator_id,
+            text=full_summary,
+            reply_markup=dm_reply_markup,
+            parse_mode="Markdown",
+        )
+        logger.info(
+            "Full event details sent to admin %s via DM for event %s",
+            creator_id,
+            event.event_id,
+        )
+    except Exception as dm_err:
+        # The event and organizer are already committed. Telegram may reject
+        # this optional DM when the organizer has not opened the bot privately.
+        logger.warning(
+            "Event %s was created, but admin DM to %s failed: %s",
+            event.event_id,
+            creator_id,
+            dm_err,
+        )
 
 
 async def finalize_private_event(
@@ -2444,6 +2483,8 @@ async def finalize_private_event(
         session.add(event)
         await session.commit()
         await session.refresh(event)
+        event_flow["created_event_id"] = int(event.event_id)
+        context.user_data["private_event_flow"] = event_flow
 
         # Create participant record for the organizer
         from bot.services import ParticipantService
@@ -2455,6 +2496,7 @@ async def finalize_private_event(
             source="creation",
             role="organizer",
         )
+        await session.commit()
 
     # Send invitations to invitees (private events)
     # Private events: DM ONLY to listed invitees + admin (NOT to all group members)

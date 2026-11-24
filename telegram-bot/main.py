@@ -5,6 +5,7 @@ PRD v3: Pure mediation through timing, framing, visibility, language, sequence, 
 """
 import asyncio
 import logging
+from telegram.error import Conflict
 from telegram.ext import (
     ApplicationBuilder,
     CallbackQueryHandler,
@@ -56,6 +57,13 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Log full traceback for uncaught update handling errors with full context."""
     logger = logging.getLogger("coord_bot.bot")
 
+    if isinstance(context.error, Conflict):
+        logger.error(
+            "[GLOBAL_ERROR] Telegram polling conflict: another bot instance is "
+            "using getUpdates with this token. Stop the other instance."
+        )
+        return
+
     # Extract context information
     user_id = None
     chat_id = None
@@ -74,7 +82,7 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
         chat_id,
         type(context.error).__name__ if context.error else "None",
         str(context.error) if context.error else "None",
-        exc_info=True,
+        exc_info=context.error,
     )
 
     # Categorize common errors for easier debugging
