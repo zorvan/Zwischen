@@ -128,6 +128,16 @@ def create_app(
             "expires_in": pair.expires_in,
         }
 
+    @app.get("/health")
+    async def health(
+        session: AsyncSession = Depends(session_dependency),
+    ) -> dict[str, Any]:
+        """Liveness plus pool counters (T14). Contains no user data."""
+        from db.pool_budget import pool_stats
+
+        await session.execute(select(1))
+        return {"status": "ok", "db_pool": pool_stats()}
+
     @app.post("/auth/telegram", dependencies=[Depends(rate_limit)])
     async def telegram_login(
         body: TelegramLogin, session: AsyncSession = Depends(session_dependency)

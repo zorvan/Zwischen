@@ -37,6 +37,19 @@ class Settings:
         # Fail fast instead of stacking requests on an exhausted pool.
         self.db_pool_timeout: int = int(os.environ.get("DB_POOL_TIMEOUT", "30"))
         self.db_echo: bool = os.environ.get("DB_ECHO", "false").lower() == "true"
+        # Processes sharing the database (bot replicas + API workers). Used
+        # only for the startup connection-budget check (db/pool_budget.py).
+        self.db_processes: int = int(os.environ.get("DB_PROCESSES", "1"))
+        # Behind PgBouncer in transaction mode: disables prepared-statement
+        # caches that transaction pooling breaks.
+        self.db_pgbouncer: bool = (
+            os.environ.get("DB_PGBOUNCER", "false").lower() == "true"
+        )
+        # Shortest idle timeout between app and database (PgBouncer
+        # server_idle_timeout, load balancer, cloud proxy), if known. Startup
+        # logs an error when DB_POOL_RECYCLE is not below it.
+        idle_timeout = os.environ.get("DB_IDLE_TIMEOUT")
+        self.db_idle_timeout: int | None = int(idle_timeout) if idle_timeout else None
         # Statements one Telegram update or API request may issue before a
         # "Query budget exceeded" warning is logged (T12 regression signal).
         self.query_budget: int = int(os.environ.get("QUERY_BUDGET", "40"))

@@ -129,6 +129,31 @@ async def await_database(logger: logging.Logger, db_url: str) -> None:
     """
     await wait_for_db(db_url)
     logger.info("Startup DB check: Database connection OK")
+    await check_pool_budget(db_url)
+
+
+async def check_pool_budget(db_url: str) -> None:
+    """Log whether the configured pools fit the server (T14).
+
+    Uses a throwaway NullPool engine: this may run on a loop that is about
+    to end, and must not leave a pool behind.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from config.settings import settings
+    from db.pool_budget import check_connection_budget, check_recycle
+
+    check_recycle(settings)
+    engine = create_async_engine(db_url, poolclass=NullPool)
+    try:
+        await check_connection_budget(engine, settings)
+    except Exception:
+        logging.getLogger("coord_bot.db.pool").warning(
+            "Connection budget check failed", exc_info=True
+        )
+    finally:
+        await engine.dispose()
 
 
 async def run_scheduled_tasks(context: ContextTypes.DEFAULT_TYPE) -> None:

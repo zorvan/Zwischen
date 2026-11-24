@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from typing import Callable, Any
 from weakref import WeakKeyDictionary
 from sqlalchemy import text
+from sqlalchemy.exc import TimeoutError as SQLAlchemyTimeoutError
 from sqlalchemy.ext.asyncio import (
     create_async_engine,
     async_sessionmaker,
@@ -61,15 +62,17 @@ __all__ = [
 def _engine_kwargs() -> dict[str, Any]:
     """Pool configuration, read at call time so tests can override env."""
     from config.settings import settings
+    from db.pool_budget import engine_options
 
-    return {
-        "echo": settings.db_echo,
-        "pool_pre_ping": True,
-        "pool_size": settings.db_pool_size,
-        "max_overflow": settings.db_max_overflow,
-        "pool_recycle": settings.db_pool_recycle,
-        "pool_timeout": settings.db_pool_timeout,
-    }
+    return engine_options(settings)
+
+
+def _new_engine(db_url: str) -> AsyncEngine:
+    from db.pool_budget import instrument
+
+    engine = create_async_engine(db_url, **_engine_kwargs())
+    instrument(engine)
+    return engine
 
 
 def create_engine(db_url: str) -> AsyncEngine:
@@ -86,7 +89,7 @@ def create_engine(db_url: str) -> AsyncEngine:
         # the cache with an engine bound to a loop that is about to be
         # replaced -- that is exactly how the stale-binding bug propagates.
         logger.debug("create_engine() called with no running loop; not caching")
-        return create_async_engine(db_url, **_engine_kwargs())
+        return _new_engine(db_url)
 
     per_loop = _engines.get(loop)
     if per_loop is None:
@@ -94,7 +97,7 @@ def create_engine(db_url: str) -> AsyncEngine:
         _engines[loop] = per_loop
 
     if db_url not in per_loop:
-        per_loop[db_url] = create_async_engine(db_url, **_engine_kwargs())
+        per_loop[db_url] = _new_engine(db_url)
     return per_loop[db_url]
 
 
@@ -141,6 +144,13 @@ async def get_session(db_url: str):
     async with Session() as session:
         try:
             yield session
+        except SQLAlchemyTimeoutError as e:
+            # Pool exhaustion: say so, count it, and fail now rather than
+            # leave the caller to guess from a generic timeout.
+            from config.settings import settings
+            from db.pool_budget import exhausted
+
+            raise exhausted(e, settings) from e
         except Exception as e:
             logger.debug("Database session error: %s", e)
             raise

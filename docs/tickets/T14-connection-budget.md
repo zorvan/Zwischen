@@ -50,12 +50,16 @@ time to discover it.
 
 ## Acceptance criteria
 
-- [ ] Documented connection budget: instances × pool size vs `max_connections`
-- [ ] Sizing guidance in `.env.example` beside the knobs
+- [x] Documented connection budget: instances × pool size vs `max_connections`
+      (`docs/CONNECTION_BUDGET.md`, plus a startup check against the live server)
+- [x] Sizing guidance in `.env.example` beside the knobs
 - [ ] If PgBouncer: `statement_cache_size=0` set and verified under
       concurrent load, not just a smoke test
-- [ ] `pool_recycle` shorter than every idle timeout in the path
-- [ ] Pool exhaustion surfaces as a clear error and a metric, not a hang
+      (set via `DB_PGBOUNCER=true` and load-tested against PostgreSQL; the
+      through-PgBouncer test needs `PGBOUNCER_TEST_URL`, unavailable here)
+- [x] `pool_recycle` shorter than every idle timeout in the path
+      (checked at startup against `DB_IDLE_TIMEOUT`; the real value is per deployment)
+- [x] Pool exhaustion surfaces as a clear error and a metric, not a hang
 
 ## Notes for the target architecture
 
