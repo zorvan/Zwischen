@@ -9,6 +9,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import UserPreference
+from core.cache import get_cache
+
+LANGUAGE_CACHE = "language"
 
 
 DEFAULT_TIME_PREFERENCES = ["any", "morning", "afternoon", "evening", "night"]
@@ -121,6 +124,7 @@ async def create_or_update_user_preferences(
 
     preferences.last_updated = datetime.utcnow()
     await session.flush()
+    await get_cache().invalidate_on_commit(session, LANGUAGE_CACHE, user_id)
     return preferences
 
 
@@ -130,6 +134,7 @@ async def delete_user_preferences(session: AsyncSession, user_id: int) -> bool:
     if preferences:
         await session.delete(preferences)
         await session.flush()
+        await get_cache().invalidate_on_commit(session, LANGUAGE_CACHE, user_id)
         return True
     return False
 
@@ -379,14 +384,29 @@ def set_preference_private_mode(
     return privacy_settings
 
 
+async def load_language_preference(
+    session: AsyncSession, user_id: int
+) -> Optional[str]:
+    """The stored language preference, straight from the database."""
+    value = await session.scalar(
+        select(UserPreference.language_preference).where(
+            UserPreference.user_id == user_id
+        )
+    )
+    return str(value) if value else None
+
+
 async def get_language_preference(session: AsyncSession, user_id: int) -> Optional[str]:
-    """Get user's language preference from DB."""
-    preferences = await get_user_preferences(session, user_id)
-    if preferences and preferences.language_preference:
-        # str() unwraps the SQLAlchemy Column descriptor type for the checker;
-        # the loaded instance attribute is already a plain string.
-        return str(preferences.language_preference)
-    return None
+    """User's language preference, cache-aside (T13).
+
+    Invalidated by create_or_update_user_preferences, delete_user_preferences
+    and account erasure.
+    """
+    return await get_cache().get_or_load(
+        LANGUAGE_CACHE,
+        int(user_id),
+        lambda: load_language_preference(session, int(user_id)),
+    )
 
 
 async def set_language_preference(

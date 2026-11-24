@@ -392,23 +392,18 @@ class LiveCardService:
         # Find group_id from chat_id
         from db.models import Group
 
-        group_result = await self.session.execute(
-            select(Group).where(Group.telegram_group_id == abs(chat_id))
+        # Telegram group chat IDs are negative and stored as such; looking
+        # them up by abs() never matched, so the setting was never read.
+        group_id = await self.session.scalar(
+            select(Group.group_id).where(Group.telegram_group_id == chat_id)
         )
-        group = group_result.scalar_one_or_none()
-
-        if not group:
+        if group_id is None:
             return True  # Default to enabled if no settings
 
-        settings_result = await self.session.execute(
-            select(GroupSettings).where(GroupSettings.group_id == group.group_id)
-        )
-        settings = settings_result.scalar_one_or_none()
-
-        if not settings:
+        settings = await get_group_settings(self.session, int(group_id))
+        if settings is None:
             return True  # Default enabled
-
-        return settings.enable_live_cards
+        return bool(settings["enable_live_cards"])
 
     @staticmethod
     def _build_card_text(
@@ -577,3 +572,39 @@ __all__ = [
     "LiveCardService",
     "handle_reaction_callback",
 ]
+
+
+GROUP_SETTINGS_CACHE = "group_settings"
+
+
+async def get_group_settings(
+    session: AsyncSession, group_id: int
+) -> Optional[Dict[str, Any]]:
+    """A group's settings as a plain dict, cache-aside (T13), or None.
+
+    Any code that writes GroupSettings must call invalidate_group_settings.
+    """
+
+    async def load() -> Optional[Dict[str, Any]]:
+        row = await session.scalar(
+            select(GroupSettings).where(GroupSettings.group_id == group_id)
+        )
+        if row is None:
+            return None
+        return {
+            "enable_live_cards": bool(row.enable_live_cards),
+            "group_timezone": row.group_timezone,
+            "max_hashtags_per_event": row.max_hashtags_per_event,
+            "lineage_selection_method": row.lineage_selection_method,
+        }
+
+    from core.cache import get_cache
+
+    return await get_cache().get_or_load(GROUP_SETTINGS_CACHE, group_id, load)
+
+
+async def invalidate_group_settings(session: AsyncSession, group_id: int) -> None:
+    """Call after changing a group's settings (now and on commit)."""
+    from core.cache import get_cache
+
+    await get_cache().invalidate_on_commit(session, GROUP_SETTINGS_CACHE, group_id)

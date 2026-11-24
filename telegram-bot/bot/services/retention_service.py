@@ -337,6 +337,11 @@ class RetentionService:
         # the schema's ON DELETE CASCADE / SET NULL apply the policy.
         await self.session.execute(delete(User).where(User.user_id == user_id))
         self.session.expire_all()
+        # Cached reads must not outlive the account they mirror.
+        from bot.common.user_preferences import LANGUAGE_CACHE
+        from core.cache import get_cache
+
+        await get_cache().invalidate_on_commit(self.session, LANGUAGE_CACHE, user_id)
         return result
 
     async def _remove_memory_fragments(self, user_id: int) -> int:

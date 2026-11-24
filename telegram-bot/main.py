@@ -248,6 +248,14 @@ def main():
     from bot.common.rate_limiter import configure_rate_limiter, rate_limit_update
 
     configure_rate_limiter(state_backend)
+
+    # Shared read cache (T13): same backend, so invalidation reaches every
+    # instance.
+    from core.cache import configure_cache
+
+    configure_cache(
+        state_backend, enabled=settings.cache_enabled, ttl_seconds=settings.cache_ttl
+    )
     application.add_handler(TypeHandler(Update, rate_limit_update), group=-100)
 
     # Capture rolling group history first for mention context.

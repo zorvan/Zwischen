@@ -53,11 +53,12 @@ times, which is worse than a cache miss.
 
 ## Acceptance criteria
 
-- [ ] Group settings and user preferences served from cache on repeat reads
-- [ ] Writes invalidate immediately, verified across two instances
-- [ ] Authorization reads are either uncached or explicitly invalidated
-- [ ] Cache hit rate observable
-- [ ] Everything still correct with the cache disabled
+- [x] Group settings and user preferences served from cache on repeat reads
+      (language preference; full preference rows are written in place and stay uncached)
+- [x] Writes invalidate immediately, verified across two instances
+- [x] Authorization reads are either uncached or explicitly invalidated (uncached)
+- [x] Cache hit rate observable (`GET /health`)
+- [x] Everything still correct with the cache disabled
 
 ## Notes for the target architecture
 

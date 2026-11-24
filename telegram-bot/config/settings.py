@@ -53,6 +53,12 @@ class Settings:
         # Statements one Telegram update or API request may issue before a
         # "Query budget exceeded" warning is logged (T12 regression signal).
         self.query_budget: int = int(os.environ.get("QUERY_BUDGET", "40"))
+        # Cache-aside reads (core/cache.py). Off means every read hits the
+        # database, which is always correct.
+        self.cache_enabled: bool = (
+            os.environ.get("CACHE_ENABLED", "true").lower() == "true"
+        )
+        self.cache_ttl: int = int(os.environ.get("CACHE_TTL", "300"))
 
         # Shared state (conversation flows, rate limits). Unset means
         # in-process state, which is correct for one instance and silently

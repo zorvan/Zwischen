@@ -32,15 +32,11 @@ async def get_user_language(
 ) -> str:
     """Resolve the persisted preference first, then the client's hint."""
     if session is not None and user_id is not None:
-        from db.models import UserPreference
+        from bot.common.user_preferences import get_language_preference
 
-        preference = await session.scalar(
-            __import__("sqlalchemy")
-            .select(UserPreference.language_preference)
-            .where(UserPreference.user_id == user_id)
-        )
+        preference = await get_language_preference(session, int(user_id))
         if preference in SUPPORTED_LANGS:
-            return preference
+            return str(preference)
     code = getattr(user, "language_code", "") or ""
     return "fa" if code.lower().startswith("fa") else "en"
 
