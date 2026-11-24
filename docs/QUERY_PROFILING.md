@@ -1,4 +1,4 @@
-# Query profiling (T12)
+# Query profiling
 
 How the database read paths are measured and kept from regressing.
 
@@ -27,9 +27,8 @@ that keeps coming back for the same label is an N+1 introduced in that flow.
 
 ## Measuring production
 
-The ticket's "top 10 queries by total time from real data" needs the live
-database, so it is a runbook step rather than something this repository can
-assert.
+Finding the real top 10 queries by total time needs the live database, so it
+is a runbook step rather than something this repository can assert.
 
 1. `docker-compose.yml` starts PostgreSQL with
    `shared_preload_libraries=pg_stat_statements`. On a managed database, set
@@ -53,7 +52,7 @@ assert.
    ```
    It exits non-zero if any query misses its index.
 
-Record the findings in T12 when this has been run.
+Record the findings here when this has been run.
 
 ## What the audit found and changed
 
@@ -61,7 +60,7 @@ Record the findings in T12 when this has been run.
   the lock announcement (one user lookup per participant), `/my_history`
   (one memory lookup per event; status counts were five queries, now one)
   and the waitlist view (one user lookup per entry). The event status and
-  details renderers named in the ticket were already batched; the tests now
+  details renderers were already batched; the tests now
   keep them that way.
 - **`GET /events` is bounded** by a `limit` parameter (default 100, max
   500) instead of returning a group's whole history.

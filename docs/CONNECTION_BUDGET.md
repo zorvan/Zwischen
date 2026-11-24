@@ -1,4 +1,4 @@
-# Connection budget (T14)
+# Connection budget
 
 ## The arithmetic
 

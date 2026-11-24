@@ -1,4 +1,4 @@
-# Read cache (T13)
+# Read cache
 
 `core/cache.py` is a cache-aside layer over the shared `StateBackend`. In any
 multi-instance deployment that is Redis, so the cache and its invalidations
@@ -40,6 +40,6 @@ primary-key lookups anyway.
 for the process. A hit rate near zero means the cache is not paying for
 itself and can be turned off.
 
-The ticket's advice to measure first still applies. These are single-row
+Measure before relying on it. These are single-row
 indexed reads, and `docs/QUERY_PROFILING.md` explains how to check whether
 they register in production at all.

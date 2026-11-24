@@ -1,4 +1,4 @@
-# Optional commitment anchoring — Tier-2 decision record
+# Optional commitment anchoring — decision record
 
 This is a spike decision, not authorization to deploy chain writes.
 
@@ -13,7 +13,7 @@ This is a spike decision, not authorization to deploy chain writes.
 
 Any implementation must use a transactional outbox, contain only a salted
 commitment hash (no IDs, addresses, titles, timestamps, or participant data),
-and degrade without blocking. Chain and seal selection remains Tier 3.
+and degrade without blocking. Chain and seal selection is still to be decided.
 
 ## Implementation (spike)
 
@@ -46,6 +46,6 @@ Built to the rules above, with no chain adapter yet:
   bundle can open the commitment.
 
 Each acceptance criterion has a test in `tests/test_anchoring.py`.
-Still open for Tier 3: choosing the chain and seal construction (see T16 on
-TON versus the RGB lineage, and T17 on matching Diewan), and how a Mini App
-client stores bundles.
+Still open: choosing the chain and seal construction (TON's primitives differ
+from the Bitcoin/RGB lineage that single-use seals come from), and how a Mini
+App client stores bundles.

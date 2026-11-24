@@ -6,8 +6,6 @@
 
 Today, the Telegram bot is the only runnable part of the repo. Its domain is platform-neutral, though: identities are provider-agnostic (`user_identities`), notifications go through a transport-neutral `Notifier`, and `telegram-bot/api/app.py` exposes the same services over HTTP (`create_app()`, with Telegram Mini App and wallet login). No ASGI entrypoint or client (web, Mini App, mobile) is in the tree yet.
 
-The roadmap toward web, mobile and an optional chain lives in [docs/tickets/INDEX.md](docs/tickets/INDEX.md).
-
 That means this repository is best understood as:
 
 - an active backend and bot implementation
@@ -207,7 +205,6 @@ boot, and keeps conversation state in Redis (`redis_data` volume).
 - User flows: [telegram-bot/docs/v3/v3.2/USER_FLOWS_v3.2.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3/v3.2/USER_FLOWS_v3.2.md)
 - Rebuild spec (v3.5): [telegram-bot/docs/v3/v3.5/Coordination_Engine_v3.5_Rebuild_Specification.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3/v3.5/Coordination_Engine_v3.5_Rebuild_Specification.md)
 - Database notes: [telegram-bot/db/README.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/db/README.md)
-- Roadmap tickets and status: [docs/tickets/INDEX.md](docs/tickets/INDEX.md)
 - Retention policy (what decays, and when): [docs/RETENTION_POLICY.md](docs/RETENTION_POLICY.md)
 - Query profiling and N+1 guards: [docs/QUERY_PROFILING.md](docs/QUERY_PROFILING.md)
 - Connection budget and PgBouncer: [docs/CONNECTION_BUDGET.md](docs/CONNECTION_BUDGET.md)
