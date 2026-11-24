@@ -12,25 +12,49 @@ runs unchanged while call sites move.
 
 ## Tickets
 
-| # | Title | Tier | Depends on |
-|---|---|---|---|
-| [T01](T01-scheduler-leader-lock.md) | Scheduler double-fires on every instance | 0 | — |
-| [T02](T02-webhook-mode.md) | Polling forbids a second instance | 0 | T01 |
-| [T03](T03-wire-state-backend.md) | Wire the shared state backend | 0 | — |
-| [T04](T04-migrate-call-sites-to-user-id.md) | Migrate call sites to `user_id` | 1 | — |
-| [T05](T05-contract-migration.md) | Contract migration: drop Telegram columns | 1 | T04 |
-| [T06](T06-services-onto-notifier.md) | Move services onto `Notifier` | 1 | — |
-| [T07](T07-membership-service.md) | Membership service over `group_members` | 1 | T04 |
-| [T08](T08-authentication.md) | Authentication and sessions | 2 | T04, T07 |
-| [T09](T09-http-api.md) | HTTP API over domain services | 2 | T04, T06, T07, T08 |
-| [T10](T10-realtime-live-cards.md) | Real-time updates replacing live cards | 2 | T06, T09 |
-| [T11](T11-extract-presentation.md) | Extract presentation from the domain | 2 | T06 |
-| [T12](T12-query-profiling.md) | Query profiling and N+1 audit | 3 | — |
-| [T13](T13-caching.md) | Caching layer | 3 | T03 |
-| [T14](T14-connection-budget.md) | Connection budget and pooling | 3 | T02 |
-| [T15](T15-data-minimization-and-decay.md) | Data minimization and memory decay | 2 | T05 |
-| [T16](T16-commitment-anchoring.md) | Commitment anchoring (CSV, single-use seals) | 2/3 | T15, T08 |
-| [T17](T17-diewan-interop.md) | Interop boundary with Diewan | 3 | T09, T15, T16 |
+| # | Title | Tier | Depends on | Status |
+|---|---|---|---|---|
+| [T01](T01-scheduler-leader-lock.md) | Scheduler double-fires on every instance | 0 | — | Done |
+| [T02](T02-webhook-mode.md) | Polling forbids a second instance | 0 | T01 | Done |
+| [T03](T03-wire-state-backend.md) | Wire the shared state backend | 0 | — | Done |
+| [T04](T04-migrate-call-sites-to-user-id.md) | Migrate call sites to `user_id` | 1 | — | Done |
+| [T05](T05-contract-migration.md) | Contract migration: drop Telegram columns | 1 | T04 | Done |
+| [T06](T06-services-onto-notifier.md) | Move services onto `Notifier` | 1 | — | Done |
+| [T07](T07-membership-service.md) | Membership service over `group_members` | 1 | T04 | Done |
+| [T08](T08-authentication.md) | Authentication and sessions | 2 | T04, T07 | Done |
+| [T09](T09-http-api.md) | HTTP API over domain services | 2 | T04, T06, T07, T08 | Done |
+| [T10](T10-realtime-live-cards.md) | Real-time updates replacing live cards | 2 | T06, T09 | Done |
+| [T11](T11-extract-presentation.md) | Extract presentation from the domain | 2 | T06 | Done |
+| [T12](T12-query-profiling.md) | Query profiling and N+1 audit | 3 | — | Done, except reading production's top 10 |
+| [T13](T13-caching.md) | Caching layer | 3 | T03 | Done |
+| [T14](T14-connection-budget.md) | Connection budget and pooling | 3 | T02 | Done, except the through-PgBouncer test |
+| [T15](T15-data-minimization-and-decay.md) | Data minimization and memory decay | 2 | T05 | Done |
+| [T16](T16-commitment-anchoring.md) | Commitment anchoring (CSV, single-use seals) | 2/3 | T15, T08 | Spike done; chain adapter open |
+| [T17](T17-diewan-interop.md) | Interop boundary with Diewan | 3 | T09, T15, T16 | Out of scope |
+
+## Status (2026-11-24)
+
+Tiers 0–2 are complete, along with T12–T16. Each ticket's acceptance criteria
+are ticked in its own file. What is left:
+
+- **T12**: identifying the real top 10 queries needs production access.
+  The tooling and runbook are in `docs/QUERY_PROFILING.md`.
+- **T14**: the PgBouncer settings are implemented and load-tested against
+  PostgreSQL. The test through a real transaction-mode PgBouncer
+  (`PGBOUNCER_TEST_URL`) has not been run yet.
+- **T16**: the outbox, commitments, proof bundles, retention and API are
+  built. The chain adapter and seal construction are not chosen yet (see
+  `docs/ANCHORING_DECISION.md`).
+- **T17**: out of scope by decision. Zwischen stands alone.
+
+Running the integration suite against a real database while finishing
+Tiers 0–2 surfaced and fixed several bugs left over from the identity
+migration. Internal and Telegram IDs had been mixed in RBAC, DMs,
+announcements and the waitlist, and account erasure could not succeed.
+`tests/test_identity_boundary.py` now guards that boundary.
+
+Related documents: `RETENTION_POLICY.md`, `QUERY_PROFILING.md`,
+`CONNECTION_BUDGET.md`, `CACHING.md`, `ANCHORING_DECISION.md`.
 
 ## Dependency graph
 

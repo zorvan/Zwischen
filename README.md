@@ -4,7 +4,9 @@
 
 ## Repository Status
 
-Today, the Telegram bot is the only runnable part of the repo. Client surfaces beyond Telegram (Mini App, mobile) are not present in the tree; their planning documents were removed and only the versioned product docs under `telegram-bot/docs/` remain.
+Today, the Telegram bot is the only runnable part of the repo. Its domain is platform-neutral, though: identities are provider-agnostic (`user_identities`), notifications go through a transport-neutral `Notifier`, and `telegram-bot/api/app.py` exposes the same services over HTTP (`create_app()`, with Telegram Mini App and wallet login). No ASGI entrypoint or client (web, Mini App, mobile) is in the tree yet.
+
+The roadmap toward web, mobile and an optional chain lives in [docs/tickets/INDEX.md](docs/tickets/INDEX.md).
 
 That means this repository is best understood as:
 
@@ -26,6 +28,7 @@ Core capabilities in the current codebase include:
 - weekly digest and scheduled background tasks
 - mention-driven AI assistance in group chats
 - personal participation history and attendance mirror
+- enforced data decay, `/privacy`, and full account erasure (`/delete_account`)
 
 The product philosophy and detailed behavior live most clearly in:
 
@@ -43,7 +46,9 @@ Main implementation area.
 - `bot/handlers/`: callback, mention, membership, and event-flow handlers
 - `bot/services/`: event lifecycle, participant, waitlist, memory, and related domain services
 - `bot/common/`: shared coordination logic, scheduling, formatting, menus, notifications, and access helpers
-- `db/`: SQLAlchemy models, async DB connection code, and schema reference
+- `db/`: SQLAlchemy models, Alembic migrations, identity resolution, connection pooling and budget
+- `core/`: transport-neutral pieces (notifier, shared state, auth, read cache, query counter, anchoring)
+- `api/`: HTTP API over the domain services
 - `ai/`: LLM client, schemas, and AI-oriented rules
 - `tests/`: unit, integration, contract, scenario, and broader regression coverage
 - `docs/`: versioned product/design documentation
@@ -113,7 +118,22 @@ There is also a targeted quality script:
 ```
 
 Tests needing a live PostgreSQL are marked `integration` and skip when none is
-reachable. To run only those, or to exclude them:
+reachable. They create and migrate a throwaway database on the server named by
+`DB_URL`, so any disposable PostgreSQL works:
+
+```bash
+docker run -d --rm --name zwischen_test_pg -p 127.0.0.1:56987:5432 \
+  -e POSTGRES_USER=coord_user -e POSTGRES_PASSWORD=coord_pass -e POSTGRES_DB=coord_db \
+  postgres:16-alpine
+DB_URL=postgresql://coord_user:coord_pass@localhost:56987/coord_db pytest
+```
+
+The cross-instance cache test also needs Redis (`REDIS_TEST_URL`, default
+`redis://127.0.0.1:56990/15`), and the PgBouncer test runs only when
+`PGBOUNCER_TEST_URL` points at a transaction-mode PgBouncer. Both skip
+otherwise.
+
+To run only the integration tests, or to exclude them:
 
 ```bash
 pytest -m integration
@@ -161,12 +181,13 @@ reality, or generate a migration that brings the database in line.
 ## Infrastructure Notes
 
 - Python support in the bot is documented as `3.13` to `3.14`.
-- PostgreSQL is the system of record.
+- PostgreSQL is the system of record. Redis (`REDIS_URL`) holds shared conversation state, rate limits and the read cache, and is required once more than one instance runs.
+- Size connection pools with [docs/CONNECTION_BUDGET.md](docs/CONNECTION_BUDGET.md); startup logs whether the configured pools fit the server.
 - The runtime dependency switches DB driver by Python version:
   - `asyncpg` for Python `< 3.14`
   - `psycopg` for Python `>= 3.14`
 - The AI backend is Google Gemini via its **OpenAI-compatible** endpoint (`https://generativelanguage.googleapis.com/v1beta/openai/`). `AI_ENDPOINT` must be that compatibility base URL, not Gemini's native `:generateContent` URL.
-- [telegram-bot/docker-compose.yml](/home/zorvan/Work/projects/Zwischen/telegram-bot/docker-compose.yml) runs the full stack (bot + PostgreSQL). The shell scripts remain the fastest path for host-native development.
+- [telegram-bot/docker-compose.yml](/home/zorvan/Work/projects/Zwischen/telegram-bot/docker-compose.yml) runs the full stack (bot + PostgreSQL with `pg_stat_statements` + Redis). The shell scripts remain the fastest path for host-native development; `start.sh`/`resume.sh` also manage a local Redis, and `stop.sh` stops everything.
 
 ## Running With Docker
 
@@ -176,8 +197,8 @@ cp .env.example .env        # fill in TELEGRAM_TOKEN and AI_API_KEY
 docker compose up --build
 ```
 
-The bot waits for PostgreSQL to become healthy, creates its schema on first
-boot, and stores conversation state in the `bot_state` volume.
+The bot waits for PostgreSQL and Redis to become healthy, runs migrations on
+boot, and keeps conversation state in Redis (`redis_data` volume).
 
 ## Documentation Map
 
@@ -186,6 +207,12 @@ boot, and stores conversation state in the `bot_state` volume.
 - User flows: [telegram-bot/docs/v3/v3.2/USER_FLOWS_v3.2.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3/v3.2/USER_FLOWS_v3.2.md)
 - Rebuild spec (v3.5): [telegram-bot/docs/v3/v3.5/Coordination_Engine_v3.5_Rebuild_Specification.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/docs/v3/v3.5/Coordination_Engine_v3.5_Rebuild_Specification.md)
 - Database notes: [telegram-bot/db/README.md](/home/zorvan/Work/projects/Zwischen/telegram-bot/db/README.md)
+- Roadmap tickets and status: [docs/tickets/INDEX.md](docs/tickets/INDEX.md)
+- Retention policy (what decays, and when): [docs/RETENTION_POLICY.md](docs/RETENTION_POLICY.md)
+- Query profiling and N+1 guards: [docs/QUERY_PROFILING.md](docs/QUERY_PROFILING.md)
+- Connection budget and PgBouncer: [docs/CONNECTION_BUDGET.md](docs/CONNECTION_BUDGET.md)
+- Read cache: [docs/CACHING.md](docs/CACHING.md)
+- Optional commitment anchoring: [docs/ANCHORING_DECISION.md](docs/ANCHORING_DECISION.md)
 
 ## Current Reality
 
